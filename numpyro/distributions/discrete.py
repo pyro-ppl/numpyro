@@ -38,6 +38,7 @@ import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 from jax.typing import ArrayLike
 
+from numpyro._typing import NumLike
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
@@ -68,6 +69,7 @@ def _to_probs_multinom(logits: ArrayLike) -> Array:
 
 
 def _to_logits_multinom(probs: ArrayLike) -> Array:
+    probs = jnp.asarray(probs)
     safe_probs = jnp.where(probs > 0, probs, 1.0)
     return jnp.where(probs > 0, jnp.log(safe_probs), -jnp.inf)
 
@@ -102,7 +104,9 @@ class BernoulliProbs(Distribution):
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Draw samples from the Bernoulli distribution.
 
         This method invokes :func:`~jax.random.bernoulli` directly, which generates
@@ -114,6 +118,7 @@ class BernoulliProbs(Distribution):
         :return: Binary-valued samples (0 or 1) drawn from the Bernoulli distribution.
         """
         assert is_prng_key(key)
+        assert key is not None
         samples = random.bernoulli(
             key, self.probs, shape=sample_shape + self.batch_shape
         )
@@ -190,7 +195,8 @@ class BernoulliProbs(Distribution):
         .. math::
             H[X] = -p \ln p - (1-p) \ln (1-p)
         """
-        return -xlogy(self.probs, self.probs) - xlog1py(1 - self.probs, -self.probs)
+        probs = jnp.asarray(self.probs)
+        return -xlogy(probs, probs) - xlog1py(1 - probs, -probs)
 
 
 class BernoulliLogits(Distribution):
@@ -223,7 +229,9 @@ class BernoulliLogits(Distribution):
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Draw samples from the Bernoulli distribution.
 
         The method first converts :attr:`logits` to probabilities via the sigmoid
@@ -235,6 +243,7 @@ class BernoulliLogits(Distribution):
         :return: Binary-valued samples (0 or 1) drawn from the Bernoulli distribution.
         """
         assert is_prng_key(key)
+        assert key is not None
         samples = random.bernoulli(
             key, self.probs, shape=sample_shape + self.batch_shape
         )
@@ -312,8 +321,9 @@ class BernoulliLogits(Distribution):
             H[X] = \frac{(1 + e^{-\alpha}) \ln(1 + e^{-\alpha})
                 + e^{-\alpha} \alpha}{1 + e^{-\alpha}}
         """
-        nexp = jnp.exp(-self.logits)
-        return ((1 + nexp) * jnp.log1p(nexp) + nexp * self.logits) / (1 + nexp)
+        logits = jnp.asarray(self.logits)
+        nexp = jnp.exp(-logits)
+        return ((1 + nexp) * jnp.log1p(nexp) + nexp * logits) / (1 + nexp)
 
 
 def Bernoulli(
@@ -379,7 +389,9 @@ class BinomialProbs(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Draw samples from the Binomial distribution.
 
         This method uses the internal :func:`~numpyro.distributions.util.binomial`
@@ -390,6 +402,7 @@ class BinomialProbs(Distribution):
         :return: Non-negative integer samples representing success counts.
         """
         assert is_prng_key(key)
+        assert key is not None
         return binomial(
             key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape
         )
@@ -524,7 +537,9 @@ class BinomialLogits(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Draw samples from the Binomial distribution.
 
         The method first converts :attr:`logits` to probabilities via the sigmoid function
@@ -536,6 +551,7 @@ class BinomialLogits(Distribution):
         :return: Non-negative integer samples representing success counts.
         """
         assert is_prng_key(key)
+        assert key is not None
         return binomial(
             key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape
         )
@@ -638,6 +654,8 @@ def Binomial(
         return BinomialProbs(probs, total_count, validate_args=validate_args)
     elif logits is not None:
         return BinomialLogits(logits, total_count, validate_args=validate_args)
+    else:
+        raise NotImplementedError
 
 
 class CategoricalProbs(Distribution):
@@ -661,7 +679,7 @@ class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
 
-    def __init__(self, probs: Array, *, validate_args: Optional[bool] = None):
+    def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
         r"""
         :param probs: Category probability vector on the simplex; the trailing
             dimension indexes the :math:`K` categories and must sum to one.
@@ -674,7 +692,9 @@ class CategoricalProbs(Distribution):
             batch_shape=jnp.shape(self.probs)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Draw samples from the Categorical distribution.
 
         This method delegates to :func:`~numpyro.distributions.util.categorical`, which
@@ -687,6 +707,7 @@ class CategoricalProbs(Distribution):
             Categorical distribution.
         """
         assert is_prng_key(key)
+        assert key is not None
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -754,7 +775,7 @@ class CategoricalProbs(Distribution):
         :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
             optionally broadcast across the batch dimensions.
         """
-        values = jnp.arange(self.probs.shape[-1]).reshape(
+        values = jnp.arange(jnp.shape(self.probs)[-1]).reshape(
             (-1,) + (1,) * len(self.batch_shape)
         )
         if expand:
@@ -769,7 +790,8 @@ class CategoricalProbs(Distribution):
 
         :return: The entropy of the Categorical distribution.
         """
-        return -(self.probs * jnp.log(self.probs)).sum(axis=-1)
+        probs = jnp.asarray(self.probs)
+        return -(probs * jnp.log(probs)).sum(axis=-1)
 
 
 class CategoricalLogits(Distribution):
@@ -793,7 +815,7 @@ class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
 
-    def __init__(self, logits: Array, *, validate_args: Optional[bool] = None):
+    def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
         r"""
         :param logits: Real-valued logits vector; the trailing dimension indexes the
             :math:`K` categories. Logits are unnormalized and converted to
@@ -807,7 +829,9 @@ class CategoricalLogits(Distribution):
             batch_shape=jnp.shape(logits)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Draw samples from the Categorical distribution.
 
         This method invokes :func:`~jax.random.categorical` directly, which samples in
@@ -820,6 +844,7 @@ class CategoricalLogits(Distribution):
             Categorical distribution.
         """
         assert is_prng_key(key)
+        assert key is not None
         return random.categorical(
             key, self.logits, shape=sample_shape + self.batch_shape
         )
@@ -893,7 +918,7 @@ class CategoricalLogits(Distribution):
         :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
             optionally broadcast across the batch dimensions.
         """
-        values = jnp.arange(self.logits.shape[-1]).reshape(
+        values = jnp.arange(jnp.shape(self.logits)[-1]).reshape(
             (-1,) + (1,) * len(self.batch_shape)
         )
         if expand:
@@ -947,11 +972,12 @@ class DiscreteUniform(Distribution):
     }
     has_enumerate_support = True
     pytree_data_fields = ("low", "high", "_support")
+    _support: constraints.Constraint
 
     def __init__(
         self,
-        low: ArrayLike = 0,
-        high: ArrayLike = 1,
+        low: NumLike = 0,
+        high: NumLike = 1,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -973,7 +999,9 @@ class DiscreteUniform(Distribution):
         """
         return self._support
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Draw samples from the discrete uniform distribution.
 
         This method invokes :func:`~jax.random.randint` directly, which generates
@@ -985,6 +1013,7 @@ class DiscreteUniform(Distribution):
         :return: Integer-valued samples drawn uniformly from
             :math:`\{a, \dots, b\}`.
         """
+        assert key is not None
         shape = sample_shape + self.batch_shape
         return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
 
@@ -1019,17 +1048,17 @@ class DiscreteUniform(Distribution):
         cdf = (jnp.floor(value) + 1 - self.low) / (self.high - self.low + 1)
         return jnp.clip(cdf, 0.0, 1.0)
 
-    def icdf(self, value: ArrayLike) -> Array:
+    def icdf(self, q: ArrayLike) -> Array:
         r"""Evaluate the inverse cumulative distribution function (quantile function)
         of the discrete uniform distribution.
 
         .. math::
             F^{-1}(u) = a + u\,(b - a + 1) - 1, \quad u \in [0, 1]
 
-        :param value: Quantile level(s) :math:`u \in [0, 1]`.
-        :return: The inverse CDF evaluated at ``value``.
+        :param q: Quantile level(s) :math:`u \in [0, 1]`.
+        :return: The inverse CDF evaluated at ``q``.
         """
-        return jnp.asarray(self.low + value * (self.high - self.low + 1) - 1)
+        return jnp.asarray(self.low + q * (self.high - self.low + 1) - 1)
 
     @property
     def mean(self) -> Array:
@@ -1126,14 +1155,17 @@ class OrderedLogistic(CategoricalProbs):
         if jnp.ndim(predictor) == 0:
             (predictor,) = promote_shapes(predictor, shape=(1,))
         else:
+            assert isinstance(predictor, (np.ndarray, jax.Array))
             predictor = predictor[..., None]
         predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
         self.predictor = predictor[..., 0]
         probs = transforms.SimplexToOrderedTransform(self.predictor).inv(self.cutpoints)
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
-    @staticmethod
-    def infer_shapes(predictor, cutpoints):
+    @classmethod
+    def infer_shapes(
+        cls, predictor: tuple[int, ...], cutpoints: tuple[int, ...]
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
         event_shape = ()
         return batch_shape, event_shape
@@ -1152,7 +1184,7 @@ class MultinomialProbs(Distribution):
 
     def __init__(
         self,
-        probs: Array,
+        probs: ArrayLike,
         total_count: ArrayLike = 1,
         *,
         total_count_max: Optional[int] = None,
@@ -1172,8 +1204,11 @@ class MultinomialProbs(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         return multinomial(
             key,
             self.probs,
@@ -1205,9 +1240,9 @@ class MultinomialProbs(Distribution):
     def support(self) -> constraints.Constraint:
         return constraints.multinomial(self.total_count)
 
-    @staticmethod
+    @classmethod
     def infer_shapes(
-        probs: Array, total_count: ArrayLike
+        cls, probs: tuple[int, ...], total_count: tuple[int, ...]
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(probs[:-1], total_count)
         event_shape = probs[-1:]
@@ -1224,7 +1259,7 @@ class MultinomialLogits(Distribution):
 
     def __init__(
         self,
-        logits: Array,
+        logits: ArrayLike,
         total_count: ArrayLike = 1,
         *,
         total_count_max: Optional[int] = None,
@@ -1246,8 +1281,11 @@ class MultinomialLogits(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         return multinomial(
             key,
             self.probs,
@@ -1283,9 +1321,9 @@ class MultinomialLogits(Distribution):
     def support(self) -> constraints.Constraint:
         return constraints.multinomial(self.total_count)
 
-    @staticmethod
+    @classmethod
     def infer_shapes(
-        logits: Array, total_count: ArrayLike
+        cls, logits: tuple[int, ...], total_count: tuple[int, ...]
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(logits[:-1], total_count)
         event_shape = logits[-1:]
@@ -1293,9 +1331,9 @@ class MultinomialLogits(Distribution):
 
 
 def Multinomial(
-    total_count=1,
-    probs: Array = None,
-    logits: Array = None,
+    total_count: ArrayLike = 1,
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
     *,
     total_count_max: Optional[int] = None,
     validate_args: Optional[bool] = None,
@@ -1324,6 +1362,8 @@ def Multinomial(
             total_count_max=total_count_max,
             validate_args=validate_args,
         )
+    else:
+        raise NotImplementedError
 
 
 class Poisson(Distribution):
@@ -1355,8 +1395,11 @@ class Poisson(Distribution):
         self.is_sparse = is_sparse
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -1367,11 +1410,7 @@ class Poisson(Distribution):
         ftype = jnp.result_type(float)
         rate = jnp.astype(self.rate, ftype)
 
-        if (
-            self.is_sparse
-            and not isinstance(value, jax.core.Tracer)
-            and jnp.size(value) > 1
-        ):
+        if self.is_sparse and not_jax_tracer(value) and jnp.size(value) > 1:
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
             rate = jnp.broadcast_to(rate, shape).reshape(-1)
             nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
@@ -1415,7 +1454,9 @@ class ZeroInflatedProbs(Distribution):
     ):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
-        assert base_dist.support.is_discrete
+        support = base_dist.support
+        assert support is not None
+        assert support.is_discrete
         if base_dist.event_shape:
             raise ValueError(
                 "ZeroInflatedProbs expected empty base_dist.event_shape but got {}".format(
@@ -1429,8 +1470,11 @@ class ZeroInflatedProbs(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
         mask = random.bernoulli(key_bern, self.gate, shape)
@@ -1444,7 +1488,9 @@ class ZeroInflatedProbs(Distribution):
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self.base_dist.support
+        support = self.base_dist.support
+        assert support is not None
+        return support
 
     @lazy_property
     def mean(self) -> Array:
@@ -1604,16 +1650,22 @@ class HurdleProbs(Distribution):
                 )
             )
         self.base_dist = base_dist.expand(batch_shape)
-        self._is_discrete = base_dist.support.is_discrete
+        support = base_dist.support
+        assert support is not None
+        self._is_discrete = support.is_discrete
         super(HurdleProbs, self).__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property
     def support(self) -> constraints.Constraint:
-        return self.base_dist.support
+        support = self.base_dist.support
+        assert support is not None
+        return support
 
     def _log_one_minus_p_zero(self) -> Array:
         # log(1 - B(0)) for the discrete base, used to renormalize the truncated PMF.
-        log_p0 = self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+        log_p0 = jnp.asarray(
+            self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+        )
         return jax.nn.log1mexp(-log_p0)
 
     def _log_gate(self) -> Array:
@@ -1622,8 +1674,11 @@ class HurdleProbs(Distribution):
     def _log_one_minus_gate(self) -> Array:
         return jnp.log1p(-self.gate)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
         zero_mask = random.bernoulli(key_bern, self.gate, shape)
@@ -1633,7 +1688,9 @@ class HurdleProbs(Distribution):
             samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
         return jnp.where(zero_mask, jnp.zeros_like(samples), samples)
 
-    def _sample_truncated(self, key: jax.Array, sample_shape: tuple[int, ...]) -> Array:
+    def _sample_truncated(
+        self, key: jax.Array, sample_shape: tuple[int, ...]
+    ) -> ArrayLike:
         # Rejection sampling from the zero-truncated base distribution: redraw any
         # element that came back as 0 until all elements are strictly positive.
         first = self.base_dist(rng_key=key, sample_shape=sample_shape)
@@ -1844,7 +1901,9 @@ class GeometricProbs(Distribution):
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Generates samples using inverse CDF method.
 
         For a uniform random variable :math:`U \sim \mathrm{Uniform}[0, 1)`,
@@ -1858,10 +1917,11 @@ class GeometricProbs(Distribution):
         :param sample_shape: The shape of the samples to be generated.
         :type sample_shape: tuple[int, ...]
         :return: Samples from Geometric distribution of shape ``sample_shape + batch_shape``.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
         assert is_prng_key(key)
-        probs = self.probs
+        assert key is not None
+        probs = jnp.asarray(self.probs)
         dtype = jnp.result_type(probs)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
@@ -1877,8 +1937,9 @@ class GeometricProbs(Distribution):
         :param value: Values at which to evaluate the log density. Values must be nonnegative integers.
         :type value: ArrayLike
         :return: Log probability mass.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
+        value = jnp.asarray(value)
         probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
         return value * jnp.log1p(-probs) + jnp.log(probs)
 
@@ -1916,11 +1977,10 @@ class GeometricProbs(Distribution):
             H(X) = -\log p - \frac{1-p}{p}\log(1-p).
 
         :return: Entropy of the Geometric distribution.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
-        return -(1 - self.probs) * jnp.log1p(-self.probs) / self.probs - jnp.log(
-            self.probs
-        )
+        probs = jnp.asarray(self.probs)
+        return -(1 - probs) * jnp.log1p(-probs) / probs - jnp.log(probs)
 
 
 class GeometricLogits(Distribution):
@@ -1960,7 +2020,9 @@ class GeometricLogits(Distribution):
         """
         return _to_probs_bernoulli(self.logits)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""Generates samples using inverse CDF technique in logit space.
 
         :param key: JAX pseudo-random number generator key.
@@ -1969,9 +2031,10 @@ class GeometricLogits(Distribution):
         :type sample_shape: tuple[int, ...]
         :return: Samples from the Geometric distribution of shape
             ``sample_shape + batch_shape``.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
         assert is_prng_key(key)
+        assert key is not None
         logits = self.logits
         dtype = jnp.result_type(logits)
         shape = sample_shape + self.batch_shape
@@ -1991,8 +2054,9 @@ class GeometricLogits(Distribution):
             be nonnegative integers.
         :type value: ArrayLike
         :return: Log probability mass.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
+        value = jnp.asarray(value)
         return (-value - 1) * softplus(self.logits) + self.logits
 
     @property
@@ -2034,11 +2098,12 @@ class GeometricLogits(Distribution):
         and :math:`\operatorname{expit}`, respectively.
 
         :return: Entropy of the Geometric distribution.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
-        logq = -jax.nn.softplus(self.logits)
-        logp = -jax.nn.softplus(-self.logits)
-        p = jax.scipy.special.expit(self.logits)
+        logits = jnp.asarray(self.logits)
+        logq = -jax.nn.softplus(logits)
+        logp = -jax.nn.softplus(-logits)
+        p = jax.scipy.special.expit(logits)
         p_clip = jnp.clip(p, jnp.finfo(p.dtype).tiny)
         return -(1 - p) * logq / p_clip - logp
 
@@ -2070,3 +2135,5 @@ def Geometric(
         return GeometricProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return GeometricLogits(logits, validate_args=validate_args)
+    else:
+        raise NotImplementedError

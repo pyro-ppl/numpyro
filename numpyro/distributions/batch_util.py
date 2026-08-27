@@ -3,7 +3,7 @@
 
 import copy
 from functools import singledispatch
-from typing import Union
+from typing import Any, Union
 
 import jax
 import jax.numpy as jnp
@@ -77,7 +77,7 @@ def vmap_over(d: Union[Distribution, Transform, Constraint], **kwargs):
 def _vmap_over_affine_transform(
     dist: AffineTransform, loc=None, scale=None, domain=None
 ):
-    dist_axes = copy.copy(dist)
+    dist_axes: Any = copy.copy(dist)
     dist_axes.loc = loc
     dist_axes.scale = scale
     dist_axes._domain = domain
@@ -86,14 +86,14 @@ def _vmap_over_affine_transform(
 
 @vmap_over.register
 def _vmap_over_greater_than(dist: constraints._GreaterThan, lower_bound=None):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.lower_bound = lower_bound
     return axes
 
 
 @vmap_over.register
 def _vmap_over_less_than(dist: constraints._LessThan, upper_bound=None):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.upper_bound = upper_bound
     return axes
 
@@ -102,7 +102,7 @@ def _vmap_over_less_than(dist: constraints._LessThan, upper_bound=None):
 def _vmap_over_interval(
     dist: constraints._Interval, lower_bound=None, upper_bound=None
 ):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.lower_bound = lower_bound
     axes.upper_bound = upper_bound
     return axes
@@ -112,7 +112,7 @@ def _vmap_over_interval(
 def _vmap_over_integer_interval(
     dist: constraints._IntegerInterval, lower_bound=None, upper_bound=None
 ):
-    dist_axes = copy.copy(dist)
+    dist_axes: Any = copy.copy(dist)
     dist_axes.lower_bound = lower_bound
     dist_axes.upper_bound = upper_bound
     return dist_axes
@@ -125,7 +125,7 @@ def _vmap_over_corr_cholesky_transform(dist: CorrCholeskyTransform):
 
 @vmap_over.register
 def _vmap_over_power_transform(dist: PowerTransform, exponent=None):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.exponent = exponent
     return axes
 

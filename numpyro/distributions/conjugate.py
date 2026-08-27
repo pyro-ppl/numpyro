@@ -72,7 +72,10 @@ class BetaBinomial(Distribution):
         self._beta = Beta(concentration1, concentration0)
         super(BetaBinomial, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert key is not None
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
@@ -161,7 +164,9 @@ class BetaNegativeBinomial(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the sampling
         procedure is:
 
@@ -176,6 +181,7 @@ class BetaNegativeBinomial(Distribution):
         :class:`~numpyro.distributions.discrete.NegativeBinomialProbs` to generate samples
         from the Negative Binomial distribution.
         """
+        assert key is not None
         assert is_prng_key(key)
         key_beta, key_nb = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
@@ -289,7 +295,10 @@ class DirichletMultinomial(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert key is not None
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
         probs = self._dirichlet.sample(key_dirichlet, sample_shape)
@@ -302,9 +311,9 @@ class DirichletMultinomial(Distribution):
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
         alpha = self.concentration
-        return _log_beta_1(alpha.sum(-1), value.sum(-1)) - _log_beta_1(
-            alpha, value
-        ).sum(-1)
+        return _log_beta_1(jnp.sum(alpha, -1), jnp.sum(value, -1)) - jnp.sum(
+            _log_beta_1(alpha, value), -1
+        )
 
     @property
     def mean(self) -> Array:
@@ -322,9 +331,9 @@ class DirichletMultinomial(Distribution):
     def support(self) -> Constraint:
         return constraints.multinomial(self.total_count)
 
-    @staticmethod
+    @classmethod
     def infer_shapes(
-        concentration: ArrayLike, total_count=()
+        cls, concentration: tuple[int, ...], total_count: tuple[int, ...] = ()
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(concentration[:-1], total_count)
         event_shape = concentration[-1:]
@@ -362,7 +371,9 @@ class GammaPoisson(Distribution):
             self._gamma.batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the sampling
         procedure is:
 
@@ -377,6 +388,7 @@ class GammaPoisson(Distribution):
         :class:`~numpyro.distributions.continuous.Poisson` to generate samples from the
         Poisson distribution.
         """
+        assert key is not None
         assert is_prng_key(key)
         key_gamma, key_poisson = random.split(key)
         rate = self._gamma.sample(key_gamma, sample_shape)
@@ -510,7 +522,7 @@ class NegativeBinomialLogits(GammaPoisson):
     ):
         self.total_count, self.logits = promote_shapes(total_count, logits)
         concentration = total_count
-        rate = jnp.exp(-logits)
+        rate = jnp.exp(jnp.negative(logits))
         super().__init__(concentration, rate, validate_args=validate_args)
 
     @validate_sample

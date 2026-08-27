@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 import jax
 from jax import Array, lax
@@ -11,6 +11,7 @@ import jax.random as random
 from jax.scipy.special import logsumexp
 from jax.typing import ArrayLike
 
+from numpyro._typing import NumLike
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.continuous import (
@@ -36,6 +37,7 @@ class LeftTruncatedDistribution(Distribution):
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "low", "_support")
+    _support: constraints.Constraint
 
     def __init__(
         self,
@@ -53,7 +55,7 @@ class LeftTruncatedDistribution(Distribution):
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.low,) = promote_shapes(low, shape=batch_shape)
-        self._support = constraints.greater_than_eq(low)
+        self._support = constraints.greater_than_eq(cast(NumLike, low))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -72,8 +74,11 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
         return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
         minval = finfo.tiny
@@ -86,7 +91,7 @@ class LeftTruncatedDistribution(Distribution):
         ppf = (1 - sign) * loc + sign * self.base_dist.icdf(
             (1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high
         )
-        return jnp.where(q < 0, jnp.nan, ppf)
+        return jnp.where(jnp.less(q, 0), jnp.nan, ppf)
 
     def cdf(self, value: ArrayLike) -> Array:
         # For left truncated distribution: CDF(x) = (F(x) - F(low)) / (1 - F(low))
@@ -99,7 +104,9 @@ class LeftTruncatedDistribution(Distribution):
         truncated_cdf = (base_cdf_value - base_cdf_low) / (1.0 - base_cdf_low)
 
         # Clamp to [0, 1] and handle values below the truncation point
-        result = jnp.where(value < self.low, 0.0, jnp.clip(truncated_cdf, 0.0, 1.0))
+        result = jnp.where(
+            jnp.less(value, self.low), 0.0, jnp.clip(truncated_cdf, 0.0, 1.0)
+        )
         return result
 
     @validate_sample
@@ -139,6 +146,7 @@ class RightTruncatedDistribution(Distribution):
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "high", "_support")
+    _support: constraints.Constraint
 
     def __init__(
         self,
@@ -156,7 +164,7 @@ class RightTruncatedDistribution(Distribution):
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.high,) = promote_shapes(high, shape=batch_shape)
-        self._support = constraints.less_than_eq(high)
+        self._support = constraints.less_than_eq(cast(NumLike, high))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -167,8 +175,11 @@ class RightTruncatedDistribution(Distribution):
     def _cdf_at_high(self) -> Array:
         return self.base_dist.cdf(self.high)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
         minval = finfo.tiny
@@ -177,7 +188,7 @@ class RightTruncatedDistribution(Distribution):
 
     def icdf(self, q: ArrayLike) -> Array:
         ppf = self.base_dist.icdf(q * self._cdf_at_high)
-        return jnp.where(q > 1, jnp.nan, ppf)
+        return jnp.where(jnp.greater(q, 1), jnp.nan, ppf)
 
     def cdf(self, value: ArrayLike) -> Array:
         # For right truncated distribution: CDF(x) = F(x) / F(high)
@@ -190,7 +201,9 @@ class RightTruncatedDistribution(Distribution):
         truncated_cdf = base_cdf_value / base_cdf_high
 
         # Clamp to [0, 1] and handle values above the truncation point
-        result = jnp.where(value > self.high, 1.0, jnp.clip(truncated_cdf, 0.0, 1.0))
+        result = jnp.where(
+            jnp.greater(value, self.high), 1.0, jnp.clip(truncated_cdf, 0.0, 1.0)
+        )
         return result
 
     @validate_sample
@@ -230,6 +243,7 @@ class TwoSidedTruncatedDistribution(Distribution):
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "low", "high", "_support")
+    _support: constraints.Constraint
 
     def __init__(
         self,
@@ -251,7 +265,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.low,) = promote_shapes(low, shape=batch_shape)
         (self.high,) = promote_shapes(high, shape=batch_shape)
-        self._support = constraints.interval(low, high)
+        self._support = constraints.interval(cast(NumLike, low), cast(NumLike, high))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -289,8 +303,11 @@ class TwoSidedTruncatedDistribution(Distribution):
             sign = jnp.where(loc >= self.low, 1.0, -1.0)
             return jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
         minval = finfo.tiny
@@ -310,7 +327,9 @@ class TwoSidedTruncatedDistribution(Distribution):
         ppf = (1 - sign) * loc + sign * self.base_dist.icdf(
             clamp_probs((1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high)
         )
-        return jnp.where(jnp.logical_or(q < 0, q > 1), jnp.nan, ppf)
+        return jnp.where(
+            jnp.logical_or(jnp.less(q, 0), jnp.greater(q, 1)), jnp.nan, ppf
+        )
 
     def cdf(self, value: ArrayLike) -> Array:
         # For two-sided truncated distribution: CDF(x) = (F(x) - F(low)) / (F(high) - F(low))
@@ -327,9 +346,11 @@ class TwoSidedTruncatedDistribution(Distribution):
 
         # Handle values outside the truncation interval
         result = jnp.where(
-            value < self.low,
+            jnp.less(value, self.low),
             0.0,
-            jnp.where(value > self.high, 1.0, jnp.clip(truncated_cdf, 0.0, 1.0)),
+            jnp.where(
+                jnp.greater(value, self.high), 1.0, jnp.clip(truncated_cdf, 0.0, 1.0)
+            ),
         )
         return result
 
@@ -447,8 +468,11 @@ class TruncatedPolyaGamma(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         denom = jnp.square(jnp.arange(0.5, self.num_gamma_variates))
         x = random.gamma(
             key, jnp.ones(self.batch_shape + sample_shape + (self.num_gamma_variates,))
@@ -458,7 +482,7 @@ class TruncatedPolyaGamma(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        value = value[..., None]
+        value = jnp.expand_dims(value, -1)
         all_indices = jnp.arange(0, self.num_log_prob_terms)
         two_n_plus_one = 2.0 * all_indices + 1.0
         log_terms = (
@@ -502,6 +526,7 @@ class DoublyTruncatedPowerLaw(Distribution):
     reparametrized_params = ["alpha", "low", "high"]
     pytree_aux_fields = ("_support",)
     pytree_data_fields = ("alpha", "low", "high")
+    _support: constraints.Constraint
 
     def __init__(
         self,
@@ -512,7 +537,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         validate_args: Optional[bool] = None,
     ):
         self.alpha, self.low, self.high = promote_shapes(alpha, low, high)
-        self._support = constraints.interval(low, high)
+        self._support = constraints.interval(cast(NumLike, low), cast(NumLike, high))
         batch_shape = lax.broadcast_shapes(
             jnp.shape(alpha), jnp.shape(low), jnp.shape(high)
         )
@@ -564,9 +589,9 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         @f.defjvp
         def f_jvp(
-            primals: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
-            tangents: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
-        ) -> tuple[ArrayLike, ArrayLike]:
+            primals: tuple[Array, Array, Array, Array],
+            tangents: tuple[Array, Array, Array, Array],
+        ) -> tuple[Array, Array]:
             x, alpha, low, high = primals
             x_t, alpha_t, low_t, high_t = tangents
 
@@ -688,8 +713,8 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         @f.defjvp
         def f_jvp(
-            primals: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
-            tangents: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
+            primals: tuple[Array, Array, Array, Array],
+            tangents: tuple[Array, Array, Array, Array],
         ) -> tuple[Array, Array]:
             x, alpha, low, high = primals
             x_t, alpha_t, low_t, high_t = tangents
@@ -829,8 +854,8 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         @f.defjvp
         def f_jvp(
-            primals: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
-            tangents: tuple[ArrayLike, ArrayLike, ArrayLike, ArrayLike],
+            primals: tuple[Array, Array, Array, Array],
+            tangents: tuple[Array, Array, Array, Array],
         ) -> tuple[Array, Array]:
             x, alpha, low, high = primals
             x_t, alpha_t, low_t, high_t = tangents
@@ -944,8 +969,11 @@ class DoublyTruncatedPowerLaw(Distribution):
 
         return f(q, self.alpha, self.low, self.high)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)
         return samples
@@ -982,13 +1010,14 @@ class LowerTruncatedPowerLaw(Distribution):
     }
     reparametrized_params = ["alpha", "low"]
     pytree_aux_fields = ("_support",)
+    _support: constraints.Constraint
 
     def __init__(
         self, alpha: ArrayLike, low: ArrayLike, *, validate_args: Optional[bool] = None
     ):
         self.alpha, self.low = promote_shapes(alpha, low)
         batch_shape = lax.broadcast_shapes(jnp.shape(alpha), jnp.shape(low))
-        self._support = constraints.greater_than(low)
+        self._support = constraints.greater_than(cast(NumLike, low))
         super(LowerTruncatedPowerLaw, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
@@ -1023,8 +1052,11 @@ class LowerTruncatedPowerLaw(Distribution):
             self.low * jnp.power(1.0 - q, jnp.reciprocal(1.0 + self.alpha)),
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         u = random.uniform(key, sample_shape + self.batch_shape)
         samples = self.icdf(u)
         return samples

@@ -1149,7 +1149,7 @@ class PermuteTransform(Transform[NonScalarArray]):
     domain = constraints.real_vector
     codomain = constraints.real_vector
 
-    def __init__(self, permutation: Array) -> None:
+    def __init__(self, permutation: NonScalarArray) -> None:
         self.permutation = permutation
 
     def __call__(self, x: NonScalarArray) -> NonScalarArray:

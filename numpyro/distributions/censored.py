@@ -94,6 +94,7 @@ class LeftCensoredDistribution(Distribution):
         # Optionally test that cdf actually works (in validate_args mode)
         if validate_args:
             try:
+                assert base_dist.support is not None
                 test_val = base_dist.support.feasible_like(jnp.array(0.0))
                 _ = base_dist.cdf(test_val)
             except (NotImplementedError, AttributeError) as e:
@@ -117,6 +118,7 @@ class LeftCensoredDistribution(Distribution):
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> Constraint:
+        assert self._support is not None
         return self._support
 
     @validate_sample
@@ -210,6 +212,7 @@ class RightCensoredDistribution(Distribution):
         # Optionally test that cdf actually works (in validate_args mode)
         if validate_args:
             try:
+                assert base_dist.support is not None
                 test_val = base_dist.support.feasible_like(jnp.array(0.0))
                 _ = base_dist.cdf(test_val)
             except (NotImplementedError, AttributeError) as e:
@@ -233,6 +236,7 @@ class RightCensoredDistribution(Distribution):
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> Constraint:
+        assert self._support is not None
         return self._support
 
     @validate_sample
@@ -340,6 +344,7 @@ class IntervalCensoredDistribution(Distribution):
         # Optionally test that cdf actually works (in validate_args mode)
         if validate_args:
             try:
+                assert base_dist.support is not None
                 test_val = base_dist.support.feasible_like(jnp.array(0.0))
                 _ = base_dist.cdf(test_val)
             except (NotImplementedError, AttributeError) as e:
@@ -368,6 +373,7 @@ class IntervalCensoredDistribution(Distribution):
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
     def support(self) -> Constraint:
+        assert self._support is not None
         return self._support
 
     def _get_censoring_masks(self, value):
@@ -442,9 +448,9 @@ class IntervalCensoredDistribution(Distribution):
         return logp
 
     def _validate_sample(self, value: ArrayLike) -> Array:
-        if value.shape[-1] != 2:
+        if jnp.shape(value)[-1] != 2:
             raise ValueError(
-                f"Expected last dimension of `value` to be 2 (lower, upper), but got shape {value.shape}"
+                f"Expected last dimension of `value` to be 2 (lower, upper), but got shape {jnp.shape(value)}"
             )
         x1 = jnp.take(value, 0, axis=-1)  # left bound
         x2 = jnp.take(value, 1, axis=-1)  # right bound

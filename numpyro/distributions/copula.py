@@ -40,8 +40,8 @@ class GaussianCopula(Distribution):
     def __init__(
         self,
         marginal_dist: Distribution,
-        correlation_matrix: Optional[Array] = None,
-        correlation_cholesky: Optional[Array] = None,
+        correlation_matrix: Optional[ArrayLike] = None,
+        correlation_cholesky: Optional[ArrayLike] = None,
         *,
         validate_args: Optional[bool] = None,
     ):
@@ -66,7 +66,9 @@ class GaussianCopula(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> Array:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
 
         shape = sample_shape + self.batch_shape
@@ -87,7 +89,7 @@ class GaussianCopula(Distribution):
             + 0.5 * (quantiles**2).sum(-1)
             + 0.5 * jnp.log(2 * jnp.pi) * quantiles.shape[-1]
         )
-        return copula_lp + marginal_lps.sum(axis=-1)
+        return copula_lp + jnp.sum(marginal_lps, axis=-1)
 
     @property
     def mean(self) -> Array:
@@ -99,6 +101,7 @@ class GaussianCopula(Distribution):
 
     @constraints.dependent_property(is_discrete=False, event_dim=1)
     def support(self) -> Constraint:
+        assert self.marginal_dist.support is not None
         return constraints.independent(self.marginal_dist.support, 1)
 
     @lazy_property
@@ -124,8 +127,8 @@ class GaussianCopulaBeta(GaussianCopula):
         self,
         concentration1: ArrayLike,
         concentration0: ArrayLike,
-        correlation_matrix: Optional[Array] = None,
-        correlation_cholesky: Optional[Array] = None,
+        correlation_matrix: Optional[ArrayLike] = None,
+        correlation_cholesky: Optional[ArrayLike] = None,
         *,
         validate_args: bool = False,
     ):
