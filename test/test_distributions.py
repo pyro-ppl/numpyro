@@ -2117,6 +2117,81 @@ def test_gamma_poisson_log_prob(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
+@pytest.mark.parametrize(
+    "distribution_type",
+    [
+        "gamma_poisson",
+        "negative_binomial_probs",
+        "negative_binomial_factory",
+        "negative_binomial_2",
+    ],
+)
+def test_zero_mean_negative_binomial(distribution_type):
+    if distribution_type == "gamma_poisson":
+        distribution = dist.GammaPoisson(1.0, jnp.inf, validate_args=True)
+    elif distribution_type == "negative_binomial_probs":
+        distribution = dist.NegativeBinomialProbs(1.0, 0.0, validate_args=True)
+    elif distribution_type == "negative_binomial_factory":
+        distribution = dist.NegativeBinomial(1.0, probs=0.0, validate_args=True)
+    else:
+        distribution = dist.NegativeBinomial2(0.0, 1.0, validate_args=True)
+
+    actual = distribution.log_prob(jnp.arange(2))
+    expected = jnp.array([0.0, -jnp.inf])
+
+    assert_allclose(actual, expected, atol=1e-6)
+    assert_allclose(distribution.variance, 0.0)
+    assert_allclose(distribution.cdf(jnp.arange(2)), 1.0)
+    assert_array_equal(distribution.sample(random.key(0), (10,)), 0)
+
+
+@pytest.mark.parametrize(
+    "distribution_type",
+    ["gamma_poisson", "negative_binomial_probs", "negative_binomial_2"],
+)
+def test_negative_binomial_log_prob_gradient(distribution_type):
+    def log_prob(parameter):
+        if distribution_type == "gamma_poisson":
+            distribution = dist.GammaPoisson(10, parameter)
+        elif distribution_type == "negative_binomial_probs":
+            distribution = dist.NegativeBinomialProbs(10, parameter)
+        else:
+            distribution = dist.NegativeBinomial2(parameter, 10)
+        return distribution.log_prob(0)
+
+    parameter = {
+        "gamma_poisson": 2.0,
+        "negative_binomial_probs": 0.5,
+        "negative_binomial_2": 2.0,
+    }[distribution_type]
+    expected_gradient = {
+        "gamma_poisson": 10 / (2 * 3),
+        "negative_binomial_probs": -10 / 0.5,
+        "negative_binomial_2": -10 / 12,
+    }[distribution_type]
+    actual_gradient = jax.jit(jax.grad(log_prob))(parameter)
+    assert_allclose(actual_gradient, expected_gradient, atol=1e-6)
+
+
+def test_hurdle_negative_binomial_requires_positive_mean():
+    with pytest.raises(ValueError, match="mean"):
+        dist.HurdleNegativeBinomial2(0.4, 0.0, 1.0, validate_args=True)
+
+
+def test_gamma_poisson_mixed_finite_and_infinite_rates():
+    distribution = dist.GammaPoisson(
+        jnp.ones(2), jnp.array([2.0, jnp.inf]), validate_args=True
+    )
+
+    assert_allclose(
+        distribution.log_prob(jnp.zeros(2)),
+        jnp.array([jnp.log(2 / 3), 0.0]),
+        atol=1e-6,
+    )
+    assert_allclose(distribution.variance, jnp.array([0.75, 0.0]))
+    assert_allclose(distribution.cdf(jnp.zeros(2)), jnp.array([2 / 3, 1.0]), atol=1e-6)
+
+
 @pytest.mark.parametrize("conc", [15.0, 20.0, 30.0])
 def test_inverse_wishart_variance(conc):
     """Test InverseWishart variance formula against Monte Carlo samples.

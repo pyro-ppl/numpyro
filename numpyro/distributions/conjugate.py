@@ -7,7 +7,7 @@ from typing import Optional
 import jax
 from jax import lax, nn, random
 import jax.numpy as jnp
-from jax.scipy.special import betainc, betaln, gammaln
+from jax.scipy.special import betainc, betaln, gammaln, xlog1py, xlogy
 from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
@@ -390,12 +390,16 @@ class GammaPoisson(Distribution):
         .. math::
             p_{X}(k) = \frac{\lambda^\alpha}{(\alpha + k)(1+\lambda)^{\alpha + k}\mathrm{B}(\alpha, k + 1)}
         """
-        post_value = self.concentration + value
+        dtype = jnp.result_type(float)
+        concentration = jnp.array(self.concentration, dtype=dtype)
+        rate = jnp.array(self.rate, dtype=dtype)
+        value = jnp.array(value, dtype=dtype)
+        post_value = concentration + value
         return (
-            -betaln(self.concentration, value + 1)
+            -betaln(concentration, value + 1)
             - jnp.log(post_value)
-            + self.concentration * jnp.log(self.rate)
-            - post_value * jnp.log1p(self.rate)
+            + xlogy(-concentration, 1 + 1 / rate)
+            - xlog1py(value, rate)
         )
 
     @property
@@ -414,7 +418,7 @@ class GammaPoisson(Distribution):
         .. math::
             \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}(1 + \lambda)
         """
-        return self.concentration / jnp.square(self.rate) * (1 + self.rate)
+        return self.concentration / self.rate * (1 + 1 / self.rate)
 
     def cdf(self, value: ArrayLike) -> ArrayLike:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
@@ -427,7 +431,12 @@ class GammaPoisson(Distribution):
         which is the regularized incomplete beta function.
         This implementation uses :func:`~jax.scipy.special.betainc`.
         """
-        bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
+        rate_fraction = jnp.where(
+            jnp.isinf(self.rate),
+            jnp.ones_like(self.rate),
+            self.rate / (self.rate + 1.0),
+        )
+        bt = betainc(self.concentration, value + 1.0, rate_fraction)
         return bt
 
 
@@ -481,7 +490,7 @@ class NegativeBinomialProbs(GammaPoisson):
     ):
         self.total_count, self.probs = promote_shapes(total_count, probs)
         concentration = total_count
-        rate = 1.0 / probs - 1.0
+        rate = jnp.divide(1.0, probs) - 1.0
         super().__init__(concentration, rate, validate_args=validate_args)
 
 
@@ -539,7 +548,7 @@ class NegativeBinomial2(GammaPoisson):
     """
 
     arg_constraints = {
-        "mean": constraints.positive,
+        "mean": constraints.nonnegative,
         "concentration": constraints.positive,
     }
     support = constraints.nonnegative_integer
@@ -552,8 +561,15 @@ class NegativeBinomial2(GammaPoisson):
         *,
         validate_args: Optional[bool] = None,
     ):
-        rate = concentration / mean
+        rate = jnp.divide(concentration, mean)
         super().__init__(concentration, rate, validate_args=validate_args)
+
+
+class _HurdleNegativeBinomial2(NegativeBinomial2):
+    arg_constraints = {
+        **NegativeBinomial2.arg_constraints,
+        "mean": constraints.positive,
+    }
 
 
 def ZeroInflatedNegativeBinomial2(
@@ -612,7 +628,7 @@ def HurdleNegativeBinomial2(
        *Econometrica*, 39(5), 829-844.
     """
     return HurdleProbs(
-        NegativeBinomial2(mean, concentration, validate_args=validate_args),
+        _HurdleNegativeBinomial2(mean, concentration, validate_args=validate_args),
         gate,
         validate_args=validate_args,
     )
