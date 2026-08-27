@@ -41,6 +41,7 @@ __all__ = [
     "biject_to",
     "AbsTransform",
     "AffineTransform",
+    "CatTransform",
     "CholeskyTransform",
     "ComplexTransform",
     "ComposeTransform",
@@ -448,11 +449,166 @@ class ComposeTransform(Transform[NumLike]):
             return all(
                 p1.eq(p2, static=True) for p1, p2 in zip(self.parts, other.parts)
             )
-        result = True
+        result = jnp.array(True)
         for p1, p2 in zip(self.parts, other.parts):
-            # eq is boolean-valued; ArrayLike advertises float/complex members
-            # that don't support `&`, so `&` is safe here in practice.
-            result = result & p1.eq(p2, static=False)  # ty: ignore[unsupported-operator]
+            result = result & p1.eq(p2, static=False)
+        return result
+
+
+class CatTransform(Transform[NonScalarArray]):
+    """
+    Applies a sequence of transforms to consecutive slices along a dimension,
+    in a way compatible with :func:`jax.numpy.concatenate`.
+
+    :param tseq: Sequence of transforms to apply to consecutive slices.
+    :param int dim: Dimension along which to slice.
+    :param lengths: Length of each slice. Defaults to one per transform.
+    """
+
+    def __init__(
+        self,
+        tseq: Sequence[Transform],
+        dim: int = 0,
+        lengths: Optional[Sequence[int]] = None,
+    ) -> None:
+        assert tseq, "tseq cannot be empty"
+        assert all(isinstance(t, Transform) for t in tseq), (
+            "tseq must contain only Transform instances"
+        )
+        assert isinstance(dim, int), "dim must be an integer"
+        self.transforms = tuple(tseq)
+        if lengths is None:
+            lengths = (1,) * len(self.transforms)
+        assert len(lengths) == len(self.transforms), (
+            "lengths must have the same number of elements as tseq"
+        )
+        assert all(isinstance(length, int) and length >= 0 for length in lengths), (
+            "lengths must contain only nonnegative integers"
+        )
+        self.lengths = tuple(lengths)
+        self.dim = dim
+
+    @property
+    def length(self) -> int:
+        return sum(self.lengths)
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.cat(
+            [transform.domain for transform in self.transforms],
+            self.dim,
+            self.lengths,
+        )
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.cat(
+            [transform.codomain for transform in self.transforms],
+            self.dim,
+            self.lengths,
+        )
+
+    def _slices(self, value: NonScalarArray) -> list[NonScalarArray]:
+        ndim = jnp.ndim(value)
+        if not -ndim <= self.dim < ndim:
+            raise ValueError(
+                f"dim {self.dim} out of range for value with {ndim} dimensions"
+            )
+        if jnp.shape(value)[self.dim] != self.length:
+            raise ValueError(
+                f"value.shape[{self.dim}] = {jnp.shape(value)[self.dim]} must equal "
+                f"the sum of lengths {self.length}"
+            )
+
+        values = []
+        start = 0
+        for length in self.lengths:
+            values.append(lax.slice_in_dim(value, start, start + length, axis=self.dim))
+            start += length
+        return values
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        return jnp.concatenate(
+            [
+                transform(value)
+                for transform, value in zip(self.transforms, self._slices(x))
+            ],
+            axis=self.dim,
+        )
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        return jnp.concatenate(
+            [
+                transform.inv(value)
+                for transform, value in zip(self.transforms, self._slices(y))
+            ],
+            axis=self.dim,
+        )
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        if intermediates is not None and len(intermediates) != len(self.transforms):
+            raise ValueError(
+                f"Intermediates array has length = {len(intermediates)}. "
+                f"Expected = {len(self.transforms)}."
+            )
+
+        event_dim = max(self.domain.event_dim, self.codomain.event_dim)
+        logdetjacs = []
+        for i, (transform, xslice, yslice) in enumerate(
+            zip(self.transforms, self._slices(x), self._slices(y))
+        ):
+            intermediate = None if intermediates is None else intermediates[i]
+            logdetjac = transform.log_abs_det_jacobian(
+                xslice, yslice, intermediates=intermediate
+            )
+            transform_event_dim = max(
+                transform.domain.event_dim, transform.codomain.event_dim
+            )
+            logdetjacs.append(sum_rightmost(logdetjac, event_dim - transform_event_dim))
+
+        dim = self.dim
+        if dim >= 0:
+            dim -= jnp.ndim(x)
+        dim += event_dim
+        if dim < 0:
+            return jnp.concatenate(logdetjacs, axis=dim)
+        return sum(logdetjacs)
+
+    def call_with_intermediates(
+        self, x: NonScalarArray
+    ) -> Tuple[NumLike, Optional[PyTree]]:
+        values = []
+        intermediates = []
+        for transform, value in zip(self.transforms, self._slices(x)):
+            value, intermediate = transform.call_with_intermediates(value)
+            values.append(value)
+            intermediates.append(intermediate)
+        return jnp.concatenate(values, axis=self.dim), intermediates
+
+    def tree_flatten(self):
+        return (self.transforms,), (
+            ("transforms",),
+            {"dim": self.dim, "lengths": self.lengths},
+        )
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        if not isinstance(other, CatTransform):
+            return False
+        if self.dim != other.dim or self.lengths != other.lengths:
+            return False
+        if static:
+            return all(
+                t1.eq(t2, static=True)
+                for t1, t2 in zip(self.transforms, other.transforms)
+            )
+        result = jnp.array(True)
+        for t1, t2 in zip(self.transforms, other.transforms):
+            result = result & t1.eq(t2, static=False)
         return result
 
 
@@ -1119,10 +1275,7 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
         y = y - jnp.expand_dims(self.anchor_point, -1)
         s = expit(y)
         # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
-        # add two boundary points 0 and 1
-        pad_width = [(0, 0)] * (jnp.ndim(s) - 1) + [(1, 1)]
-        s = jnp.pad(s, pad_width, constant_values=(0, 1))
-        x = s[..., 1:] - s[..., :-1]
+        x = jnp.diff(s, prepend=0, append=1)
         return x
 
     def log_abs_det_jacobian(
@@ -2100,6 +2253,13 @@ class ConstraintRegistry(object):
 
 
 biject_to = ConstraintRegistry()
+
+
+@biject_to.register(constraints.cat)
+def _biject_to_cat(constraint):
+    return CatTransform(
+        [biject_to(c) for c in constraint.cseq], constraint.dim, constraint.lengths
+    )
 
 
 @biject_to.register(constraints.corr_cholesky)

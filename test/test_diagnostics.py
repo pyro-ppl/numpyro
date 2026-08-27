@@ -14,6 +14,7 @@ from numpyro.diagnostics import (
     gelman_rubin,
     hpdi,
     split_gelman_rubin,
+    summary,
 )
 
 
@@ -106,3 +107,18 @@ def test_split_gelman_rubin_agree_with_gelman_rubin():
 def test_effective_sample_size():
     x = np.arange(1000.0).reshape(100, 10)
     assert_allclose(effective_sample_size(x, bias=False), 52.64, atol=0.01)
+
+
+@pytest.mark.parametrize("num_draws", [500, 501])
+def test_summary_median_matches_numpy(num_draws):
+    x = np.random.RandomState(0).randn(2, num_draws, 3)
+    stats = summary({"x": x})["x"]
+    assert_allclose(stats["median"], np.median(x.reshape(-1, 3), axis=0))
+
+
+def test_summary_median_propagates_nan():
+    x = np.random.RandomState(0).randn(2, 100, 3)
+    x[0, 5, 1] = np.nan
+    stats = summary({"x": x})["x"]
+    assert np.isnan(stats["median"][1])
+    assert not np.isnan(stats["median"][[0, 2]]).any()

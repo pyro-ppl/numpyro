@@ -316,8 +316,28 @@ def cholesky_of_inverse(matrix):
 # TODO: move upstream to jax.nn
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
+    #   = log1p(exp(-|x|)) - yx + max(x, 0)
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
-    return jnp.clip(x, 0) + jnp.log1p(jnp.exp(-jnp.abs(x))) - x * y
+    #
+    # Handling nans: only the portion (- yx + max(x,0)) can produce them:
+    # y=0, x=-inf ->  0*inf + 0   = nan             -> should be 0
+    # y=0, x= inf -> -0*inf + inf = nan + inf = nan -> should be inf
+    # y=1, x=-inf ->  1*inf + 0   = inf             -> correct
+    # y=1, x= inf -> -1*inf + inf = nan             -> should be 0
+    # Use "double where" trick with special clause to handle the nans.
+    # To make a one-liner for the clause, notice that
+    # y=0, x=-inf -> (x>0)=0 and xor(y, x>0)=0
+    # y=0, x= inf -> (x>0)=1 and xor(y, x>0)=1
+    # y=1, x=-inf -> (x>0)=0 and xor(y, x>0)=1
+    # y=1, x= inf -> (x>0)=1 and xor(y, x>0)=0
+    # and that jnp.inf*jnp.array(False) == 0; i.e., no nan, even though
+    # jnp.array(False) == 0.
+    condition = jnp.isfinite(x)
+    safe_x = jnp.where(condition, x, jnp.zeros_like(x))
+    usual_result = (
+        jnp.clip(safe_x, 0) + jnp.log1p(jnp.exp(-jnp.abs(safe_x))) - safe_x * y
+    )
+    return jnp.where(condition, usual_result, jnp.inf * jnp.logical_xor(y, x > 0))
 
 
 def _reshape(x, shape):

@@ -1,0 +1,212 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Measures this PR against its merge base and comments the result on the PR.
+# It runs on every update to a pull request, so the comment always describes
+# the current head; a full comparison takes tens of minutes.
+#
+# A pull request from a branch in this repository gets a write token, so the
+# comment is posted from here directly. A pull request from a fork gets a
+# read-only token no matter what the permissions block below asks for; those
+# are handled by benchmark-comment.yml, which picks up the uploaded artifact.
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Git ref to compare against
+        default: master
+        type: string
+      rounds:
+        description: Interleaved measurement rounds per side
+        default: "2"
+        type: string
+      benchmark_args:
+        description: Extra arguments for benchmarks.runner, e.g. --suite mcmc
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  # Only actually granted for same-repo pull requests. GitHub caps the token
+  # for a fork's pull_request run at read-only regardless of what is requested
+  # here, which is why the fork path goes through benchmark-comment.yml.
+  pull-requests: write
+
+concurrency:
+  group: benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14"
+  JAX_PLATFORMS: cpu
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out the head commit
+        uses: actions/checkout@v6
+        with:
+          # The PR head itself, not the merge commit, so that the code measured
+          # is the code under review.
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve the refs to compare
+        id: refs
+        env:
+          BASE_INPUT: ${{ inputs.base_ref || github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          head_sha=$(git rev-parse HEAD)
+          git fetch --no-tags origin "+refs/heads/*:refs/remotes/origin/*"
+          # Compare against the merge base rather than the tip of master, so
+          # unrelated commits landed since the PR opened do not show up as
+          # changes attributable to this branch.
+          base_sha=$(git merge-base "$head_sha" "$BASE_INPUT")
+          {
+            echo "head_sha=$head_sha"
+            echo "base_sha=$base_sha"
+            echo "head_label=${{ github.event.pull_request.head.ref || github.ref_name }}"
+            echo "base_label=$(git rev-parse --short "$base_sha")"
+          } >> "$GITHUB_OUTPUT"
+          echo "head $head_sha vs base $base_sha"
+
+      - name: Materialise the base checkout
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/base" "${{ steps.refs.outputs.base_sha }}"
+
+      - name: Stage the benchmark suite
+        run: |
+          set -euo pipefail
+          # Both sides are measured with the *head* revision of benchmarks/, so
+          # that a benchmark added by this PR still runs against the base.
+          # The staging directory has no numpyro/ in it, which is what lets
+          # `import numpyro` resolve to each venv's installed copy.
+          mkdir -p "$RUNNER_TEMP/bench" "$RUNNER_TEMP/results"
+          cp -r benchmarks "$RUNNER_TEMP/bench/benchmarks"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build the head environment
+        run: |
+          set -euo pipefail
+          uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/venv-head"
+          VIRTUAL_ENV="$RUNNER_TEMP/venv-head" uv pip install -e ".[cpu]"
+
+      - name: Build the base environment with the same JAX
+        run: |
+          set -euo pipefail
+          # A different JAX on either side would make the report measure JAX
+          # rather than NumPyro, so the head's resolution is pinned into base.
+          pins=$(VIRTUAL_ENV="$RUNNER_TEMP/venv-head" uv pip freeze \
+            | grep -E '^(jax|jaxlib)==' | tr '\n' ' ')
+          echo "pinning: $pins"
+          uv venv --python "$PYTHON_VERSION" "$RUNNER_TEMP/venv-base"
+          # shellcheck disable=SC2086
+          VIRTUAL_ENV="$RUNNER_TEMP/venv-base" uv pip install \
+            -e "$RUNNER_TEMP/base[cpu]" $pins
+
+      - name: Measure both refs
+        env:
+          ROUNDS: ${{ inputs.rounds || '2' }}
+          EXTRA_ARGS: ${{ inputs.benchmark_args || '' }}
+          HEAD_SHA: ${{ steps.refs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.refs.outputs.base_sha }}
+        working-directory: ${{ runner.temp }}/bench
+        run: |
+          set -euo pipefail
+          measure () {
+            local side="$1" round="$2" commit="$3"
+            echo "::group::$side round $round"
+            # shellcheck disable=SC2086
+            "$RUNNER_TEMP/venv-$side/bin/python" -m benchmarks.runner \
+              --label "$side" \
+              --commit "$commit" \
+              --output "$RUNNER_TEMP/results/$side-$round.json" \
+              $EXTRA_ARGS
+            echo "::endgroup::"
+          }
+          for round in $(seq 1 "$ROUNDS"); do
+            # Alternate which side goes first so that a runner that gets slower
+            # (or faster) over time does not bias one side systematically.
+            if [ $((round % 2)) -eq 1 ]; then
+              measure head "$round" "$HEAD_SHA"
+              measure base "$round" "$BASE_SHA"
+            else
+              measure base "$round" "$BASE_SHA"
+              measure head "$round" "$HEAD_SHA"
+            fi
+          done
+
+      - name: Render the report
+        working-directory: ${{ runner.temp }}/bench
+        env:
+          # On a PR the two sides are best named by their role. A manual run can
+          # compare any two refs, where the ref names are the informative part.
+          # Keep each expression on one line: YAML preserves the newline in a
+          # folded block whose continuation is indented further, which would put
+          # a line break inside the ${{ }}.
+          BASE_LABEL: ${{ github.event_name == 'pull_request' && 'baseline' || steps.refs.outputs.base_label }}
+          HEAD_LABEL: ${{ github.event_name == 'pull_request' && 'this PR' || steps.refs.outputs.head_label }}
+          BASE_REF: ${{ inputs.base_ref || 'master' }}
+          HEAD_REF: ${{ steps.refs.outputs.head_label }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/venv-head/bin/python" -m benchmarks.compare \
+            --base "$RUNNER_TEMP"/results/base-*.json \
+            --head "$RUNNER_TEMP"/results/head-*.json \
+            --base-label "$BASE_LABEL" \
+            --head-label "$HEAD_LABEL" \
+            --base-ref "$BASE_REF" \
+            --head-ref "$HEAD_REF" \
+            --repo-url "$REPO_URL" \
+            --output "$RUNNER_TEMP/results/comment.md" \
+            --json-output "$RUNNER_TEMP/results/summary.json"
+          cat "$RUNNER_TEMP/results/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the PR
+        # Same-repo pull requests have a write token here, so post directly and
+        # skip the workflow_run round trip entirely. Fork pull requests fall
+        # through to benchmark-comment.yml.
+        if: >-
+          github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        env:
+          REPORT: ${{ runner.temp }}/results/comment.md
+        with:
+          script: |
+            const fs = require('fs');
+            // github-script resolves a bare relative require against its own
+            // directory, so the workspace path has to be spelled out.
+            const postStickyComment = require(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/post-sticky-comment.js`);
+            await postStickyComment({ github, context, core }, {
+              issue_number: context.issue.number,
+              body: fs.readFileSync(process.env.REPORT, 'utf8'),
+              runId: context.runId,
+            });
+
+      - name: Record the PR number for the commenting workflow
+        if: github.event_name == 'pull_request'
+        run: echo "${{ github.event.pull_request.number }}" > "$RUNNER_TEMP/results/pr-number.txt"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: ${{ runner.temp }}/results
+          retention-days: 14

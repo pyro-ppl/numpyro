@@ -20,9 +20,13 @@ except ImportError:
 from numpyro.ops.provenance import eval_provenance
 
 _JAX_SUBFUNS_API = Version(jax.__version__) >= Version("0.9.2")
+_JAX_CALL_JAXPR_API = Version(jax.__version__) >= Version("0.11.1")
 
 
 def _call_bind(primitive, fn, *args):
+    if _JAX_CALL_JAXPR_API:
+        call_jaxpr = jax.make_jaxpr(fn.call_wrapped)(*args)
+        return primitive.bind(*args, call_jaxpr=call_jaxpr)
     if _JAX_SUBFUNS_API:
         return primitive.bind(*args, subfuns=(fn,))
     return primitive.bind(fn, *args)
@@ -55,6 +59,12 @@ def test_provenance_const():
     jaxpr = jax.make_jaxpr(f)(jnp.zeros((3, 4), jnp.float32))
     assert len(jaxpr.consts) == 1
     assert eval_provenance(f, x=3) == {"x"}
+
+
+def test_provenance_closed_over_const():
+    const = jnp.arange(5.0)
+
+    assert eval_provenance(lambda x: const * x, x=1.0) == {"x"}
 
 
 def test_provenance_fori():

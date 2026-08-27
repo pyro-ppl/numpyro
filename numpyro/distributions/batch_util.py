@@ -514,7 +514,7 @@ def _default_promote_batch_shape(d: Distribution):
         attr_batch_ndim = max(0, jnp.ndim(attr) - attr_event_dim)
         attr_batch_shapes.append(jnp.shape(attr)[:attr_batch_ndim])
     resolved_batch_shape = jnp.broadcast_shapes(*attr_batch_shapes)
-    new_self = copy.deepcopy(d)
+    new_self = copy.copy(d)
     new_self._batch_shape = resolved_batch_shape
     return new_self
 
@@ -525,7 +525,10 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
         : len(d.batch_shape) - len(d.base_dist.batch_shape)
     ]
 
-    new_self = copy.deepcopy(d)
+    # shallow copies are enough here: the only in-place updates below are to the
+    # `_batch_shape` attributes of these two fresh copies, not to shared data
+    new_self = copy.copy(d)
+    new_self.base_dist = copy.copy(d.base_dist)
 
     # new dimensions coming from a vmap or numpyro scan/enum operation
     promoted_base_dist = promote_batch_shape(new_self.base_dist)

@@ -20,6 +20,7 @@ from numpyro.distributions.flows import (
 from numpyro.distributions.transforms import (
     AbsTransform,
     AffineTransform,
+    CatTransform,
     CholeskyTransform,
     ComplexTransform,
     ComposeTransform,
@@ -76,6 +77,11 @@ TRANSFORMS = {
             ],
         ),
         dict(),
+    ),
+    "cat": T(
+        CatTransform,
+        ([AffineTransform(np.array(1.0), np.array(2.0)), ExpTransform()],),
+        dict(dim=-1, lengths=(2, 1)),
     ),
     "independent": T(
         IndependentTransform,
@@ -259,6 +265,55 @@ def test_reshape_transform_invalid():
 
     with pytest.raises(TypeError, match="cannot reshape array"):
         ReshapeTransform((2, 3), (6,))(jnp.arange(2))
+
+
+def test_cat_transform():
+    transform = CatTransform(
+        [AffineTransform(1.0, 2.0), ExpTransform()], dim=-1, lengths=[2, 1]
+    )
+    x = jnp.array([[0.0, 1.0, 2.0], [-1.0, 3.0, 0.5]])
+    expected = jnp.concatenate([1.0 + 2.0 * x[..., :2], jnp.exp(x[..., 2:])], -1)
+
+    y, intermediates = jax.jit(transform.call_with_intermediates)(x)
+    assert jnp.allclose(y, expected)
+    assert jnp.allclose(jax.jit(lambda value: transform.inv(value))(y), x)
+    assert jnp.allclose(
+        jax.jit(transform.log_abs_det_jacobian)(x, y),
+        jnp.concatenate([jnp.full_like(x[..., :2], jnp.log(2.0)), x[..., 2:]], axis=-1),
+    )
+    assert jnp.allclose(
+        transform.log_abs_det_jacobian(x, y, intermediates),
+        transform.log_abs_det_jacobian(x, y),
+    )
+
+
+def test_biject_to_cat_constraint():
+    constraint = constraints.cat(
+        [constraints.interval(-2.0, 3.0), constraints.positive],
+        dim=-1,
+        lengths=[2, 1],
+    )
+    transform = biject_to(constraint)
+    x = jnp.array([[0.0, -1.0, 2.0], [1.0, 0.5, -2.0]])
+    y = jax.jit(lambda value: transform(value))(x)
+
+    assert transform.codomain.dim == constraint.dim
+    assert transform.codomain.lengths == constraint.lengths
+    assert jnp.array_equal(constraint(y), jnp.ones_like(y, dtype=bool))
+    assert jnp.allclose(jax.jit(lambda value: transform.inv(value))(y), x)
+
+
+def test_cat_transform_invalid_shape():
+    transform = CatTransform([ExpTransform(), ExpTransform()], lengths=[1, 2])
+    with pytest.raises(ValueError, match="must equal the sum of lengths 3"):
+        transform(jnp.ones(2))
+
+    with pytest.raises(AssertionError, match="tseq cannot be empty"):
+        CatTransform([])
+    with pytest.raises(AssertionError, match="dim must be an integer"):
+        CatTransform([ExpTransform()], dim=0.5)
+    with pytest.raises(AssertionError, match="nonnegative integers"):
+        CatTransform([ExpTransform()], lengths=[-1])
 
 
 @pytest.mark.parametrize(

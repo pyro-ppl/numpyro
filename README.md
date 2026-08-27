@@ -1,20 +1,30 @@
+<div align="center">
+
+<img
+  src="https://raw.githubusercontent.com/pyro-ppl/numpyro/master/docs/source/_static/img/pyro_logo.png"
+  alt="NumPyro logo"
+  height="180"
+/>
+
+# NumPyro
+
+### Probabilistic programming powered by [JAX][JAX] for autograd and JIT compilation to GPU/TPU/CPU
+
+[**Installation**](https://num.pyro.ai/en/stable/getting_started.html#installation) •
+[**Documentation and Tutorials**](https://num.pyro.ai) •
+[**Forum**](https://forum.pyro.ai)
+
 [![Build Status](https://github.com/pyro-ppl/numpyro/workflows/CI/badge.svg)](https://github.com/pyro-ppl/numpyro/actions)
 [![Coverage Status](https://coveralls.io/repos/github/pyro-ppl/numpyro/badge.svg?branch=master&kill_cache=1)](https://coveralls.io/github/pyro-ppl/numpyro?branch=master)
 [![Documentation Status](https://readthedocs.org/projects/numpyro/badge/?version=latest)](https://numpyro.readthedocs.io/en/latest/?badge=latest)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9769/badge)](https://www.bestpractices.dev/projects/9769)
 [![Latest Version](https://badge.fury.io/py/numpyro.svg)](https://pypi.python.org/pypi/numpyro)
 
-# NumPyro
-
-Probabilistic programming powered by [JAX](https://github.com/jax-ml/jax) for autograd and JIT compilation to GPU/TPU/CPU.
-
-[Docs and Examples](https://num.pyro.ai) | [Forum](https://forum.pyro.ai/)
-
-----------------------------------------------------------------------------------------------------
+</div>
 
 ## What is NumPyro?
 
-NumPyro is a lightweight probabilistic programming library that provides a NumPy backend for [Pyro](https://github.com/pyro-ppl/pyro). We rely on [JAX](https://github.com/jax-ml/jax) for automatic differentiation and JIT compilation to GPU / CPU. NumPyro is under active development, so beware of brittleness, bugs, and changes to the API as the design evolves.
+NumPyro is a lightweight probabilistic programming library that provides a NumPy backend for [Pyro](https://github.com/pyro-ppl/pyro). We rely on [JAX][JAX] for automatic differentiation and JIT compilation to GPU / CPU. NumPyro is under active development, so beware of brittleness, bugs, and changes to the API as the design evolves.
 
 NumPyro is designed to be *lightweight* and focuses on providing a flexible substrate that users can build on:
 
@@ -228,7 +238,8 @@ See the [docs](https://num.pyro.ai/en/latest/contrib.html#stein-variational-infe
 
 ## Installation
 
-> **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/jax-ml/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) and [this forum post](https://forum.pyro.ai/t/numpyro-with-gpu-works-on-windows/2690) if you want to use GPUs on Windows.
+> [!NOTE]
+> **Limited Windows Support:** NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/jax-ml/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) and [this forum post](https://forum.pyro.ai/t/numpyro-with-gpu-works-on-windows/2690) if you want to use GPUs on Windows.
 
 To install NumPyro with the latest CPU version of JAX, you can use pip:
 
@@ -257,14 +268,15 @@ For **CUDA 13.x.y**:
 pip install 'numpyro[cuda13]' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
-If you need further guidance, please have a look at the [JAX GPU installation instructions](https://github.com/jax-ml/jax#pip-installation-gpu-cuda).
+If you need further guidance, please have a look at the [JAX Nvidia-GPU installation instructions](https://docs.jax.dev/en/latest/installation.html#nvidia-gpu).
 
-To run **NumPyro on Cloud TPUs**, you can look at some [JAX on Cloud TPU examples](https://github.com/jax-ml/jax/tree/master/cloud_tpu_colabs).
+To run **NumPyro on Cloud TPUs**, you can look at some [JAX on Cloud TPU examples](https://github.com/jax-ml/jax/tree/main/cloud_tpu_colabs).
 
 For Cloud TPU VM, you need to setup the TPU backend as detailed in the [Cloud TPU VM JAX Quickstart Guide](https://cloud.google.com/tpu/docs/jax-quickstart-tpu-vm).
 After you have verified that the TPU backend is properly set up,
 you can install NumPyro using the `pip install numpyro` command.
 
+> [!IMPORTANT]
 > **Default Platform:** JAX will use GPU by default if CUDA-supported `jaxlib` package is installed. You can use [set_platform](https://num.pyro.ai/en/stable/utilities.html#set-platform) utility `numpyro.set_platform("cpu")` to switch to CPU at the beginning of your program.
 
 You can also install NumPyro from source:
@@ -296,17 +308,20 @@ conda install -c conda-forge numpyro
 
         ```python
         with handlers.seed(rng_seed=0):  # random.key(0) is used
-            x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNG key split from random.key(0)
-            y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNG key split from the last one
+            x = numpyro.sample("x", dist.Beta(1, 1))  # uses a PRNG key split from random.key(0)
+            y = numpyro.sample(
+                "y", dist.Bernoulli(x)
+            )  # uses different PRNG key split from the last one
         ```
 
      , or as a higher order function:
 
         ```python
         def fn():
-            x = numpyro.sample('x', dist.Beta(1, 1))
-            y = numpyro.sample('y', dist.Bernoulli(x))
+            x = numpyro.sample("x", dist.Beta(1, 1))
+            y = numpyro.sample("y", dist.Bernoulli(x))
             return y
+
 
         print(handlers.seed(fn, rng_seed=0)())
         ```
@@ -343,20 +358,20 @@ The motivating ideas behind NumPyro and a description of Iterative NUTS can be f
 
 If you use NumPyro, please consider citing:
 
-```
+```bibtex
 @article{phan2019composable,
-  title={Composable Effects for Flexible and Accelerated Probabilistic Programming in NumPyro},
-  author={Phan, Du and Pradhan, Neeraj and Jankowiak, Martin},
-  journal={arXiv preprint arXiv:1912.11554},
-  year={2019}
+    title   = {Composable Effects for Flexible and Accelerated Probabilistic Programming in NumPyro},
+    author  = {Phan, Du and Pradhan, Neeraj and Jankowiak, Martin},
+    journal = {arXiv preprint arXiv:1912.11554},
+    year    = {2019}
 }
 ```
 
 as well as
 
-```
+```bibtex
 @article{bingham2019pyro,
-  author    = {Eli Bingham and
+    author  = {Eli Bingham and
                Jonathan P. Chen and
                Martin Jankowiak and
                Fritz Obermeyer and
@@ -366,11 +381,13 @@ as well as
                Paul A. Szerlip and
                Paul Horsfall and
                Noah D. Goodman},
-  title     = {Pyro: Deep Universal Probabilistic Programming},
-  journal   = {J. Mach. Learn. Res.},
-  volume    = {20},
-  pages     = {28:1--28:6},
-  year      = {2019},
-  url       = {http://jmlr.org/papers/v20/18-403.html}
+    title   = {Pyro: Deep Universal Probabilistic Programming},
+    journal = {J. Mach. Learn. Res.},
+    volume  = {20},
+    pages   = {28:1--28:6},
+    year    = {2019},
+    url     = {http://jmlr.org/papers/v20/18-403.html}
 }
 ```
+
+[JAX]: https://github.com/jax-ml/jax

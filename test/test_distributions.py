@@ -32,7 +32,7 @@ from numpyro.distributions import (
     kl_divergence,
     transforms,
 )
-from numpyro.distributions.batch_util import vmap_over
+from numpyro.distributions.batch_util import promote_batch_shape, vmap_over
 from numpyro.distributions.censored import (
     IntervalCensoredDistribution,
     LeftCensoredDistribution,
@@ -2727,6 +2727,38 @@ def test_beta_proportion_invalid_mean():
         (constraints.boolean, np.array([1, 1]), np.array([True, True])),
         (constraints.boolean, np.array([-1, 1]), np.array([False, True])),
         (
+            constraints.cat(
+                [constraints.interval(-1, 1), constraints.positive],
+                dim=-1,
+                lengths=[2, 1],
+            ),
+            np.array([[0.0, 2.0, 1.0], [-2.0, 0.5, -1.0]]),
+            np.array([[True, False, True], [False, True, False]]),
+        ),
+        (
+            constraints.cat([constraints.positive, constraints.unit_interval]),
+            np.array([[1.0, 0.0, -1.0], [0.0, 0.5, 2.0]]),
+            np.array([[True, False, False], [True, True, False]]),
+        ),
+        (
+            constraints.cat(
+                [constraints.less_than(0), constraints.nonnegative],
+                dim=1,
+                lengths=[1, 2],
+            ),
+            np.array([[-1.0, 0.0, 2.0], [1.0, -1.0, 0.0]]),
+            np.array([[True, True, True], [False, False, True]]),
+        ),
+        (
+            constraints.cat(
+                [constraints.positive, constraints.unit_interval],
+                dim=-1,
+                lengths=[0, 2],
+            ),
+            np.array([[0.0, 0.5], [-1.0, 2.0]]),
+            np.array([[True, True], [False, False]]),
+        ),
+        (
             constraints.corr_cholesky,
             np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
             np.array([True, False]),
@@ -2858,6 +2890,30 @@ def test_constraints(constraint, x, expected):
         pass
     else:
         assert_allclose(inverse, jnp.zeros_like(inverse), atol=2e-7)
+
+
+def test_cat_constraint_pytree_and_validation():
+    constraint = constraints.cat(
+        [constraints.interval(-1.0, 1.0), constraints.positive],
+        dim=-1,
+        lengths=[2, 1],
+    )
+    value = jnp.array([[0.0, 2.0, 1.0], [-2.0, 0.5, -1.0]])
+    expected = jnp.array([[True, False, True], [False, True, False]])
+
+    assert_array_equal(jax.jit(lambda c, x: c(x))(constraint, value), expected)
+    leaves, treedef = jax.tree.flatten(constraint)
+    assert constraint.eq(jax.tree.unflatten(treedef, leaves), static=True)
+
+    with pytest.raises(ValueError, match="must equal the sum of lengths 3"):
+        constraint(jnp.ones(2))
+
+    with pytest.raises(AssertionError, match="cseq cannot be empty"):
+        constraints.cat([])
+    with pytest.raises(AssertionError, match="dim must be an integer"):
+        constraints.cat([constraints.real], dim=0.5)
+    with pytest.raises(AssertionError, match="nonnegative integers"):
+        constraints.cat([constraints.real], lengths=[-1])
 
 
 @pytest.mark.parametrize(
@@ -3154,6 +3210,53 @@ def test_transformed_distribution_intermediates(transformed_dist):
         transformed_dist.log_prob(sample, intermediates),
         transformed_dist.log_prob(sample),
     )
+
+
+class _InverseSpyTransform(transforms.ParameterFreeTransform):
+    """Shift transform ``y = x + 1`` that records each inverse evaluation.
+
+    Lets a test observe whether ``TransformedDistribution.log_prob`` recomputed
+    ``transform.inv(value)`` or reused the cached pre-transform value from
+    ``sample_with_intermediates``.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inverse_calls = []
+
+    def __call__(self, x):
+        return x + 1.0
+
+    def _inverse(self, y):
+        self.inverse_calls.append(y)
+        return y - 1.0
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return jnp.zeros_like(x)
+
+
+def test_transformed_distribution_log_prob_reuses_intermediates():
+    # When intermediates are supplied, log_prob must reuse the cached
+    # pre-transform value instead of recomputing transform.inv(value)
+    # (numpyro/distributions/distribution.py, TransformedDistribution.log_prob).
+    transform = _InverseSpyTransform()
+    base = dist.Normal(jnp.array([2.0, 3.0]), 1.0)
+    d = dist.TransformedDistribution(base, transform)
+
+    sample, intermediates = d.sample_with_intermediates(random.key(0))
+    # Sampling only runs the forward transform, never the inverse.
+    assert transform.inverse_calls == []
+
+    # Reuse path: the cached base value is available, inv must not be called.
+    lp_cached = d.log_prob(sample, intermediates)
+    assert transform.inverse_calls == []
+
+    # Recompute path: without intermediates, inv is invoked exactly once.
+    lp_recomputed = d.log_prob(sample)
+    assert len(transform.inverse_calls) == 1
+
+    # Both branches must agree numerically.
+    assert_allclose(lp_cached, lp_recomputed, atol=1e-6)
 
 
 def test_transformed_transformed_distribution():
@@ -3849,6 +3952,32 @@ def test_vmap_validate_args():
         in_axes=(0, 0),
     )(jnp.zeros((2,)), jnp.zeros((2,)))
     assert not v_dist._validate_args
+
+
+def test_promote_batch_shape_shares_data_and_preserves_input():
+    loc = jnp.zeros((2, 3))
+    d = jax.vmap(lambda loc: dist.Normal(loc, 1.0))(loc)
+    assert d.batch_shape == (3,)
+
+    promoted = promote_batch_shape(d)
+    assert promoted.batch_shape == (2, 3)
+    # parameter arrays are shared, not copied
+    assert promoted.loc is d.loc
+    # the input distribution is not mutated
+    assert d.batch_shape == (3,)
+
+
+def test_promote_batch_shape_expanded_preserves_input():
+    loc = jnp.zeros((2, 3))
+    d = jax.vmap(lambda loc: dist.Normal(loc, 1.0).expand((4, 3)))(loc)
+    assert d.batch_shape == (4, 3)
+
+    promoted = promote_batch_shape(d)
+    assert promoted.batch_shape == (2, 4, 3)
+    assert promoted.log_prob(jnp.zeros((2, 4, 3))).shape == (2, 4, 3)
+    # the input distribution and its base distribution are not mutated
+    assert d.batch_shape == (4, 3)
+    assert d.base_dist.batch_shape == (3,)
 
 
 def test_explicit_validate_args():

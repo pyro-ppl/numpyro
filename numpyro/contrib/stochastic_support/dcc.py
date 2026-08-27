@@ -245,10 +245,10 @@ class DCC(StochasticSupportInference):
 
         def log_weight(
             rng_key: jax.Array,
-            i: int,
+            i: int | jax.Array,
             slp_model: Callable,
             slp_samples: dict[str, Any],
-        ) -> float:
+        ) -> jax.Array:
             trace = {k: v[i] for k, v in slp_samples.items()}
             guide = AutoNormal(
                 slp_model,

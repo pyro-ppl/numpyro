@@ -346,7 +346,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
 
@@ -369,7 +369,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
         `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
@@ -385,7 +385,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[Array, list[Any]]:
+    ) -> tuple[ArrayLike, list[Any]]:
         """
         Same as ``sample`` except that any intermediate computations are
         returned (useful for `TransformedDistribution`).
@@ -397,12 +397,17 @@ class Distribution(metaclass=DistributionMeta):
         """
         return self.sample(key, sample_shape=sample_shape), []
 
-    def log_prob(self, value: ArrayLike) -> Array:
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
         """
         Evaluates the log probability density for a batch of samples given by
         `value`.
 
         :param value: A batch of samples from the distribution.
+        :param intermediates: Optional intermediates computed during sampling
+            (e.g. from :meth:`sample_with_intermediates`) that some
+            distributions can reuse to avoid recomputation.
         :return: an array with shape `value.shape[:-self.event_shape]`
         :rtype: ArrayLike
         """
@@ -446,7 +451,7 @@ class Distribution(metaclass=DistributionMeta):
         sample_shape: tuple[int, ...] = ...,
         sample_intermediates: Literal[False] = ...,
         **kwargs: Any,
-    ) -> Array: ...
+    ) -> ArrayLike: ...
 
     @overload
     def __call__(
@@ -456,13 +461,13 @@ class Distribution(metaclass=DistributionMeta):
         sample_shape: tuple[int, ...] = ...,
         sample_intermediates: Literal[True] = ...,
         **kwargs: Any,
-    ) -> tuple[Array, list[Any]]: ...
+    ) -> tuple[ArrayLike, list[Any]]: ...
 
     def __call__(
         self,
         *args: Any,
         **kwargs: Any,
-    ) -> Union[Array, tuple[Array, list[Any]]]:
+    ) -> Union[ArrayLike, tuple[ArrayLike, list[Any]]]:
         key = kwargs.pop("rng_key")
         sample_intermediates = kwargs.pop("sample_intermediates", False)
         if sample_intermediates:
@@ -735,10 +740,10 @@ class ExpandedDistribution(Distribution):
 
     def _sample(
         self,
-        sample_fn: Callable[..., tuple[Array, list[Array]]],
+        sample_fn: Callable[..., tuple[ArrayLike, list[ArrayLike]]],
         key: Optional[jax.Array],
         sample_shape: tuple[int, ...] = (),
-    ) -> tuple[Array, list[Array]]:
+    ) -> tuple[ArrayLike, list[ArrayLike]]:
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
@@ -759,7 +764,7 @@ class ExpandedDistribution(Distribution):
         for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
             permutation[dim1], permutation[dim2] = permutation[dim2], permutation[dim1]
 
-        def reshape_sample(x: ArrayLike) -> Array:
+        def reshape_sample(x: ArrayLike) -> ArrayLike:
             """
             Reshapes samples and intermediates to ensure that the output
             shape is correct: This implicitly replaces the interstitial dims
@@ -776,7 +781,7 @@ class ExpandedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self._sample(
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
@@ -790,23 +795,25 @@ class ExpandedDistribution(Distribution):
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[Array, list[Array]]:
+    ) -> tuple[ArrayLike, list[ArrayLike]]:
         return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.sample_with_intermediates(key, sample_shape)[0]
 
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
-    ) -> Array:
-        # TODO: utilize `intermediates`
+    ) -> ArrayLike:
         shape = lax.broadcast_shapes(
             self.batch_shape,
             jnp.shape(value)[: max(jnp.ndim(value) - self.event_dim, 0)],
         )
-        log_prob = self.base_dist.log_prob(value)
+        if intermediates is None:
+            log_prob = self.base_dist.log_prob(value)
+        else:
+            log_prob = self.base_dist.log_prob(value, intermediates)
         return jnp.broadcast_to(log_prob, shape)
 
     def enumerate_support(self, expand: bool = True) -> Array:
@@ -904,7 +911,7 @@ class ImproperUniform(Distribution):
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> Array:
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         batch_shape = jnp.shape(value)[: jnp.ndim(value) - len(self.event_shape)]
         batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
         return jnp.zeros(batch_shape)
@@ -992,16 +999,30 @@ class Independent(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
-    def log_prob(self, value: ArrayLike) -> Array:
-        log_prob = self.base_dist.log_prob(value)
+    def sample_with_intermediates(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> tuple[ArrayLike, list[Any]]:
+        # Reinterpreting batch dims as event dims does not reshape the sample, so
+        # the base distribution's intermediates carry over unchanged. Forwarding
+        # them lets ``log_prob`` reuse cached intermediates (e.g. the pre-transform
+        # value of a ``TransformedDistribution``) instead of recomputing them.
+        return self.base_dist.sample_with_intermediates(key, sample_shape)
+
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
+        if intermediates is None:
+            log_prob = self.base_dist.log_prob(value)
+        else:
+            log_prob = self.base_dist.log_prob(value, intermediates)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
     def expand(self, batch_shape: Sequence[int]) -> Distribution:
@@ -1057,7 +1078,7 @@ class MaskedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
@@ -1067,10 +1088,12 @@ class MaskedDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
-    def log_prob(self, value: ArrayLike) -> Array:
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
         if self._mask is False:
             shape = lax.broadcast_shapes(
                 tuple(self.base_dist.batch_shape),
@@ -1217,11 +1240,11 @@ class TransformedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         x = self.base_dist.rsample(key, sample_shape=sample_shape)
         for transform in self.transforms:
             x = transform(x)
-        return x  # type: ignore
+        return x
 
     @property
     def support(self) -> constraints.Constraint:
@@ -1237,29 +1260,27 @@ class TransformedDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         x = self.base_dist.sample(key, sample_shape)
         for transform in self.transforms:
             x = transform(x)
-        # ``Transform.__call__`` is typed to return the wide ``ArrayLike``, so ``x`` is
-        # widened here even though it is a jax array at runtime.
-        return x  # type: ignore
+        return x
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[Array, list[Any]]:
+    ) -> tuple[ArrayLike, list[Any]]:
         x = self.base_dist.sample(key, sample_shape)
         intermediates: list[Any] = []
         for transform in self.transforms:
             x_tmp = x
             x, t_inter = transform.call_with_intermediates(x)
             intermediates.append([x_tmp, t_inter])
-        return x, intermediates  # type: ignore
+        return x, intermediates
 
     @validate_sample
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
-    ) -> Array:
+    ) -> ArrayLike:
         if intermediates is not None:
             if len(intermediates) != len(self.transforms):
                 raise ValueError(
@@ -1329,7 +1350,7 @@ class FoldedDistribution(TransformedDistribution):
         super().__init__(base_dist, AbsTransform(), validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> Array:
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         dim = max(len(self.batch_shape), jnp.ndim(value))
         plus_minus = jnp.array([1.0, -1.0]).reshape((2,) + (1,) * dim)
         return logsumexp(self.base_dist.log_prob(plus_minus * value), axis=0)
@@ -1372,14 +1393,14 @@ class Delta(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         if not sample_shape:
-            return jnp.asarray(self.v)
+            return self.v
         shape = sample_shape + self.batch_shape + self.event_shape
         return jnp.broadcast_to(self.v, shape)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> Array:
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
         log_prob = jnp.where(value == self.v, 0, -jnp.inf)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
@@ -1418,9 +1439,11 @@ class Unit(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)
 
-    def log_prob(self, value: ArrayLike) -> Array:
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
         shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value)[:-1])
         return jnp.broadcast_to(self.log_factor, shape)

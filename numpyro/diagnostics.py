@@ -15,6 +15,23 @@ from numpy.typing import NDArray
 import jax
 from jax import device_get
 
+try:
+    import scipy.fft
+
+    def _rfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return scipy.fft.rfft(x, n=n, axis=axis, workers=-1)
+
+    def _irfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return scipy.fft.irfft(x, n=n, axis=axis, workers=-1)
+except ImportError:  # pragma: no cover
+    # scipy is not a direct dependency of numpyro (only a transitive one via jax)
+    def _rfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return np.fft.rfft(x, n=n, axis=axis)
+
+    def _irfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return np.fft.irfft(x, n=n, axis=axis)
+
+
 __all__ = [
     "autocorrelation",
     "autocovariance",
@@ -108,38 +125,11 @@ def autocorrelation(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
     :return: autocorrelation of ``x``.
     :rtype: numpy.ndarray
     """
-    # Ref: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
-    # Adapted from Stan implementation
-    # https://github.com/stan-dev/math/blob/develop/stan/math/prim/mat/fun/autocorrelation.hpp
-    N = x.shape[axis]
-    M = _fft_next_fast_len(N)
-    M2 = 2 * M
-
-    # transpose axis with -1 for Fourier transform
-    x = np.swapaxes(x, axis, -1)
-
-    # centering x
-    centered_signal = x - x.mean(axis=-1, keepdims=True)
-
-    # Fourier transform
-    freqvec = np.fft.rfft(centered_signal, n=M2, axis=-1)
-    # take square of magnitude of freqvec (or freqvec x freqvec*)
-    freqvec_gram = freqvec * np.conjugate(freqvec)
-    # inverse Fourier transform
-    autocorr = np.fft.irfft(freqvec_gram, n=M2, axis=-1)
-
-    # truncate and normalize the result, then transpose back to original shape
-    autocorr = autocorr[..., :N]
-
-    # the unbiased estimator is known to have "wild" tails, due to few samples at longer lags.
-    # see Geyer (1992) and Priestley (1981) for a discussion. also note that it is only strictly
-    # unbiased when the mean is known, whereas we it estimate from samples here.
-    if not bias:
-        autocorr = autocorr / np.arange(N, 0.0, -1)
-
+    autocov = autocovariance(x, axis=axis, bias=bias)
+    # normalize by the lag-0 autocovariance (which is the same for the biased
+    # and unbiased estimators)
     with np.errstate(invalid="ignore", divide="ignore"):
-        autocorr = (autocorr / autocorr[..., :1]).astype(np.float64)
-    return np.swapaxes(autocorr, axis, -1)
+        return autocov / np.take(autocov, [0], axis=axis)
 
 
 def autocovariance(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
@@ -152,7 +142,40 @@ def autocovariance(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
     :return: autocovariance of ``x``.
     :rtype: numpy.ndarray
     """
-    return autocorrelation(x, axis, bias) * x.var(axis=axis, keepdims=True)
+    # Ref: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
+    # Adapted from Stan implementation
+    # https://github.com/stan-dev/math/blob/develop/stan/math/prim/mat/fun/autocorrelation.hpp
+    N = x.shape[axis]
+    M = _fft_next_fast_len(N)
+    M2 = 2 * M
+
+    # transpose axis with -1 for Fourier transform
+    x = np.swapaxes(x, axis, -1)
+
+    # centering x
+    centered_signal = x - x.mean(axis=-1, keepdims=True)
+    # np.fft promotes to double precision; keep doing so explicitly because
+    # scipy.fft computes in the input precision
+    centered_signal = centered_signal.astype(np.float64, copy=False)
+
+    # Fourier transform
+    freqvec = _rfft(centered_signal, n=M2, axis=-1)
+    # take square of magnitude of freqvec (or freqvec x freqvec*)
+    freqvec_gram = freqvec * np.conjugate(freqvec)
+    # inverse Fourier transform
+    autocov = _irfft(freqvec_gram, n=M2, axis=-1)
+
+    # truncate the result and normalize by the number of terms in each lag sum,
+    # then transpose back to original shape
+
+    # the unbiased estimator is known to have "wild" tails, due to few samples at longer lags.
+    # see Geyer (1992) and Priestley (1981) for a discussion. also note that it is only strictly
+    # unbiased when the mean is known, whereas we it estimate from samples here.
+    if bias:
+        autocov = autocov[..., :N] / N
+    else:
+        autocov = autocov[..., :N] / np.arange(N, 0.0, -1)
+    return np.swapaxes(autocov, axis, -1)
 
 
 def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
@@ -218,7 +241,16 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     """
     x = np.swapaxes(x, axis, 0)
     sorted_x = np.sort(x, axis=0)
-    mass = x.shape[0]
+    hpd_left, hpd_right = _hpdi_of_sorted(sorted_x, prob)
+    hpd_left = np.swapaxes(hpd_left, axis, 0)
+    hpd_right = np.swapaxes(hpd_right, axis, 0)
+    return np.concatenate([hpd_left, hpd_right], axis=axis)
+
+
+def _hpdi_of_sorted(sorted_x: NDArray, prob: float) -> tuple[NDArray, NDArray]:
+    # compute the hpdi bounds of samples already sorted along axis 0; both
+    # bounds are returned with a leading axis of size 1
+    mass = sorted_x.shape[0]
     index_length = int(prob * mass)
     intervals_left = sorted_x[: (mass - index_length)]
     intervals_right = sorted_x[index_length:]
@@ -226,10 +258,8 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     index_start = intervals_length.argmin(axis=0)
     index_end = index_start + index_length
     hpd_left = np.take_along_axis(sorted_x, index_start[None, ...], axis=0)
-    hpd_left = np.swapaxes(hpd_left, axis, 0)
     hpd_right = np.take_along_axis(sorted_x, index_end[None, ...], axis=0)
-    hpd_right = np.swapaxes(hpd_right, axis, 0)
-    return np.concatenate([hpd_left, hpd_right], axis=axis)
+    return hpd_left, hpd_right
 
 
 def summary(
@@ -267,8 +297,14 @@ def summary(
         value_flat = np.reshape(value, (-1,) + value.shape[2:])
         mean = value_flat.mean(axis=0)
         std = value_flat.std(axis=0, ddof=1)
-        median = np.median(value_flat, axis=0)
-        hpd = hpdi(value_flat, prob=prob)
+        # sort once and reuse the result for both the median and the hpdi
+        sorted_flat = np.sort(value_flat, axis=0)
+        n = sorted_flat.shape[0]
+        median = (sorted_flat[(n - 1) // 2] + sorted_flat[n // 2]) / 2
+        # like np.median, return nan wherever any draw is nan (sorting puts
+        # nans last, so it suffices to check the last draw)
+        median = np.where(np.isnan(sorted_flat[-1]), median.dtype.type(np.nan), median)
+        hpd = np.concatenate(_hpdi_of_sorted(sorted_flat, prob), axis=0)
         n_eff = effective_sample_size(value)
         r_hat = split_gelman_rubin(value)
         hpd_lower = "{:.1f}%".format(50 * (1 - prob))

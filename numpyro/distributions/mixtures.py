@@ -168,14 +168,12 @@ class _MixtureBase(Distribution):
     def log_prob(self, value: ArrayLike, intermediates=None) -> Array:
         del intermediates
         sum_log_probs = self.component_log_probs(value)
+        # the value-preserving where stops gradients from flowing into -inf
+        # component log-probs (e.g. at zero mixing weights); see #1874
         safe_sum_log_probs = jnp.where(
             jnp.isneginf(sum_log_probs), -jnp.inf, sum_log_probs
         )
-        return jax.nn.logsumexp(
-            safe_sum_log_probs,
-            where=~jnp.isneginf(sum_log_probs),  # for numerical stability
-            axis=-1,
-        )
+        return jax.nn.logsumexp(safe_sum_log_probs, axis=-1)
 
 
 class MixtureSameFamily(_MixtureBase):
@@ -220,9 +218,10 @@ class MixtureSameFamily(_MixtureBase):
         *,
         validate_args: Optional[bool] = None,
     ):
-        assert isinstance(
-            component_distribution.support, constraints.ParameterFreeConstraint
-        ), (
+        base_support = component_distribution.support
+        while isinstance(base_support, constraints._IndependentConstraint):
+            base_support = base_support.base_constraint
+        assert isinstance(base_support, constraints.ParameterFreeConstraint), (
             f"Invalid component distribution: {type(component_distribution).__name__}. "
             "The mixture components must have a support that does not depend on their parameters "
             f"(expected ParameterFreeConstraint, but found {component_distribution.support})."
