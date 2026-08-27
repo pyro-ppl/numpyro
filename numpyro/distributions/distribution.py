@@ -296,20 +296,21 @@ class Distribution(metaclass=DistributionMeta):
         :param strict: Require strict validation, raising an error if the function is
             called inside jitted code.
         """
-        for param, value in self.get_args().items():
-            constraint = self.arg_constraints[param]
-            if constraints.is_dependent(constraint):
-                continue  # skip constraints that cannot be checked
-            is_valid = constraint(value)
-            if not_jax_tracer(is_valid):
-                if not np.all(is_valid):
-                    raise ValueError(
-                        "{} distribution got invalid {} parameter.".format(
-                            self.__class__.__name__, param
+        with jax.ensure_compile_time_eval():
+            for param, value in self.get_args().items():
+                constraint = self.arg_constraints[param]
+                if constraints.is_dependent(constraint):
+                    continue  # skip constraints that cannot be checked
+                is_valid = constraint(value)
+                if not_jax_tracer(is_valid):
+                    if not np.all(is_valid):
+                        raise ValueError(
+                            "{} distribution got invalid {} parameter.".format(
+                                self.__class__.__name__, param
+                            )
                         )
-                    )
-            elif strict:
-                raise RuntimeError("Cannot validate arguments inside jitted code.")
+                elif strict:
+                    raise RuntimeError("Cannot validate arguments inside jitted code.")
 
     @property
     def batch_shape(self) -> tuple[int, ...]:
@@ -429,6 +430,9 @@ class Distribution(metaclass=DistributionMeta):
 
     @property
     def mode(self) -> Array:
+        """
+        Mode of the distribution.
+        """
         raise NotImplementedError
 
     def _validate_sample(self, value: ArrayLike) -> ArrayLike:
@@ -1329,7 +1333,7 @@ class TransformedDistribution(Distribution):
         value = self.base_dist.icdf(q)
         for transform in self.transforms:
             value = transform(value)
-        return value  # type: ignore
+        return jnp.asarray(value)
 
 
 class FoldedDistribution(TransformedDistribution):
