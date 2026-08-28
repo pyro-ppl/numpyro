@@ -970,7 +970,18 @@ class Predictive(object):
 
         + set `batch_ndims=1` to get predictions from a one dimensional batch of the guide and parameters
           with shapes `(num_samples x batch_size x ...)`
-    :param exclude_deterministic: indicates whether to ignore deterministic sites from the posterior samples.
+    :param condition_deterministic: if True, deterministic sites present in
+        `posterior_samples` are conditioned on (substituted into the model)
+        when predicting; if False (default), they are ignored and instead
+        re-computed from their parent sites. Note that this argument controls
+        how deterministic sites are *handled during substitution*, not whether
+        they appear in the returned dictionary — use `return_sites` to control
+        which sites are returned. Conditioning on deterministic sites can
+        produce wrong shapes or stale values when predicting on new data,
+        which is why it is disabled by default.
+    :param exclude_deterministic: deprecated alias, use
+        ``condition_deterministic`` instead (``exclude_deterministic=True``
+        corresponds to ``condition_deterministic=False``).
 
     :return: dict of samples from the predictive distribution.
 
@@ -1012,8 +1023,27 @@ class Predictive(object):
         infer_discrete: bool = False,
         parallel: bool = False,
         batch_ndims: Optional[int] = None,
-        exclude_deterministic: bool = True,
+        condition_deterministic: Optional[bool] = None,
+        exclude_deterministic: Optional[bool] = None,
     ):
+        if exclude_deterministic is not None:
+            if condition_deterministic is not None:
+                raise ValueError(
+                    "Only one of `condition_deterministic` or the deprecated "
+                    "`exclude_deterministic` can be provided, not both."
+                )
+            warnings.warn(
+                "`exclude_deterministic` is deprecated, use "
+                "`condition_deterministic` instead "
+                "(`exclude_deterministic=True` corresponds to "
+                "`condition_deterministic=False`).",
+                FutureWarning,
+                stacklevel=find_stack_level(),
+            )
+            condition_deterministic = not exclude_deterministic
+        elif condition_deterministic is None:
+            condition_deterministic = False
+
         if posterior_samples is None and num_samples is None:
             raise ValueError(
                 "Either posterior_samples or num_samples must be specified."
@@ -1073,7 +1103,28 @@ class Predictive(object):
         self.parallel = parallel
         self.batch_ndims = batch_ndims
         self._batch_shape = batch_shape
-        self.exclude_deterministic = exclude_deterministic
+        self.condition_deterministic = condition_deterministic
+
+    @property
+    def exclude_deterministic(self) -> bool:
+        """Deprecated alias for ``not condition_deterministic``."""
+        warnings.warn(
+            "`exclude_deterministic` is deprecated, use "
+            "`condition_deterministic` instead.",
+            FutureWarning,
+            stacklevel=find_stack_level(),
+        )
+        return not self.condition_deterministic
+
+    @exclude_deterministic.setter
+    def exclude_deterministic(self, value: bool) -> None:
+        warnings.warn(
+            "`exclude_deterministic` is deprecated, use "
+            "`condition_deterministic` instead.",
+            FutureWarning,
+            stacklevel=find_stack_level(),
+        )
+        self.condition_deterministic = not value
 
     def _call_with_params(self, rng_key, params, args, kwargs):
         posterior_samples = self.posterior_samples
@@ -1090,7 +1141,7 @@ class Predictive(object):
                 parallel=self.parallel,
                 model_args=args,
                 model_kwargs=kwargs,
-                exclude_deterministic=self.exclude_deterministic,
+                exclude_deterministic=not self.condition_deterministic,
             )
         model = substitute(self.model, self.params)
         return _predictive(
@@ -1103,7 +1154,7 @@ class Predictive(object):
             parallel=self.parallel,
             model_args=args,
             model_kwargs=kwargs,
-            exclude_deterministic=self.exclude_deterministic,
+            exclude_deterministic=not self.condition_deterministic,
         )
 
     def __call__(self, rng_key, *args, **kwargs):
