@@ -953,6 +953,8 @@ class LowerCholeskyAffine(Transform[NonScalarArray]):
 
     :param loc: a real vector.
     :param scale_tril: a lower triangular matrix with positive diagonal.
+        May include leading batch dimensions, which are broadcast against
+        ``loc`` and the input.
 
     **Example**
 
@@ -972,11 +974,15 @@ class LowerCholeskyAffine(Transform[NonScalarArray]):
     codomain = constraints.real_vector
 
     def __init__(self, loc: NonScalarArray, scale_tril: NonScalarArray):
-        if jnp.ndim(scale_tril) != 2:
+        if jnp.ndim(scale_tril) < 2:
             raise ValueError(
-                "Only support 2-dimensional scale_tril matrix. "
-                "Please make a feature request if you need to "
-                "use this transform with batched scale_tril."
+                "scale_tril must be at least 2-dimensional, got shape "
+                f"{jnp.shape(scale_tril)}."
+            )
+        if scale_tril.shape[-1] != scale_tril.shape[-2]:
+            raise ValueError(
+                "scale_tril must be square in its last two dimensions, got shape "
+                f"{jnp.shape(scale_tril)}."
             )
         self.loc = loc
         self.scale_tril = scale_tril
@@ -988,10 +994,10 @@ class LowerCholeskyAffine(Transform[NonScalarArray]):
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         y = y - self.loc
-        original_shape = jnp.shape(y)
-        yt = jnp.reshape(y, (-1, original_shape[-1])).T
-        xt = solve_triangular(self.scale_tril, yt, lower=True)
-        return jnp.reshape(xt.T, original_shape)
+        return jnp.squeeze(
+            solve_triangular(self.scale_tril, y[..., jnp.newaxis], lower=True),
+            axis=-1,
+        )
 
     def log_abs_det_jacobian(
         self,
