@@ -1905,9 +1905,13 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
             in (
                 _TruncatedCauchy,
                 _TruncatedNormal,
+                _TruncatedGamma,
                 dist.Gamma,
+                dist.LeftTruncatedGamma,
                 dist.LogNormal,
+                dist.RightTruncatedGamma,
                 dist.StudentT,
+                dist.TwoSidedTruncatedGamma,
             )
             else 1e-5
         )
@@ -5563,6 +5567,34 @@ def test_truncated_gamma_moments(concentration, rate, low, high):
     assert_allclose(d.variance, second - mean**2, rtol=1e-3)
 
 
+def test_truncated_gamma_moment_tail_switch_per_order():
+    """The tail switch has to be re-decided at each moment order.
+
+    ``Gamma(alpha + k)`` has a larger median than ``Gamma(alpha)``, so an interval
+    above the base median can sit deep in the lower tail at the shifted order, where
+    the upper-tail difference is the one that cancels. Reusing the order-zero branch
+    collapsed the second moment to zero and produced a negative variance.
+    """
+    concentration, rate, low, high = 0.05, 1.0, 1e-6, 1e-5
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+
+    def exact_moment(order):
+        shifted = concentration + order
+        numerator = osp.gamma.cdf(high, shifted, scale=1 / rate) - osp.gamma.cdf(
+            low, shifted, scale=1 / rate
+        )
+        denominator = osp.gamma.cdf(
+            high, concentration, scale=1 / rate
+        ) - osp.gamma.cdf(low, concentration, scale=1 / rate)
+        falling = np.prod([concentration + i for i in range(order)])
+        return falling / rate**order * numerator / denominator
+
+    expected_variance = exact_moment(2) - exact_moment(1) ** 2
+    assert float(d.variance) > 0
+    assert_allclose(d.mean, exact_moment(1), rtol=1e-4)
+    assert_allclose(d.variance, expected_variance, rtol=1e-3)
+
+
 def test_truncated_gamma_one_sided_moments():
     left = dist.TruncatedGamma(2.0, 1.0, low=1.5)
     pdf = lambda x: float(jnp.exp(left.log_prob(jnp.array(x))))  # noqa: E731
@@ -5589,31 +5621,72 @@ def test_truncated_gamma_far_tail_normalizer(low, high):
     expected = _truncated_gamma_reference_logpdf(x, concentration, rate, low, high)
     assert_allclose(log_prob, expected, rtol=1e-4)
 
-    # the naive lower-tail form loses every significant digit here
-    naive = osp.gamma.cdf(high, concentration, scale=1 / rate) - osp.gamma.cdf(
-        low, concentration, scale=1 / rate
+
+def test_truncated_gamma_samples_in_far_tail():
+    """The inverse incomplete gamma saturates below a tail probability of ~3e-8, which
+    used to put draws outside the support once the retained mass got small. ``icdf``
+    bisects the cdf instead, so these regimes sample correctly."""
+    for low, high in [(20.0, 25.0), (30.0, 40.0), (50.0, 60.0)]:
+        d = dist.TruncatedGamma(2.0, 1.0, low=low, high=high)
+        samples = d.sample(random.key(0), (2000,))
+        assert not jnp.any(jnp.isnan(samples))
+        assert jnp.all(samples >= low) and jnp.all(samples <= high)
+
+    # left truncation retaining only ~0.3% of the base mass
+    d = dist.TruncatedGamma(2.0, 1.0, low=8.0)
+    samples = d.sample(random.key(0), (200000,))
+    assert not jnp.any(jnp.isnan(samples))
+    assert jnp.all(samples >= 8.0)
+
+    # the support is unbounded above, so q = 1 is still legitimately infinite
+    assert jnp.isinf(d.icdf(jnp.array(1.0)))
+
+
+def test_truncated_gamma_icdf_is_differentiable():
+    """Bisection alone is piecewise constant in the parameters; the Newton step in
+    ``icdf`` restores the implicit-function derivative."""
+
+    def icdf_of(concentration, rate, low, high):
+        return dist.TruncatedGamma(concentration, rate, low=low, high=high).icdf(
+            jnp.array(0.4)
+        )
+
+    args = (jnp.array(2.0), jnp.array(1.0), jnp.array(0.5), jnp.array(3.0))
+    eps = 1e-3
+    for argnum in range(4):
+        grad = jax.grad(icdf_of, argnums=argnum)(*args)
+        assert jnp.isfinite(grad) and grad != 0.0
+        bumped_up = [a + (eps if i == argnum else 0.0) for i, a in enumerate(args)]
+        bumped_dn = [a - (eps if i == argnum else 0.0) for i, a in enumerate(args)]
+        fd = (icdf_of(*bumped_up) - icdf_of(*bumped_dn)) / (2 * eps)
+        assert_allclose(grad, fd, rtol=2e-2)
+
+
+def test_truncated_gamma_low_zero_matches_base():
+    """``low = 0`` truncates nothing, so the density must equal the base Gamma's."""
+    x = jnp.linspace(0.1, 6.0, 20)
+    assert_allclose(
+        dist.TruncatedGamma(2.0, 1.0, low=0.0).log_prob(x),
+        dist.Gamma(2.0, 1.0).log_prob(x),
+        rtol=1e-6,
     )
-    exact = osp.gamma.sf(low, concentration, scale=1 / rate) - osp.gamma.sf(
-        high, concentration, scale=1 / rate
-    )
-    assert abs(naive - exact) / exact > 1e-10
 
 
-def test_truncated_gamma_saturated_icdf_is_nan():
-    """Past the inverse incomplete gamma's saturation point, ``sample`` must report
-    failure rather than return a value outside the support."""
-    low, high = 50.0, 60.0
-    d = dist.TruncatedGamma(2.0, 1.0, low=low, high=high)
-    samples = d.sample(random.key(0), (5,))
-    assert jnp.all(jnp.isnan(samples))
-    # the density itself is still well defined and finite here
-    assert jnp.isfinite(d.log_prob(jnp.array(55.0)))
+def test_truncated_gamma_accepts_gamma_subclass():
+    """``Chi2`` is a ``Gamma``, so it passes the ``supported_types`` check."""
+    d = dist.LeftTruncatedGamma(dist.Chi2(4.0), low=1.0)
+    expected = osp.chi2.logpdf(3.0, 4) - np.log(osp.chi2.sf(1.0, 4))
+    assert_allclose(d.log_prob(jnp.array(3.0)), expected, rtol=1e-5)
 
-    # a left-truncated distribution has unbounded support, so q = 1 is legitimately
-    # infinite and must not be masked
-    left = dist.TruncatedGamma(2.0, 1.0, low=1.0)
-    assert jnp.isinf(left.icdf(jnp.array(1.0)))
-    assert jnp.isfinite(left.icdf(jnp.array(0.5)))
+
+@pytest.mark.parametrize("low, high", [(3.0, 1.0), (2.0, 2.0)])
+def test_truncated_gamma_degenerate_interval(low, high):
+    """An empty or point interval retains no mass: -inf, never +inf."""
+    # every value is outside an empty interval, so support validation would warn
+    d = dist.TruncatedGamma(2.0, 1.0, low=low, high=high, validate_args=False)
+    log_prob = d.log_prob(jnp.array(2.0))
+    assert jnp.isneginf(log_prob) or jnp.isnan(log_prob)
+    assert not (log_prob > 0)
 
 
 def test_truncated_gamma_underflowed_normalizer():

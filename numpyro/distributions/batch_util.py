@@ -403,16 +403,6 @@ def _vmap_over_right_truncated_distribution(
 
 
 @vmap_over.register
-def _vmap_over_two_sided_truncated_gamma(
-    dist: TwoSidedTruncatedGamma, low=None, high=None
-):
-    dist_axes = _default_vmap_over(dist, low=low, high=high)
-    dist_axes.base_dist = None
-    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
-    return dist_axes
-
-
-@vmap_over.register
 def _vmap_over_left_truncated_gamma(dist: LeftTruncatedGamma, low=None):
     dist_axes = _default_vmap_over(dist, low=low)
     dist_axes.base_dist = None
@@ -425,6 +415,16 @@ def _vmap_over_right_truncated_gamma(dist: RightTruncatedGamma, high=None):
     dist_axes = _default_vmap_over(dist, high=high)
     dist_axes.base_dist = None
     dist_axes._support = vmap_over(dist._support, lower_bound=None, upper_bound=high)
+    return dist_axes
+
+
+@vmap_over.register
+def _vmap_over_two_sided_truncated_gamma(
+    dist: TwoSidedTruncatedGamma, low=None, high=None
+):
+    dist_axes = _default_vmap_over(dist, low=low, high=high)
+    dist_axes.base_dist = None
+    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
     return dist_axes
 
 

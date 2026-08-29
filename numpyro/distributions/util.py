@@ -579,17 +579,6 @@ def gammaincinv(a, y):
         ) from e
 
 
-def gammainccinv(a, y):
-    try:
-        from tensorflow_probability.substrates.jax import math as tfp_math
-
-        return tfp_math.igammacinv(jnp.array(a), jnp.array(y))
-    except ImportError as e:
-        raise ImportError(
-            "Please install `tensorflow_probability>=0.18` for gammainccinv."
-        ) from e
-
-
 def is_identically_zero(x):
     """
     Check if argument is exactly the number zero. True for the number zero;
