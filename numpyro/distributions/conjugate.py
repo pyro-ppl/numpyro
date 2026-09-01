@@ -430,7 +430,7 @@ class GammaPoisson(Distribution):
         .. math::
             \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}(1 + \lambda)
         """
-        return self.concentration / self.rate * (1 + 1 / self.rate)
+        return jnp.asarray(self.concentration / self.rate * (1 + 1 / self.rate))
 
     def cdf(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
