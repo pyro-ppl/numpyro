@@ -563,6 +563,14 @@ DiscreteUniform
     :show-inheritance:
     :member-order: bysource
 
+GammaCount
+^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.GammaCount
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GammaPoisson
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.conjugate.GammaPoisson

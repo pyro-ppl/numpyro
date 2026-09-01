@@ -35,7 +35,15 @@ from jax import Array, lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
+from jax.scipy.special import (
+    expit,
+    gammainc,
+    gammaincc,
+    gammaln,
+    logsumexp,
+    xlog1py,
+    xlogy,
+)
 from jax.typing import ArrayLike
 
 from numpyro._typing import NumLike
@@ -48,6 +56,7 @@ from numpyro.distributions.util import (
     categorical,
     clamp_probs,
     lazy_property,
+    logdiffexp,
     multinomial,
     promote_shapes,
     promote_to_inexact,
@@ -1725,6 +1734,269 @@ def Multinomial(
         )
     else:
         raise NotImplementedError
+
+
+class GammaCount(Distribution):
+    r"""A Gamma-count distribution obtained from a Gamma renewal process.
+
+    Let the interarrival times be independent with
+
+    .. math::
+
+        \tau_j \sim \operatorname{Gamma}(\alpha, \alpha\lambda),
+
+    where :math:`\alpha` is ``concentration`` and :math:`\lambda` is ``rate``.
+    The observation interval has unit length, so each interarrival time has mean
+    :math:`1/\lambda`.  If :math:`P(a, z)` is the regularized lower incomplete
+    gamma function, the probability mass function is
+
+    .. math::
+
+        p_\theta(x = k)
+        = P(\alpha k, \alpha\lambda)
+          - P(\alpha(k + 1), \alpha\lambda),
+        \qquad k \in \{0, 1, 2, \ldots\}.
+
+    ``concentration = 1`` gives a Poisson distribution with rate ``rate``.
+    Values above one generally produce underdispersion, while values below one
+    produce overdispersion.  ``rate`` is the reciprocal mean interarrival time;
+    except in the Poisson case, it is not exactly the mean count over a finite
+    observation interval.  The ``mean``, ``variance``, and ``entropy`` methods
+    return the corresponding quantities for the capped variable
+    :math:`\min(X, M)`, where :math:`M` is ``max_terms``.  These approximations
+    converge to the Gamma-count quantities as ``max_terms`` increases.  In
+    practice, choose ``max_terms`` so that
+    :math:`P(\alpha M, \alpha\lambda) = \Pr(X \geq M)` is negligible.
+
+    :param concentration: Shape of each Gamma interarrival distribution.
+    :param int max_terms: Number of survival-probability terms used to
+        approximate the moments and entropy. Must be positive. Defaults to 100.
+    :param rate: Reciprocal mean interarrival time over a unit observation interval.
+
+    **References:**
+
+    1. Zeviani, W. M., Ribeiro Jr, P. J., Bonat, W. H., Shimakura, S. E., and
+       Muniz, J. A. (2014). The Gamma-count distribution in the analysis of
+       experimental underdispersed data. *Journal of Applied Statistics*,
+       41(12), 2616--2626. https://doi.org/10.1080/02664763.2014.922168
+    """
+
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "rate": constraints.positive,
+    }
+    pytree_aux_fields = ("max_terms",)
+    support = constraints.nonnegative_integer
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        rate: ArrayLike,
+        *,
+        max_terms: int = 100,
+        validate_args: Optional[bool] = None,
+    ):
+        if (
+            isinstance(max_terms, bool)
+            or not isinstance(max_terms, (int, np.integer))
+            or max_terms < 1
+        ):
+            raise ValueError("`max_terms` must be a positive integer.")
+        batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
+        self.concentration, self.rate = promote_shapes(
+            concentration, rate, shape=batch_shape
+        )
+        self.max_terms = int(max_terms)
+        super().__init__(batch_shape, validate_args=validate_args)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Evaluate :math:`\Pr(X \leq x)`.
+
+        The renewal-process probabilities telescope, giving
+
+        .. math::
+
+            \Pr(X \leq x)
+            = Q\!\left(\alpha(\lfloor x\rfloor + 1),
+                       \alpha\lambda\right),
+
+        where :math:`Q(a, z)` is the regularized upper incomplete gamma
+        function.
+        """
+        value = jnp.asarray(value)
+        count = jnp.maximum(jnp.floor(value), 0)
+        scaled_rate = self.concentration * self.rate
+        probability = gammaincc(self.concentration * (count + 1), scaled_rate)
+        return jnp.where(value < 0, 0.0, probability)
+
+    def entropy(self) -> Array:
+        r"""Approximate the entropy using ``max_terms`` categories.
+
+        Let :math:`p_k = p_\theta(x=k)` and
+        :math:`r_M = \Pr(X \geq M) = P(\alpha M, \alpha\lambda)`.  This returns
+        the exact entropy of :math:`\min(X, M)`,
+
+        .. math::
+
+            -\sum_{k=0}^{M-1} p_k\log p_k - r_M\log r_M.
+
+        It is a lower bound on the Gamma-count entropy and converges to it as
+        :math:`M` increases.
+        """
+        counts = jnp.arange(self.max_terms).reshape(
+            (-1,) + (1,) * len(self.batch_shape)
+        )
+        log_probabilities = self.log_prob(counts)
+        probabilities = jnp.exp(log_probabilities)
+        scaled_rate = self.concentration * self.rate
+        tail_probability = gammainc(self.concentration * self.max_terms, scaled_rate)
+        return -jnp.sum(xlogy(probabilities, probabilities), axis=0) - xlogy(
+            tail_probability, tail_probability
+        )
+
+    def _inverse_cdf(self, value: ArrayLike) -> ArrayLike:
+        shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
+        value = jnp.broadcast_to(value, shape)
+
+        def bracket_body(upper):
+            needs_larger_bracket = self.cdf(upper) < value
+            return jnp.where(needs_larger_bracket, 2 * upper + 1, upper)
+
+        def bracket_condition(upper):
+            return jnp.any(self.cdf(upper) < value)
+
+        def bisect_body(bounds):
+            lower, upper = bounds
+            active = upper - lower > 1
+            midpoint = lower + (upper - lower) // 2
+            move_lower = active & (self.cdf(midpoint) < value)
+            lower = jnp.where(move_lower, midpoint, lower)
+            upper = jnp.where(active & ~move_lower, midpoint, upper)
+            return lower, upper
+
+        def bisect_condition(bounds):
+            lower, upper = bounds
+            return jnp.any(upper - lower > 1)
+
+        lower = -jnp.ones(shape, dtype=int)
+        upper = jnp.ones(shape, dtype=int)
+        upper = lax.while_loop(bracket_condition, bracket_body, upper)
+        _, upper = lax.while_loop(bisect_condition, bisect_body, (lower, upper))
+        return upper
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Evaluate the log probability mass function.
+
+        The PMF can be evaluated using either lower-tail or upper-tail Gamma
+        probabilities.  This implementation selects the smaller tail, then uses
+        log-space subtraction to avoid cancellation.  Tail probabilities that
+        underflow are floored at the smallest normal number of the dtype.
+        """
+        count = jnp.where(value == 0, 1, value)
+        left_shape = self.concentration * count
+        right_shape = self.concentration * (count + 1)
+        scaled_rate = self.concentration * self.rate
+
+        lower_left = gammainc(left_shape, scaled_rate)
+        lower_right = gammainc(right_shape, scaled_rate)
+        upper_left = gammaincc(left_shape, scaled_rate)
+        upper_right = gammaincc(right_shape, scaled_rate)
+        use_lower = lower_left < upper_right
+
+        # Far enough into either tail the incomplete-gamma probabilities
+        # underflow to exactly zero.  The operands have to be made safe before
+        # they reach `jnp.log`.
+        tiny = jnp.finfo(jnp.result_type(scaled_rate)).tiny
+        log_tiny = jnp.log(tiny)
+        safe_lower_left = jnp.maximum(jnp.where(use_lower, lower_left, 1.0), tiny)
+        safe_lower_right = jnp.maximum(jnp.where(use_lower, lower_right, 0.5), tiny)
+        safe_upper_left = jnp.maximum(jnp.where(use_lower, 0.5, upper_left), tiny)
+        safe_upper_right = jnp.maximum(jnp.where(use_lower, 1.0, upper_right), tiny)
+
+        def safe_logdiffexp(log_a, log_b):
+            # Once both operands land on the floor together, logdiffexp(x, x)
+            # is -inf with a 0 / 0 derivative.  Order the arguments strictly
+            # before differentiating and report the floor for that case.
+            ordered = log_a > log_b
+            return jnp.where(
+                ordered,
+                logdiffexp(
+                    jnp.where(ordered, log_a, 0.0),
+                    jnp.where(ordered, log_b, -1.0),
+                ),
+                log_tiny,
+            )
+
+        lower_log_prob = safe_logdiffexp(
+            jnp.log(safe_lower_left), jnp.log(safe_lower_right)
+        )
+        upper_log_prob = safe_logdiffexp(
+            jnp.log(safe_upper_right), jnp.log(safe_upper_left)
+        )
+        positive_log_prob = jnp.where(use_lower, lower_log_prob, upper_log_prob)
+        zero_log_prob = jnp.log(
+            jnp.maximum(gammaincc(self.concentration, scaled_rate), tiny)
+        )
+        return jnp.where(value == 0, zero_log_prob, positive_log_prob)
+
+    @property
+    def mean(self) -> Array:
+        r"""Approximate the mean using ``max_terms`` survival probabilities.
+
+        For :math:`M` equal to ``max_terms``, this returns
+
+        .. math::
+
+            \mathbb{E}[\min(X, M)]
+            = \sum_{j=1}^{M} P(\alpha j, \alpha\lambda).
+        """
+        counts = jnp.arange(1, self.max_terms + 1).reshape(
+            (-1,) + (1,) * len(self.batch_shape)
+        )
+        scaled_rate = self.concentration * self.rate
+        tail_probabilities = gammainc(self.concentration * counts, scaled_rate)
+        return jnp.sum(tail_probabilities, axis=0)
+
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> ArrayLike:
+        r"""Draw samples from the Gamma-count distribution using the inverse-CDF
+        method.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Nonnegative integer samples of shape ``sample_shape + batch_shape``.
+        :rtype: Array
+        """
+        assert is_prng_key(key)
+        assert key is not None
+        dtype = jnp.result_type(self.concentration, self.rate, float)
+        shape = sample_shape + self.batch_shape
+        uniform = random.uniform(key, shape=shape, dtype=dtype)
+        return self._inverse_cdf(uniform)
+
+    @property
+    def variance(self) -> Array:
+        r"""Approximate the variance using ``max_terms`` survival probabilities.
+
+        For :math:`M` equal to ``max_terms``, the capped second raw moment is
+
+        .. math::
+
+            \mathbb{E}[\min(X, M)^2]
+            = \sum_{j=1}^{M}(2j-1)P(\alpha j, \alpha\lambda).
+
+        The returned variance is this quantity minus the squared capped mean.
+        """
+        counts = jnp.arange(1, self.max_terms + 1).reshape(
+            (-1,) + (1,) * len(self.batch_shape)
+        )
+        scaled_rate = self.concentration * self.rate
+        tail_probabilities = gammainc(self.concentration * counts, scaled_rate)
+        mean = jnp.sum(tail_probabilities, axis=0)
+        second_moment = jnp.sum((2 * counts - 1) * tail_probabilities, axis=0)
+        return jnp.maximum(second_moment - mean**2, 0.0)
 
 
 class Poisson(Distribution):
