@@ -2,24 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from jax import lax
+from typing import Optional
+
+from jax import Array, lax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
+from numpyro._typing import NumLike, PyTree
 from numpyro.distributions.constraints import real_vector
 from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import array_equiv
 from numpyro.util import fori_loop
 
 
-def _clamp_preserve_gradients(
-    x: ArrayLike, min: ArrayLike, max: ArrayLike
-) -> ArrayLike:
+def _clamp_preserve_gradients(x: ArrayLike, min: ArrayLike, max: ArrayLike) -> Array:
+    x = jnp.asarray(x)
     return x + lax.stop_gradient(jnp.clip(x, min, max) - x)
 
 
 # adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/distributions/transforms/iaf.py
-class InverseAutoregressiveTransform(Transform):
+class InverseAutoregressiveTransform(Transform[NumLike]):
     """
     An implementation of Inverse Autoregressive Flow, using Eq (10) from Kingma et al., 2016,
 
@@ -51,13 +53,13 @@ class InverseAutoregressiveTransform(Transform):
         self.log_scale_min_clip = log_scale_min_clip
         self.log_scale_max_clip = log_scale_max_clip
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> NumLike:
         """
         :param numpy.ndarray x: the input into the transform
         """
         return self.call_with_intermediates(x)[0]
 
-    def call_with_intermediates(self, x: ArrayLike) -> ArrayLike:
+    def call_with_intermediates(self, x: NumLike) -> tuple[NumLike, Optional[PyTree]]:
         mean, log_scale = self.arn(x)
         log_scale = _clamp_preserve_gradients(
             log_scale, self.log_scale_min_clip, self.log_scale_max_clip
@@ -65,7 +67,7 @@ class InverseAutoregressiveTransform(Transform):
         scale = jnp.exp(log_scale)
         return scale * x + mean, log_scale
 
-    def _inverse(self, y: ArrayLike) -> ArrayLike:
+    def _inverse(self, y: NumLike) -> NumLike:
         """
         :param numpy.ndarray y: the output of the transform to be inverted
         """
@@ -81,12 +83,12 @@ class InverseAutoregressiveTransform(Transform):
             x = (y - mean) * inverse_scale
             return x
 
-        x = fori_loop(0, y.shape[-1], _update_x, jnp.zeros(y.shape))
+        x = fori_loop(0, jnp.shape(y)[-1], _update_x, jnp.zeros(jnp.shape(y)))
         return x
 
     def log_abs_det_jacobian(
-        self, x: ArrayLike, y: ArrayLike, intermediates=None
-    ) -> ArrayLike:
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         """
         Calculates the elementwise determinant of the log jacobian.
 
@@ -109,7 +111,7 @@ class InverseAutoregressiveTransform(Transform):
             {"arn": self.arn},
         )
 
-    def eq(self, other: Transform, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, InverseAutoregressiveTransform):
             return False
         return (
@@ -123,7 +125,7 @@ class InverseAutoregressiveTransform(Transform):
         )
 
 
-class BlockNeuralAutoregressiveTransform(Transform):
+class BlockNeuralAutoregressiveTransform(Transform[NumLike]):
     """
     An implementation of Block Neural Autoregressive flow.
 
@@ -139,25 +141,25 @@ class BlockNeuralAutoregressiveTransform(Transform):
     def __init__(self, bn_arn):
         self.bn_arn = bn_arn
 
-    def __call__(self, x: ArrayLike) -> ArrayLike:
+    def __call__(self, x: NumLike) -> NumLike:
         """
         :param numpy.ndarray x: the input into the transform
         """
         return self.call_with_intermediates(x)[0]
 
-    def call_with_intermediates(self, x: ArrayLike) -> ArrayLike:
+    def call_with_intermediates(self, x: NumLike) -> tuple[NumLike, Optional[PyTree]]:
         y, logdet = self.bn_arn(x)
         return y, logdet
 
-    def _inverse(self, y: ArrayLike) -> ArrayLike:
+    def _inverse(self, y: NumLike) -> NumLike:
         raise NotImplementedError(
             "Block neural autoregressive transform does not have an analytic"
             " inverse implemented."
         )
 
     def log_abs_det_jacobian(
-        self, x: ArrayLike, y: ArrayLike, intermediates=None
-    ) -> ArrayLike:
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         """
         Calculates the elementwise determinant of the log jacobian.
 
@@ -174,7 +176,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
     def tree_flatten(self):
         return (), ((), {"bn_arn": self.bn_arn})
 
-    def eq(self, other: Transform, static: bool = False) -> ArrayLike:
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return (
             isinstance(other, BlockNeuralAutoregressiveTransform)
             and self.bn_arn is other.bn_arn

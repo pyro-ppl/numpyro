@@ -8,7 +8,7 @@ import inspect
 from itertools import product
 import math
 import os
-from typing import Callable
+from typing import Callable, get_args, get_origin, get_type_hints
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -18,11 +18,12 @@ from scipy.sparse import csr_matrix
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, vmap
+from jax import Array, grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
+from jax.typing import ArrayLike
 
 import numpyro
 import numpyro.distributions as dist
@@ -385,7 +386,7 @@ def _vmap_over_general_2d_mixture(self: _General2DMixture, locs=None):
 
 
 class _ImproperWrapper(dist.ImproperUniform):
-    def sample(self, key, sample_shape=()):
+    def sample(self, key, sample_shape=()) -> Array:
         transform = biject_to(self.support)
         prototype_value = jnp.zeros(self.event_shape)
         unconstrained_event_shape = jnp.shape(transform.inv(prototype_value))
@@ -2296,6 +2297,155 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=rtol, atol=atol)
 
 
+@pytest.mark.parametrize("jit", [False, True])
+@pytest.mark.parametrize(
+    "method",
+    [
+        "sample",
+        "log_prob",
+        "mean",
+        "variance",
+        "entropy",
+        "cdf",
+        "icdf",
+        "rsample",
+        "sample_with_intermediates",
+        "mode",
+        "enumerate_support",
+    ],
+)
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_output_is_array(jax_dist, sp_dist, params, method, jit, request):
+    # Distribution methods should return jax arrays so that consumers can index,
+    # reshape, and compare the result without tripping a type checker (``ArrayLike``
+    # admits python/numpy scalars that are not indexable and have no ``.shape``).
+    # Validation is disabled so the test is independent of global validation state.
+
+    with dist.distribution.validation_enabled(False):
+        d = jax_dist(*params)
+
+        cls = d.__class__
+        # Verify the correct annotation after unpacking.
+        impl = getattr(cls, method)
+        if isinstance(impl, property):
+            impl = impl.fget
+        while isinstance(impl, partial):
+            impl = impl.func
+        # Base/wrapper classes keep ``ArrayLike`` on the value-carrying methods so
+        # that handlers can pass through non-jax values (e.g. ``Delta`` over a
+        # numpy string array); concrete distributions return ``Array``.
+        allowed = (
+            (jax.Array, ArrayLike)
+            if method in {"sample", "rsample", "log_prob", "sample_with_intermediates"}
+            else (jax.Array,)
+        )
+        return_annotation = get_type_hints(impl).get("return")
+        if method == "sample_with_intermediates":
+            # ``tuple[<sample type>, list[...]]``: check the sample component.
+            assert get_origin(return_annotation) is tuple
+            return_annotation = get_args(return_annotation)[0]
+        assert return_annotation in allowed, (
+            f"{cls.__name__}.{method} ({impl.__code__.co_filename}:"
+            f"{impl.__code__.co_firstlineno}) is annotated with {return_annotation}"
+        )
+
+        if method in {"sample", "rsample", "sample_with_intermediates"}:
+            fn = lambda: getattr(d, method)(random.PRNGKey(0))  # noqa: E731
+        elif method in {"log_prob", "cdf"}:
+            # IntervalCensoredDistribution takes an interval (lo, hi) as log_prob
+            # input but returns univariate samples, so log_prob(sample) is not
+            # well-formed for it (mirrors the special-casing in test_dist_shape).
+            if isinstance(d, dist.IntervalCensoredDistribution):
+                pytest.skip(
+                    "log_prob(sample) is ill-formed for interval-censored dists"
+                )
+            value = d.sample(random.PRNGKey(0))
+            fn = lambda: getattr(d, method)(value)  # noqa: E731
+        elif method == "icdf":
+            fn = lambda: d.icdf(0.3)  # noqa: E731
+        elif method == "entropy":
+            fn = lambda: d.entropy()  # noqa: E731
+        elif method in {"mean", "mode", "variance"}:
+            fn = lambda: getattr(d, method)  # noqa: E731
+        elif method == "enumerate_support":
+            fn = lambda: d.enumerate_support()  # noqa: E731
+        else:
+            raise RuntimeError(method)
+        try:
+            out = jax.jit(fn)() if jit else fn()
+        except NotImplementedError:
+            pytest.skip(f"{cls.__name__}.{method} is not implemented")
+    if (
+        isinstance(d, dist.Delta)
+        and method in {"sample", "rsample", "sample_with_intermediates"}
+        and not jit
+    ):
+        # Delta.sample returns ``v`` untouched by design (a python scalar or numpy
+        # array in this grid); under jit the output is always a jax array.
+        return
+    if method == "sample_with_intermediates":
+        out, intermediates = out
+        for leaf in jax.tree_util.tree_leaves(intermediates):
+            assert isinstance(leaf, jax.Array), (
+                f"{cls.__name__} intermediate {type(leaf)}"
+            )
+    assert isinstance(out, jax.Array), f"{cls.__name__}.{method} returned {type(out)}"
+
+
+@pytest.mark.parametrize(
+    "make_dist",
+    [
+        lambda: dist.CategoricalProbs(np.array([0.2, 0.3, 0.5])),
+        lambda: dist.CategoricalLogits(np.array([0.1, -0.4, 1.2])),
+        lambda: dist.MultinomialProbs(np.array([0.2, 0.3, 0.5]), total_count=4),
+        lambda: dist.MultinomialLogits(np.array([0.1, -0.4, 1.2]), total_count=4),
+        lambda: dist.ProjectedNormal(np.array([0.5, -1.0])),
+        lambda: dist.GaussianCopula(
+            dist.Normal(0.0, 1.0), correlation_matrix=np.eye(2)
+        ),
+        lambda: dist.Dirichlet(np.array([1.0, 2.0, 3.0])),
+        lambda: dist.EulerMaruyama(
+            np.array([0.0, 0.5, 1.0]),
+            lambda x, t: (-x, jnp.ones_like(x)),
+            dist.Normal(0.0, 1.0).expand((2,)).to_event(1),
+        ),
+        lambda: dist.GaussianStateSpace(3, np.eye(2), np.eye(2)),
+        lambda: dist.MatrixNormal(np.zeros((2, 3)), np.eye(2), np.eye(3)),
+        lambda: dist.CAR(
+            np.zeros(3),
+            0.5,
+            np.array(1.0),
+            np.array([[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0]]),
+        ),
+        lambda: dist.LowRankMultivariateNormal(
+            np.zeros(3), np.ones((3, 1)), np.ones(3)
+        ),
+    ],
+    ids=[
+        "CategoricalProbs",
+        "CategoricalLogits",
+        "MultinomialProbs",
+        "MultinomialLogits",
+        "ProjectedNormal",
+        "GaussianCopula",
+        "Dirichlet",
+        "EulerMaruyama",
+        "GaussianStateSpace",
+        "MatrixNormal",
+        "CAR",
+        "LowRankMultivariateNormal",
+    ],
+)
+def test_numpy_inputs_to_widened_constructors(make_dist):
+    # Constructor parameters are annotated ``ArrayLike``; numpy inputs must work
+    # without being coerced to jax arrays at construction time.
+    d = make_dist()
+    sample = d.sample(random.PRNGKey(0))
+    assert jnp.isfinite(d.log_prob(sample)).all()
+
+
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
@@ -2718,6 +2868,17 @@ def test_beta_proportion_invalid_mean():
 ########################################
 
 
+def test_validate_args_of_derived_parameter_under_jit():
+    with pytest.raises(ValueError, match="invalid mean"):
+        jax.jit(lambda: dist.BetaProportion(1.5, 2.0, validate_args=True))()
+
+    log_prob = jax.jit(
+        lambda m: dist.BetaProportion(m, 2.0, validate_args=True).log_prob(0.3)
+    )
+    assert jnp.isfinite(log_prob(0.4))
+    assert log_prob(1.5) == -jnp.inf
+
+
 @pytest.mark.parametrize(
     "constraint, x, expected",
     [
@@ -2870,6 +3031,28 @@ def test_beta_proportion_invalid_mean():
             np.array([-5, 0, 0.5, 1, 7]),
             np.array([False, False, True, False, False]),
         ),
+        (
+            constraints.zero_sum(1),
+            np.array([[1.0, -1.0, 0.0], [1.0, 1.0, -1.0]]),
+            np.array([True, False]),
+        ),
+        (
+            constraints.zero_sum(2),
+            np.array(
+                [
+                    [[1.0, -1.0], [-1.0, 1.0]],
+                    [[1.0, 0.0], [0.0, -1.0]],
+                    [[1.0, -1.0], [1.0, -1.0]],
+                ]
+            ),
+            np.array([True, False, False]),
+        ),
+        (
+            # the tolerance is relative to the scale of the entries
+            constraints.zero_sum(1),
+            np.array([[100.0, -100.0, 1e-5], [100.0, -100.0, 1e-2]], np.float32),
+            np.array([True, False]),
+        ),
     ],
 )
 def test_constraints(constraint, x, expected):
@@ -2888,6 +3071,16 @@ def test_constraints(constraint, x, expected):
         pass
     else:
         assert_allclose(inverse, jnp.zeros_like(inverse), atol=2e-7)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e3])
+@pytest.mark.parametrize("event_shape", [(5,), (4, 5)])
+def test_zero_sum_support_of_samples(scale, event_shape):
+    d = dist.ZeroSumNormal(scale, event_shape)
+    samples = d.sample(random.PRNGKey(0), (100,))
+    mask = d.support(samples)
+    assert jnp.shape(mask) == (100,)
+    assert jnp.all(mask)
 
 
 def test_cat_constraint_pytree_and_validation():

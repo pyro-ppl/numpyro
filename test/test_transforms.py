@@ -631,3 +631,84 @@ def test_time_transform_dtype(transform):
         y64 = transform(x64)
         assert y64.dtype == jnp.float64
         assert jnp.allclose(transform.inv(y64), x64, atol=1e-12)
+
+
+def _assert_lower_cholesky_affine_roundtrip(transform, x):
+    y = transform(x)
+    assert y.shape == transform.forward_shape(x.shape)
+    x_inv = transform.inv(y)
+    assert x_inv.shape == transform.inverse_shape(y.shape)
+    assert jnp.allclose(x_inv, x, atol=1e-5)
+    log_det = transform.log_abs_det_jacobian(x, y)
+    assert log_det.shape == x.shape[:-1]
+    expected_log_det = jnp.broadcast_to(
+        jnp.log(jnp.diagonal(transform.scale_tril, axis1=-2, axis2=-1)).sum(-1),
+        x.shape[:-1],
+    )
+    assert jnp.allclose(log_det, expected_log_det, atol=1e-5)
+
+
+def test_lower_cholesky_affine_2d():
+    loc = jnp.array([1.0, -0.5])
+    scale_tril = jnp.array([[0.6, 0.0], [1.5, 0.4]])
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(0), (5, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+    y = transform(jnp.ones(2))
+    assert jnp.allclose(y, loc + scale_tril @ jnp.ones(2), atol=1e-5)
+
+
+def test_lower_cholesky_affine_batched_loc_shared_scale_tril():
+    loc = jnp.array([[1.0, 0.0], [-1.0, 2.0], [0.5, -0.5]])
+    scale_tril = jnp.array([[0.6, 0.0], [1.5, 0.4]])
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(1), (3, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+    y = transform(x)
+    expected = loc + jnp.einsum("ij,bj->bi", scale_tril, x)
+    assert jnp.allclose(y, expected, atol=1e-5)
+
+
+def test_lower_cholesky_affine_batched_scale_tril():
+    loc = jnp.array([[1.0, 0.0], [-1.0, 2.0], [0.5, -0.5]])
+    scale_tril = jnp.array(
+        [
+            [[0.6, 0.0], [1.5, 0.4]],
+            [[1.0, 0.0], [0.0, 2.0]],
+            [[0.3, 0.0], [-0.2, 0.5]],
+        ]
+    )
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(2), (3, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+    y = transform(x)
+    expected = loc + jnp.einsum("bij,bj->bi", scale_tril, x)
+    assert jnp.allclose(y, expected, atol=1e-5)
+
+
+def test_lower_cholesky_affine_batched_scale_tril_extra_sample_dims():
+    scale_tril = jnp.array(
+        [
+            [[0.6, 0.0], [1.5, 0.4]],
+            [[1.0, 0.0], [0.0, 2.0]],
+        ]
+    )
+    loc = jnp.zeros(2)
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(3), (4, 2, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+
+
+@pytest.mark.parametrize(
+    "scale_tril",
+    [
+        np.array([1.0, 2.0]),
+        np.ones((2, 3)),
+        np.ones((2, 2, 3)),
+    ],
+    ids=["1d", "nonsquare_2d", "nonsquare_batched"],
+)
+def test_lower_cholesky_affine_invalid_scale_tril(scale_tril):
+    loc = np.zeros(scale_tril.shape[-1])
+    with pytest.raises(ValueError, match="scale_tril"):
+        LowerCholeskyAffine(loc, scale_tril)

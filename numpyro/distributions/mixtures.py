@@ -62,23 +62,26 @@ class _MixtureBase(Distribution):
     subclasses should implement the ``component_*`` methods to specialize.
     """
 
+    _mixture_size: int
+    _mixing_distribution: Union[CategoricalProbs, CategoricalLogits]
+
     @property
-    def component_mean(self) -> ArrayLike:
+    def component_mean(self) -> Array:
         raise NotImplementedError
 
     @property
-    def component_variance(self) -> ArrayLike:
+    def component_variance(self) -> Array:
         raise NotImplementedError
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def component_log_probs(self, value: ArrayLike) -> Array:
         raise NotImplementedError
 
     def component_sample(
         self, key: jax.Array, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         raise NotImplementedError
 
-    def component_cdf(self, samples: ArrayLike) -> ArrayLike:
+    def component_cdf(self, samples: ArrayLike) -> Array:
         raise NotImplementedError
 
     @property
@@ -100,16 +103,16 @@ class _MixtureBase(Distribution):
         return -self.event_dim - 1
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         probs = self.mixing_distribution.probs
-        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
+        probs = jnp.reshape(probs, jnp.shape(probs) + (1,) * self.event_dim)
         weighted_component_means = probs * self.component_mean
         return jnp.sum(weighted_component_means, axis=self.mixture_dim)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         probs = self.mixing_distribution.probs
-        probs = probs.reshape(probs.shape + (1,) * self.event_dim)
+        probs = jnp.reshape(probs, jnp.shape(probs) + (1,) * self.event_dim)
         mean_cond_var = jnp.sum(probs * self.component_variance, axis=self.mixture_dim)
         sq_deviation = (
             self.component_mean - jnp.expand_dims(self.mean, axis=self.mixture_dim)
@@ -117,7 +120,7 @@ class _MixtureBase(Distribution):
         var_cond_mean = jnp.sum(probs * sq_deviation, axis=self.mixture_dim)
         return mean_cond_var + var_cond_mean
 
-    def cdf(self, samples: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         """The cumulative distribution function
 
         :param value: samples from this distribution.
@@ -126,12 +129,12 @@ class _MixtureBase(Distribution):
         :raises: NotImplementedError if the component distribution does not
             implement the cdf method.
         """
-        cdf_components = self.component_cdf(samples)
+        cdf_components = self.component_cdf(value)
         return jnp.sum(cdf_components * self.mixing_distribution.probs, axis=-1)
 
     def sample_with_intermediates(
-        self, key: jax.Array, sample_shape: tuple[int, ...] = ()
-    ) -> tuple[ArrayLike, list[ArrayLike]]:
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> tuple[Array, list[Array]]:
         """
         A version of ``sample`` that also returns the sampled component indices
 
@@ -142,14 +145,17 @@ class _MixtureBase(Distribution):
             the indices of the sampled components.
         :rtype: tuple
         """
+        assert key is not None
         assert is_prng_key(key)
         key_comp, key_ind = jax.random.split(key)
         samples = self.component_sample(key_comp, sample_shape=sample_shape)
 
         # Sample selection indices from the categorical (shape will be sample_shape)
-        indices: ArrayLike = self.mixing_distribution.expand(
-            sample_shape + self.batch_shape
-        ).sample(key_ind)
+        indices = jnp.asarray(
+            self.mixing_distribution.expand(sample_shape + self.batch_shape).sample(
+                key_ind
+            )
+        )
         n_expand = self.event_dim + 1
         indices_expanded = indices.reshape(indices.shape + (1,) * n_expand)
 
@@ -161,11 +167,13 @@ class _MixtureBase(Distribution):
         # Final sample shape (*sample_shape, *batch_shape, *event_shape)
         return jnp.squeeze(samples_selected, axis=self.mixture_dim), [indices]
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         return self.sample_with_intermediates(key=key, sample_shape=sample_shape)[0]
 
     @validate_sample
-    def log_prob(self, value: ArrayLike, intermediates=None) -> ArrayLike:
+    def log_prob(self, value: ArrayLike, intermediates=None) -> Array:
         del intermediates
         sum_log_probs = self.component_log_probs(value)
         # the value-preserving where stops gradients from flowing into -inf
@@ -227,7 +235,7 @@ class MixtureSameFamily(_MixtureBase):
             f"(expected ParameterFreeConstraint, but found {component_distribution.support})."
         )
         _check_mixing_distribution(mixing_distribution)
-        mixture_size = mixing_distribution.probs.shape[-1]
+        mixture_size = jnp.shape(mixing_distribution.probs)[-1]
         if not isinstance(component_distribution, Distribution):
             raise ValueError(
                 "The component distribution need to be a numpyro.distributions.Distribution. "
@@ -263,33 +271,37 @@ class MixtureSameFamily(_MixtureBase):
 
     @constraints.dependent_property
     def support(self) -> Constraint:
-        return self.component_distribution.support
+        support = self.component_distribution.support
+        assert support is not None
+        return support
 
     @property
     def is_discrete(self) -> bool:
         return self.component_distribution.is_discrete
 
     @property
-    def component_mean(self) -> ArrayLike:
+    def component_mean(self) -> Array:
         return self.component_distribution.mean
 
     @property
-    def component_variance(self) -> ArrayLike:
+    def component_variance(self) -> Array:
         return self.component_distribution.variance
 
-    def component_cdf(self, samples: ArrayLike) -> ArrayLike:
+    def component_cdf(self, samples: ArrayLike) -> Array:
         return self.component_distribution.cdf(
             jnp.expand_dims(samples, axis=self.mixture_dim)
         )
 
     def component_sample(
         self, key: jax.Array, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
-        return self.component_distribution.expand(
-            sample_shape + self.batch_shape + (self.mixture_size,)
-        ).sample(key)
+    ) -> Array:
+        return jnp.asarray(
+            self.component_distribution.expand(
+                sample_shape + self.batch_shape + (self.mixture_size,)
+            ).sample(key)
+        )
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def component_log_probs(self, value: ArrayLike) -> Array:
         value = jnp.expand_dims(value, self.mixture_dim)
         component_log_probs = self.component_distribution.log_prob(value)
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
@@ -431,20 +443,22 @@ class MixtureGeneral(_MixtureBase):
     def support(self) -> Constraint:
         if self._support is not None:
             return self._support
-        return self.component_distributions[0].support
+        support = self.component_distributions[0].support
+        assert support is not None
+        return support
 
     @property
     def is_discrete(self) -> bool:
         return self.component_distributions[0].is_discrete
 
     @property
-    def component_mean(self) -> ArrayLike:
+    def component_mean(self) -> Array:
         return jnp.stack(
             [d.mean for d in self.component_distributions], axis=self.mixture_dim
         )
 
     @property
-    def component_variance(self) -> ArrayLike:
+    def component_variance(self) -> Array:
         return jnp.stack(
             [d.variance for d in self.component_distributions], axis=self.mixture_dim
         )
@@ -457,19 +471,21 @@ class MixtureGeneral(_MixtureBase):
 
     def component_sample(
         self, key: jax.Array, sample_shape: tuple[int, ...] = ()
-    ) -> ArrayLike:
+    ) -> Array:
         keys = jax.random.split(key, self.mixture_size)
         samples = []
         for k, d in zip(keys, self.component_distributions):
             samples.append(d.expand(sample_shape + self.batch_shape).sample(k))
         return jnp.stack(samples, axis=self.mixture_dim)
 
-    def component_log_probs(self, value: ArrayLike) -> ArrayLike:
+    def component_log_probs(self, value: ArrayLike) -> Array:
         component_log_probs = []
         for d in self.component_distributions:
             log_prob = d.log_prob(value)
             if (self._support is not None) and (not d._validate_args):
-                mask = d.support(value)
+                support = d.support
+                assert support is not None
+                mask = support(value)
                 log_prob = jnp.where(mask, log_prob, -jnp.inf)
             component_log_probs.append(log_prob)
         component_log_probs = jnp.stack(component_log_probs, axis=-1)

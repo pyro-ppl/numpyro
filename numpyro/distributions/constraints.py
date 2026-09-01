@@ -950,11 +950,16 @@ class _ZeroSum(Constraint[NonScalarArray]):
         return self._event_dim
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
+        """Return a boolean mask of shape ``x.shape[:-event_dim]`` that is true where
+        ``x`` sums to zero along each of the last ``event_dim`` axes."""
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
-        tol = xp.finfo(x.dtype).eps * x.shape[-1] * 10
+        event_axes = tuple(range(-self.event_dim, 0))
+        scale = xp.maximum(xp.max(xp.abs(x), axis=event_axes, keepdims=True), 1.0)
         zerosum_true = True
-        for dim in range(-self.event_dim, 0):
-            zerosum_true = zerosum_true & xp.allclose(x.sum(dim), 0, atol=tol)
+        for dim in event_axes:
+            tol = xp.finfo(x.dtype).eps * 10 * x.shape[dim] * scale
+            is_zero = xp.isclose(x.sum(dim, keepdims=True), 0, atol=tol)
+            zerosum_true = zerosum_true & xp.all(is_zero, axis=event_axes)
         return zerosum_true
 
     def eq(self, other: object, static: bool = False) -> ArrayLike:
