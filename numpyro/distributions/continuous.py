@@ -1235,6 +1235,28 @@ class GaussianRandomWalk(Distribution):
 
 
 class HalfCauchy(Distribution):
+    r"""Half-Cauchy distribution parameterized by scale (:attr:`scale`).
+
+    This is a Cauchy distribution folded at zero, with support on
+    :math:`[0, \infty)`. Sampling draws a Cauchy random variable and
+    takes the absolute value. The log density adds :math:`\log 2` to the
+    underlying Cauchy log density so the folded mass is accounted for.
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \sigma) = \frac{2}{\pi \sigma \left[1 +
+       \left(\frac{x}{\sigma}\right)^2\right]}, \qquad x \ge 0
+
+    where :math:`\sigma > 0` is the scale. The mean and variance are
+    undefined (this implementation returns infinity).
+
+    :param scale: Scale parameter (:math:`\sigma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
@@ -1255,29 +1277,96 @@ class HalfCauchy(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Generates samples by folding a Cauchy draw:
+        :math:`X = |Y|` where :math:`Y \sim \mathrm{Cauchy}(0, \sigma)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
         return jnp.abs(self._cauchy.sample(key, sample_shape))
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \sigma) = \log f_{\mathrm{Cauchy}}(x; 0, \sigma) + \log 2
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         return self._cauchy.log_prob(value) + jnp.log(2)
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; \sigma) = 2 F_{\mathrm{Cauchy}}(x; 0, \sigma) - 1
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return self._cauchy.cdf(value) * 2 - 1
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \sigma) = F_{\mathrm{Cauchy}}^{-1}\!\left(\frac{q+1}{2};
+           0, \sigma\right)
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return self._cauchy.icdf((q + 1) / 2)
 
     @property
     def mean(self) -> Array:
+        r"""The mean of the Half-Cauchy distribution is undefined.
+
+        Returns infinity for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.inf)
 
     @property
     def variance(self) -> Array:
+        r"""The variance of the Half-Cauchy distribution is undefined.
+
+        Returns infinity for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.inf)
 
 
 class HalfNormal(Distribution):
+    r"""Half-Normal distribution parameterized by scale (:attr:`scale`).
+
+    This is a Normal distribution folded at zero, with support on
+    :math:`[0, \infty)`. Sampling draws a Normal random variable and
+    takes the absolute value. The log density adds :math:`\log 2` to the
+    underlying Normal log density so the folded mass is accounted for.
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \sigma) = \frac{\sqrt{2}}{\sigma \sqrt{\pi}}
+       \exp\!\left( -\frac{x^2}{2\sigma^2} \right), \qquad x \ge 0
+
+    where :math:`\sigma > 0` is the scale (standard deviation of the
+    unfolded Normal).
+
+    :param scale: Scale parameter (:math:`\sigma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
@@ -1298,25 +1387,72 @@ class HalfNormal(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Generates samples by folding a Normal draw:
+        :math:`X = |Y|` where :math:`Y \sim \mathcal{N}(0, \sigma^2)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
         return jnp.abs(self._normal.sample(key, sample_shape))
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \sigma) = \log f_{\mathcal{N}}(x; 0, \sigma) + \log 2
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         return self._normal.log_prob(value) + jnp.log(2)
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; \sigma) = 2 \Phi\!\left(\frac{x}{\sigma}\right) - 1
+
+        where :math:`\Phi` is the standard Normal CDF. Implemented via
+        :meth:`~numpyro.distributions.continuous.Normal.cdf`.
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return self._normal.cdf(value) * 2 - 1
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \sigma) = \sigma\,\Phi^{-1}\!\left(\frac{q+1}{2}\right)
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return self._normal.icdf((q + 1) / 2)
 
     @property
     def mean(self) -> Array:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \sigma \sqrt{2 / \pi}
+        """
         return jnp.sqrt(2 / jnp.pi) * self.scale
 
     @property
     def variance(self) -> Array:
+        r"""Calculates the analytical variance.
+
+        .. math:: \mathrm{Var}(X) = \sigma^2 \left(1 - 2/\pi\right)
+        """
         return jnp.asarray((1 - 2 / jnp.pi) * self.scale**2)
 
 
@@ -3445,6 +3581,27 @@ class StudentT(Distribution):
 
 
 class Uniform(Distribution):
+    r"""Continuous uniform distribution on the interval
+    :math:`[\mathrm{low}, \mathrm{high})`.
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; a, b) = \frac{1}{b - a}, \qquad a \le x < b
+
+    where :math:`a =` :attr:`low` and :math:`b =` :attr:`high`.
+    Sampling uses :func:`~jax.random.uniform`. The support constraint is
+    an :class:`~numpyro.distributions.constraints.interval` that depends on
+    ``low`` and ``high``.
+
+    :param low: Lower bound (:math:`a`), defaults to 0.
+    :type low: ArrayLike
+    :param high: Upper bound (:math:`b`), defaults to 1.
+    :type high: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {
         "low": constraints.dependent(is_discrete=False, event_dim=0),
         "high": constraints.dependent(is_discrete=False, event_dim=0),
@@ -3472,28 +3629,72 @@ class Uniform(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Generates samples via :func:`~jax.random.uniform` on
+        :math:`[\mathrm{low}, \mathrm{high})`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert key is not None
         shape = sample_shape + self.batch_shape
         return random.uniform(key, shape=shape, minval=self.low, maxval=self.high)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; a, b) = -\log(b - a)
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function, clipped to :math:`[0, 1]`.
+
+        .. math::
+           F(x; a, b) = \mathrm{clip}\!\left(\frac{x - a}{b - a}, 0, 1\right)
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         cdf = (value - self.low) / (self.high - self.low)
         return jnp.clip(cdf, 0.0, 1.0)
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; a, b) = a + q\,(b - a)
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return jnp.asarray(self.low + q * (self.high - self.low))
 
     @property
     def mean(self) -> Array:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = (a + b) / 2
+        """
         return jnp.asarray(self.low + (self.high - self.low) / 2.0)
 
     @property
     def variance(self) -> Array:
+        r"""Calculates the analytical variance.
+
+        .. math:: \mathrm{Var}(X) = (b - a)^2 / 12
+        """
         return jnp.asarray((self.high - self.low) ** 2 / 12.0)
 
     @classmethod
@@ -3505,6 +3706,11 @@ class Uniform(Distribution):
         return batch_shape, event_shape
 
     def entropy(self) -> Array:
+        r"""Differential entropy of the Uniform distribution.
+
+        .. math::
+           H(X) = \log(b - a)
+        """
         return jnp.log(self.high - self.low)
 
 
