@@ -53,28 +53,28 @@ SteinVI based examples include:
 
 **References**
 
-1. .. _steinvi-ref-1:
+1.  .. _steinvi-ref-1:
 
     *Stein's Method Meets Statistics: A Review of Some Recent Developments.* 2021.
-    Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
-    Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
-    Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
-    Yvik Swan.
+     Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
+     Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
+     Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
+     Yvik Swan.
 
-2. .. _steinvi-ref-2:
+2.  .. _steinvi-ref-2:
 
     *Stein Variational Gradient Descent: A General-Purpose Bayesian Inference Algorithm.* 2016.
-    Qiang Liu, Dilin Wang. NeurIPS
+     Qiang Liu, Dilin Wang. NeurIPS
 
-3. .. _steinvi-ref-3:
+3.  .. _steinvi-ref-3:
 
     *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models.* 2019.
-    Dilin Wang, Qiang Liu. PMLR
+     Dilin Wang, Qiang Liu. PMLR
 
-4. .. _steinvi-ref-4:
+4.  .. _steinvi-ref-4:
 
     *ELBOing Stein: Variational Bayes with Stein Mixture Inference.* 2024.
-    Ola Rønning, Eric Nalisnick, Christophe Ley, Padhraic Smyth, and Thomas Hamelryck. arXiv:2410.22948.
+     Ola Rønning, Eric Nalisnick, Christophe Ley, Padhraic Smyth, and Thomas Hamelryck. arXiv:2410.22948.
 
 SteinVI Interface
 -----------------
