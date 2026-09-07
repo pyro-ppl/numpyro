@@ -3,6 +3,7 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import Optional
 
 import numpy as np
 
@@ -350,7 +351,7 @@ class GraphicalKernel(SteinKernel):
     def __init__(
         self,
         mode="matrix",
-        local_kernel_fns: dict[str, SteinKernel] = None,
+        local_kernel_fns: Optional[dict[str, SteinKernel]] = None,
         default_kernel_fn: SteinKernel = RBFKernel(),
     ):
         assert mode == "matrix"
