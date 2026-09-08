@@ -35,7 +35,7 @@ def _numel(shape):
 
 
 class SteinVI:
-    """Variational inference with Stein mixtures inference [1].
+    """Variational inference with Stein mixtures inference [`1 <steinvi-class-ref-1_>`__].
 
     **Example:**
 
@@ -81,7 +81,7 @@ class SteinVI:
     :param Callable model: Python callable with NumPyro primitives for the model.
     :param Callable guide: Python callable with NumPyro primitives for the guide.
     :param _NumPyroOptim optim: An instance of :class:`~numpyro.optim._NumpyroOptim`.
-        Adagrad should be preferred over Adam [1].
+        Adagrad should be preferred over Adam [`1 <steinvi-class-ref-1_>`__].
     :param SteinKernel kernel_fn: Function that computes the reproducing kernel to use with Stein mixture
         inference. We currently recommend :class:`~numpyro.contrib.einstein.RBFKernel`.
         This may change as criteria for kernel selection are not well understood yet.
@@ -90,7 +90,7 @@ class SteinVI:
     :param num_elbo_particles: Number of Monte Carlo draws used to approximate the attractive force gradient.
         More particles give better gradient approximations. Default is `10`.
     :param Float loss_temperature: Scaling factor of the attractive force. Default is `1`.
-    :param Float repulsion_temperature: Scaling factor of the repulsive force [2].
+    :param Float repulsion_temperature: Scaling factor of the repulsive force [`2 <steinvi-class-ref-2_>`__].
         We recommend not scaling the repulsion. Default is `1`.
     :param Callable non_mixture_guide_param_fn: Predicate on names of parameters in the guide which should be optimized
         using one particle. This could be parameters for large normal networks or other transformation.
@@ -100,11 +100,17 @@ class SteinVI:
 
     **References:**
 
-    1. Rønning, Ola, et al. "ELBOing Stein: Variational Bayes with Stein Mixture Inference."
+    1. .. _steinvi-class-ref-1:
+
+       Rønning, Ola, et al. "ELBOing Stein: Variational Bayes with Stein Mixture Inference."
         arXiv preprint arXiv:2410.22948 (2024).
-    2. Liu, Chang, et al. "Understanding and Accelerating Particle-Based Variational Inference."
+    2. .. _steinvi-class-ref-2:
+
+       Liu, Chang, et al. "Understanding and Accelerating Particle-Based Variational Inference."
         International Conference on Machine Learning. PMLR, 2019.
-    3. Wang, Dilin, and Qiang Liu. "Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models."
+    3. .. _steinvi-class-ref-3:
+
+       Wang, Dilin, and Qiang Liu. "Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models."
         International Conference on Machine Learning. PMLR, 2019.
     """  # noqa: E501
 
@@ -569,7 +575,7 @@ class SteinVI:
 
 
 class SVGD(SteinVI):
-    """Stein variational gradient descent [1].
+    """Stein variational gradient descent [`1 <svgd-ref-1_>`__].
 
     **Example:**
 
@@ -606,7 +612,7 @@ class SVGD(SteinVI):
     :param Callable model: Python callable with NumPyro primitives for the model.
     :param Callable guide: Python callable with NumPyro primitives for the guide.
     :param _NumPyroOptim optim: An instance of :class:`~numpyro.optim._NumpyroOptim`.
-        Adagrad should be preferred over Adam [1].
+        Adagrad should be preferred over Adam [`1 <svgd-ref-1_>`__].
     :param SteinKernel kernel_fn: Function that computes the reproducing kernel to use with SVGD.
         We currently recommend :class:`~numpyro.contrib.einstein.RBFKernel`. This may change as criteria for
         kernel selection are not well understood yet.
@@ -626,7 +632,9 @@ class SVGD(SteinVI):
 
     **References:**
 
-    1. Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm."
+    1. .. _svgd-ref-1:
+
+       Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm."
         Advances in neural information processing systems 29 (2016).
     """
 
@@ -664,7 +672,7 @@ ASVGDState = namedtuple(
 
 
 class ASVGD(SVGD):
-    """Annealing Stein variational gradient descent [1].
+    """Annealing Stein variational gradient descent [`1 <asvgd-ref-1_>`__].
 
     **Example:**
 
@@ -701,16 +709,17 @@ class ASVGD(SVGD):
     :param Callable model: Python callable with NumPyro primitives for the model.
     :param Callable guide: Python callable with NumPyro primitives for the guide.
     :param _NumPyroOptim optim: An instance of :class:`~numpyro.optim._NumpyroOptim`.
-        Adagrad should be preferred over Adam [1].
+        Adagrad should be preferred over Adam [`1 <asvgd-ref-1_>`__].
     :param SteinKernel kernel_fn: Function that computes the reproducing kernel to use with ASVGD.
         We currently recommend :class:`~numpyro.contrib.einstein.RBFKernel`.
         This may change as criteria for kernel selection are not well understood yet.
     :param num_stein_particles: Number of particles (i.e., mixture components) in the mixture approximation.
         Default is `10`.
-    :param num_cycles: The total number of cycles during inference. This corresponds to :math:`C` in eq. 4 of [1].
+    :param num_cycles: The total number of cycles during inference. This corresponds to :math:`C` in eq. 4 of [`1
+        <asvgd-ref-1_>`__].
         Default is `10`.
     :param trans_speed: Speed of transition between two phases during inference. This corresponds to :math:`p` in eq. 4
-        of [1]. Default is `10`.
+        of [`1 <asvgd-ref-1_>`__]. Default is `10`.
     :param Dict guide_kwargs: Keyword arguments for :class:`~numpyro.infer.autoguide.AutoDelta`.
         Default behaviour is the same as the default for :class:`~numpyro.infer.autoguide.AutoDelta`.
 
@@ -725,7 +734,9 @@ class ASVGD(SVGD):
 
     **References:**
 
-    1. D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
+    1. .. _asvgd-ref-1:
+
+       D'Angelo, Francesco, and Vincent Fortuin. "Annealed Stein Variational Gradient Descent."
         Third Symposium on Advances in Approximate Bayesian Inference, 2021.
     """
 

@@ -21,11 +21,13 @@ def eigenindices(m: list[int] | int, dim: int) -> Array:
 
         m^\\star = \\prod_{i=1}^D m_i
 
-    For more details see Eq. (10) in [1].
+    For more details see Eq. (10) in [`1 <eigenindices-ref-1_>`__].
 
     **References:**
 
-        1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+        1. .. _eigenindices-ref-1:
+
+           Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param list[int] | int m: The number of desired eigenvalue indices in each dimension.
@@ -80,11 +82,13 @@ def sqrt_eigenvalues(
 ) -> Array:
     """
     The first :math:`m^\\star \\times D` square root of eigenvalues of the laplacian operator in
-    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`. See Eq. (56) in [1].
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`. See Eq. (56) in [`1 <sqrt-eigenvalues-ref-1_>`__].
 
     **References:**
 
-        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+        1. .. _sqrt-eigenvalues-ref-1:
+
+           Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
            Stat Comput 30, 419-446 (2020)
 
     :param int | float | list[int | float] ell: The length of the interval in each dimension divided by 2.
@@ -105,7 +109,7 @@ def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -
     """
     The first :math:`m^\\star` eigenfunctions of the laplacian operator in
     :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
-    evaluated at values of `x`. See Eq. (56) in [1].
+    evaluated at values of `x`. See Eq. (56) in [`1 <eigenfunctions-ref-1_>`__].
     If `x` is 1D, the problem is assumed unidimensional.
     Otherwise, the dimension of the input space is inferred as the size of the last dimension of
     `x`. Other dimensions are treated as batch dimensions.
@@ -134,7 +138,9 @@ def eigenfunctions(x: ArrayLike, ell: float | list[float], m: int | list[int]) -
 
     **References:**
 
-        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+        1. .. _eigenfunctions-ref-1:
+
+           Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
            Stat Comput 30, 419-446 (2020)
 
     :param ArrayLike x: The points at which to evaluate the eigenfunctions.

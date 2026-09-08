@@ -28,13 +28,15 @@ VALID_ELBOS = (Trace_ELBO, TraceMeanField_ELBO, TraceEnum_ELBO, TraceGraph_ELBO)
 class SDVI(StochasticSupportInference):
     """
     Implements the Support Decomposition Variational Inference (SDVI) algorithm for models with
-    stochastic support from [1]. This implementation creates a separate guide for each SLP, trains
+    stochastic support from [`1 <sdvi-ref-1_>`__]. This implementation creates a separate guide for each SLP, trains
     the guides separately, and then combines the guides by weighting them proportional to their ELBO
     estimates.
 
     **References:**
 
-    1. *Rethinking Variational Inference for Probabilistic Programs with Stochastic Support*,
+    1. .. _sdvi-ref-1:
+
+       *Rethinking Variational Inference for Probabilistic Programs with Stochastic Support*,
        Tim Reichelt, Luke Ong, Tom Rainforth
 
     **Example:**
