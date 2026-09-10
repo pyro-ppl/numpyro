@@ -1179,6 +1179,41 @@ class GaussianStateSpace(TransformedDistribution):
 
 
 class GaussianRandomWalk(Distribution):
+    r"""Gaussian random walk distribution parameterized by scale (:attr:`scale`)
+    and the number of steps (:attr:`num_steps`).
+
+    A Gaussian random walk :math:`\mathbf{X} = (X_0, \ldots, X_{n-1})` of
+    length :math:`n = ` :attr:`num_steps` starts at :math:`X_0` and evolves
+    through independent Normal increments:
+
+    .. math::
+
+        X_0 \sim \mathcal{N}(0, \sigma^2),
+        \qquad X_t - X_{t-1} \sim \mathcal{N}(0, \sigma^2), \quad
+        t = 1, \ldots, n - 1,
+
+    where :math:`\sigma > 0` is the scale. The joint probability density
+    function over :math:`\mathbb{R}^n` is
+
+    .. math::
+
+        p(\mathbf{x}) = f(x_0; 0, \sigma^2)
+        \prod_{t=1}^{n-1} f(x_t - x_{t-1}; 0, \sigma^2),
+
+    where :math:`f(\cdot; \mu, \sigma^2)` denotes the univariate Normal
+    density with mean :math:`\mu` and variance :math:`\sigma^2`.
+
+    :param scale: Scale parameter (:math:`\sigma`), the standard deviation of
+        the initial position and of each increment.
+    :type scale: ArrayLike
+    :param num_steps: Number of steps (:math:`n`), i.e. the length of the
+        event vector.
+    :type num_steps: int
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real_vector
     reparametrized_params = ["scale"]
@@ -1204,6 +1239,21 @@ class GaussianRandomWalk(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Generates samples as the cumulative sum of standard Normal draws.
+
+        .. math::
+
+            X_t = \sigma \sum_{s=0}^{t} \epsilon_s, \qquad
+            \epsilon_s \sim \mathcal{N}(0, 1).
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Gaussian random walk of shape
+            ``sample_shape + batch_shape + event_shape``.
+        :rtype: ArrayLike
+        """
         assert is_prng_key(key)
         assert key is not None
         shape = sample_shape + self.batch_shape + self.event_shape
@@ -1212,6 +1262,20 @@ class GaussianRandomWalk(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the joint probability density function.
+
+        .. math::
+
+            \log p(\mathbf{x}) = \log f(x_0; 0, \sigma^2)
+            + \sum_{t=1}^{n-1} \log f(x_t - x_{t-1}; 0, \sigma^2),
+
+        where :math:`f(\cdot; \mu, \sigma^2)` is the univariate Normal density.
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: ArrayLike
+        """
         value = jnp.asarray(value)
         init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
@@ -1224,10 +1288,25 @@ class GaussianRandomWalk(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""Calculates the mean of the Gaussian random walk.
+
+        .. math::
+
+            \mathbb{E}[X_t] = 0, \qquad t = 0, \ldots, n - 1.
+        """
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     @property
     def variance(self) -> Array:
+        r"""Calculates the variance of the Gaussian random walk.
+
+        The variance grows linearly with the step index:
+
+        .. math::
+
+            \mathrm{Var}(X_t) = (t + 1) \sigma^2, \qquad
+            t = 0, \ldots, n - 1.
+        """
         return jnp.broadcast_to(
             jnp.expand_dims(self.scale, -1) ** 2 * jnp.arange(1, self.num_steps + 1),
             self.batch_shape + self.event_shape,
