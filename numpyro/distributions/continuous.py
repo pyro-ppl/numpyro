@@ -3343,7 +3343,28 @@ class Normal(Distribution):
         )
 
 
-class Pareto(TransformedDistribution):
+ class Pareto(TransformedDistribution):
+    r"""Pareto distribution.
+
+    Supported on x >= scale with positive tail-shape alpha. The density is
+
+    .. math::
+
+       f(x) = alpha * scale**alpha / x**(alpha + 1),
+
+    and the CDF is 1 - (scale / x)**alpha. NumPyro implements the
+    distribution as Exponential(alpha), followed by exponential and scale
+    transforms, so samples are scale * exp(E) for E ~ Exponential(alpha).
+
+    The mean exists for alpha > 1 and equals alpha * scale / (alpha - 1).
+    The variance exists for alpha > 2 and equals
+    alpha * scale**2 / ((alpha - 1)**2 * (alpha - 2)).
+
+    :param scale: Minimum value; must be positive.
+    :param alpha: Tail-shape parameter; must be positive.
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    """
+
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
     reparametrized_params = ["scale", "alpha"]
 
@@ -3714,7 +3735,30 @@ class Uniform(Distribution):
         return jnp.log(self.high - self.low)
 
 
-class Weibull(Distribution):
+ class Weibull(Distribution):
+    r"""Weibull distribution.
+
+    Supported on the positive real line with positive scale lambda and shape
+    concentration k. The density is
+
+    .. math::
+
+       f(x) = (k / lambda) * (x / lambda)**(k - 1)
+              * exp(-(x / lambda)**k),
+
+    and the CDF is 1 - exp(-(x / lambda)**k). NumPyro samples with
+    jax.random.weibull_min and evaluates the log density directly. For k = 1
+    this is an exponential distribution with scale lambda; k < 1 gives a
+    decreasing hazard rate and k > 1 gives an increasing hazard rate.
+
+    The moments are E[X] = lambda * Gamma(1 + 1/k) and
+    Var(X) = lambda**2 * (Gamma(1 + 2/k) - Gamma(1 + 1/k)**2).
+
+    :param scale: Scale parameter; must be positive.
+    :param concentration: Shape parameter; must be positive.
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    """
+
     arg_constraints = {
         "scale": constraints.positive,
         "concentration": constraints.positive,
