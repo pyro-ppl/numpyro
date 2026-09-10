@@ -3343,7 +3343,7 @@ class Normal(Distribution):
         )
 
 
- class Pareto(TransformedDistribution):
+class Pareto(TransformedDistribution):
     r"""Pareto distribution.
 
     Supported on x >= scale with positive tail-shape alpha. The density is
@@ -3735,7 +3735,7 @@ class Uniform(Distribution):
         return jnp.log(self.high - self.low)
 
 
- class Weibull(Distribution):
+class Weibull(Distribution):
     r"""Weibull distribution.
 
     Supported on the positive real line with positive scale lambda and shape
