@@ -3344,25 +3344,35 @@ class Normal(Distribution):
 
 
 class Pareto(TransformedDistribution):
-    r"""Pareto distribution.
+    r"""Pareto distribution parameterized by scale (:attr:`scale`) and tail
+    index (:attr:`alpha`).
 
-    Supported on x >= scale with positive tail-shape alpha. The density is
+    The probability density function (PDF) is defined as:
 
     .. math::
+       f(x; x_m, \alpha) = \frac{\alpha x_m^{\alpha}}{x^{\alpha + 1}}
 
-       f(x) = alpha * scale**alpha / x**(alpha + 1),
+    where :math:`x > x_m`, :math:`x_m > 0` is the scale and :math:`\alpha > 0`
+    is the shape. The cumulative distribution function (CDF) is
+    :math:`F(x) = 1 - (x_m / x)^{\alpha}`.
 
-    and the CDF is 1 - (scale / x)**alpha. NumPyro implements the
-    distribution as Exponential(alpha), followed by exponential and scale
-    transforms, so samples are scale * exp(E) for E ~ Exponential(alpha).
+    The distribution is implemented as a :class:`TransformedDistribution`:
+    :math:`X = x_m e^{E}` with :math:`E \sim \mathrm{Exponential}(\alpha)`,
+    i.e. an :class:`Exponential` base distribution followed by
+    :class:`~numpyro.distributions.transforms.ExpTransform` and
+    :class:`~numpyro.distributions.transforms.AffineTransform`.
 
-    The mean exists for alpha > 1 and equals alpha * scale / (alpha - 1).
-    The variance exists for alpha > 2 and equals
-    alpha * scale**2 / ((alpha - 1)**2 * (alpha - 2)).
+    The mean :math:`\alpha x_m / (\alpha - 1)` is finite only for
+    :math:`\alpha > 1` and the variance
+    :math:`\alpha x_m^2 / ((\alpha - 1)^2 (\alpha - 2))` only for
+    :math:`\alpha > 2`; both properties return ``inf`` otherwise.
 
-    :param scale: Minimum value; must be positive.
-    :param alpha: Tail-shape parameter; must be positive.
+    :param scale: Scale parameter (:math:`x_m`), the lower bound of the support.
+    :type scale: ArrayLike
+    :param alpha: Shape (tail index) parameter (:math:`\alpha`).
+    :type alpha: ArrayLike
     :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
     """
 
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
@@ -3736,27 +3746,35 @@ class Uniform(Distribution):
 
 
 class Weibull(Distribution):
-    r"""Weibull distribution.
+    r"""Weibull distribution parameterized by scale (:attr:`scale`) and shape
+    (:attr:`concentration`).
 
-    Supported on the positive real line with positive scale lambda and shape
-    concentration k. The density is
+    The probability density function (PDF) is defined as:
 
     .. math::
+       f(x; \lambda, k) = \frac{k}{\lambda}
+       \left(\frac{x}{\lambda}\right)^{k - 1}
+       \exp\left(-\left(\frac{x}{\lambda}\right)^{k}\right)
 
-       f(x) = (k / lambda) * (x / lambda)**(k - 1)
-              * exp(-(x / lambda)**k),
+    where :math:`x > 0`, :math:`\lambda > 0` is the scale and :math:`k > 0` is
+    the shape. The cumulative distribution function (CDF) is
+    :math:`F(x) = 1 - \exp(-(x / \lambda)^{k})`.
 
-    and the CDF is 1 - exp(-(x / lambda)**k). NumPyro samples with
-    jax.random.weibull_min and evaluates the log density directly. For k = 1
-    this is an exponential distribution with scale lambda; k < 1 gives a
-    decreasing hazard rate and k > 1 gives an increasing hazard rate.
+    For :math:`k = 1` this reduces to :math:`\mathrm{Exponential}(1 / \lambda)`.
+    The hazard rate :math:`h(x) = (k / \lambda)(x / \lambda)^{k - 1}` is
+    decreasing for :math:`k < 1` and increasing for :math:`k > 1`.
 
-    The moments are E[X] = lambda * Gamma(1 + 1/k) and
-    Var(X) = lambda**2 * (Gamma(1 + 2/k) - Gamma(1 + 1/k)**2).
+    The mean is :math:`\lambda \, \Gamma(1 + 1/k)` and the variance is
+    :math:`\lambda^2 \left[\Gamma(1 + 2/k) - \Gamma(1 + 1/k)^2\right]`.
 
-    :param scale: Scale parameter; must be positive.
-    :param concentration: Shape parameter; must be positive.
+    Samples are drawn with :func:`jax.random.weibull_min`.
+
+    :param scale: Scale parameter (:math:`\lambda`).
+    :type scale: ArrayLike
+    :param concentration: Shape parameter (:math:`k`).
+    :type concentration: ArrayLike
     :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
     """
 
     arg_constraints = {
