@@ -9,6 +9,7 @@ We provide a high-level overview of the MCMC algorithms in NumPyro:
 * `BarkerMH <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.barker.BarkerMH>`_ is a gradient-based MCMC method that may be competitive with HMC and NUTS for some models. It is applicable to models with continuous latent variables.
 * `HMCGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.hmc_gibbs.HMCGibbs>`_ combines HMC/NUTS steps with custom Gibbs updates. Gibbs updates must be specified by the user.
 * `DiscreteHMCGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.hmc_gibbs.DiscreteHMCGibbs>`_ combines HMC/NUTS steps with Gibbs updates for discrete latent variables. The corresponding Gibbs updates are computed automatically.
+* `Gibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.gibbs.Gibbs>`_ composes any number of block kernels (HMC/NUTS, `DiscreteGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.gibbs.DiscreteGibbs>`_, `CustomGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.gibbs.CustomGibbs>`_, or nested `Gibbs`), each owning a subset of the latent variables and conditioned on the others. `HMCGibbs` and `DiscreteHMCGibbs` are two-block instances of it.
 * `SA <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.sa.SA>`_ is a gradient-free MCMC method. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate. It may be a good choice for models with non-differentiable log densities. Note that SA generally requires a *very* large number of samples, as mixing tends to be slow. On the plus side individual steps can be fast.
 * `AIES <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.ensemble.AIES>`_ is a gradient-free ensemble MCMC method that informs Metropolis-Hastings proposals by sharing information between chains. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate. It may be a good choice for models with non-differentiable log densities, and can be robust to likelihood-free models. AIES generally requires the number of chains to be twice as large as the number of latent parameters, (and ideally larger). 
 * `ESS <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.ensemble.ESS>`_ is a gradient-free ensemble MCMC method that shares information between chains to find good slice sampling directions. It tends to be more sample efficient than AIES. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate and may be a good choice for models with non-differentiable log densities. ESS generally requires the number of chains to be twice as large as the number of latent parameters, (and ideally larger). 
@@ -52,6 +53,30 @@ HMC
 NUTS
 ^^^^
 .. autoclass:: numpyro.infer.hmc.NUTS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Gibbs
+^^^^^
+.. autoclass:: numpyro.infer.gibbs.Gibbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+CustomGibbs
+^^^^^^^^^^^
+.. autoclass:: numpyro.infer.gibbs.CustomGibbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+DiscreteGibbs
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.infer.gibbs.DiscreteGibbs
     :members:
     :undoc-members:
     :show-inheritance:
@@ -133,7 +158,13 @@ ESS
 
 .. autodata:: numpyro.infer.hmc.HMCState
 
-.. autodata:: numpyro.infer.hmc_gibbs.HMCGibbsState
+.. autoclass:: numpyro.infer.gibbs.GibbsState
+
+.. autoclass:: numpyro.infer.gibbs.CustomGibbsState
+
+.. autoclass:: numpyro.infer.gibbs.DiscreteGibbsState
+
+.. autoclass:: numpyro.infer.hmc_gibbs.HMCGibbsState
 
 .. autodata:: numpyro.infer.sa.SAState
 

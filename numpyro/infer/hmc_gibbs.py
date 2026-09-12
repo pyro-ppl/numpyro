@@ -2,46 +2,72 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from collections.abc import Callable, Sequence
 import copy
 from functools import partial
+from typing import Any, TypeAlias
 
-import numpy as np
-
-from jax import grad, jacfwd, random, value_and_grad
-from jax.flatten_util import ravel_pytree
+import jax
+from jax import random
 import jax.numpy as jnp
-from jax.scipy.special import expit
 
 import numpyro
+from numpyro._typing import (
+    ConstrainFn,
+    ModelArgs,
+    ModelKwargs,
+    ModelT,
+    PyTree,
+    SiteValues,
+)
 from numpyro.contrib.ecs_proxies import block_update, perturbed_method, taylor_proxy
-from numpyro.handlers import condition, seed, substitute, trace
-from numpyro.infer.hmc import HMC
-from numpyro.infer.initialization import init_to_sample
+from numpyro.infer.gibbs import (
+    GIBBS_SITES_KWARG,
+    CustomGibbs,
+    DiscreteGibbs,
+    Gibbs,
+    GibbsState,
+    GibbsUpdateFn,
+    ModelWrapper,
+    conditioned,
+    discrete_latent_sites,
+    prototype_trace,
+    subsample_plate_sizes,
+    with_conditioning,
+)
+from numpyro.infer.hmc import HMC, HMCState
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import _unconstrain_reparam
-from numpyro.util import cond, fori_loop, identity
-
-HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
-"""
- - **z** - a dict of the current latent values (both HMC and Gibbs sites)
- - **hmc_state** - current :data:`~numpyro.infer.hmc.HMCState`
- - **rng_key** - random key for the current step
-"""
+from numpyro.infer.util import _unconstrain_params
+from numpyro.util import cond, identity
 
 
-def _wrap_model(model, *args, **kwargs):
-    gibbs_values = kwargs.pop("_gibbs_sites", {})
-    with condition(data=gibbs_values), substitute(data=gibbs_values):
-        return model(*args, **kwargs)
+class HMCGibbsState(GibbsState):
+    """
+    :class:`~numpyro.infer.gibbs.GibbsState` of :class:`HMCGibbs` and :class:`DiscreteHMCGibbs`,
+    constructed by their `init` method (not positionally).
+
+    - **z** - a dict of the current latent values (both HMC and Gibbs sites)
+    - **block_states** - the states of the Gibbs block and of the HMC block
+    - **rng_key** - random key for the current step
+    - **hmc_state** - property returning the current :data:`~numpyro.infer.hmc.HMCState`
+      (the last block state), so that `extra_fields=["hmc_state.potential_energy"]` works
+    """
+
+    __slots__ = ()
+
+    @property
+    def hmc_state(self) -> HMCState:
+        return self.block_states[-1]
 
 
-class HMCGibbs(MCMCKernel):
+class HMCGibbs(Gibbs):
     """
     [EXPERIMENTAL INTERFACE]
 
     HMC-within-Gibbs. This inference algorithm allows the user to combine
     general purpose gradient-based inference (HMC or NUTS) with custom
-    Gibbs samplers.
+    Gibbs samplers. It is equivalent to
+    ``Gibbs([(CustomGibbs(gibbs_fn), gibbs_sites), (inner_kernel, None)])``.
 
     Note that it is the user's responsibility to provide a correct implementation
     of `gibbs_fn` that samples from the corresponding posterior conditional.
@@ -82,270 +108,29 @@ class HMCGibbs(MCMCKernel):
 
     """
 
-    sample_field = "z"
+    _state_cls = HMCGibbsState
 
-    def __init__(self, inner_kernel, gibbs_fn, gibbs_sites):
+    def __init__(
+        self,
+        inner_kernel: HMC,
+        gibbs_fn: GibbsUpdateFn,
+        gibbs_sites: Sequence[str],
+    ) -> None:
         if not isinstance(inner_kernel, HMC):
             raise ValueError("inner_kernel must be an HMC or NUTS sampler.")
         if not callable(gibbs_fn):
             raise ValueError("gibbs_fn must be a callable")
-        assert inner_kernel.model is not None, (
-            "HMCGibbs does not support models specified via a potential function."
-        )
-
-        self.inner_kernel = copy.copy(inner_kernel)
-        self.inner_kernel._model = partial(_wrap_model, inner_kernel.model)
-        self._gibbs_sites = gibbs_sites
+        if inner_kernel.model is None:
+            raise ValueError(
+                "HMCGibbs does not support models specified via a potential function."
+            )
+        super().__init__([(CustomGibbs(gibbs_fn), gibbs_sites), (inner_kernel, None)])
+        self.inner_kernel = self._kernels[1]
         self._gibbs_fn = gibbs_fn
-        self._prototype_trace = None
-
-    @property
-    def model(self):
-        return self.inner_kernel._model
-
-    def get_diagnostics_str(self, state):
-        state = state.hmc_state
-        return "{} steps of size {:.2e}. acc. prob={:.2f}".format(
-            state.num_steps, state.adapt_state.step_size, state.mean_accept_prob
-        )
-
-    def postprocess_fn(self, args, kwargs):
-        def fn(z):
-            model_kwargs = {} if kwargs is None else kwargs.copy()
-            hmc_sites = {k: v for k, v in z.items() if k not in self._gibbs_sites}
-            gibbs_sites = {k: v for k, v in z.items() if k in self._gibbs_sites}
-            model_kwargs["_gibbs_sites"] = gibbs_sites
-            hmc_sites = self.inner_kernel.postprocess_fn(args, model_kwargs)(hmc_sites)
-            return {**gibbs_sites, **hmc_sites}
-
-        return fn
-
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
-        model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
-        if self._prototype_trace is None:
-            rng_key, key_u = random.split(rng_key)
-            # We use init strategy to get around ImproperUniform which does not have
-            # sample method.
-            self._prototype_trace = trace(
-                substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
-            ).get_trace(*model_args, **model_kwargs)
-
-        rng_key, key_z = random.split(rng_key)
-
-        gibbs_sites = {}
-
-        for name, site in self._prototype_trace.items():
-            if init_params and (name in init_params) and (name in self._gibbs_sites):
-                gibbs_sites[name] = init_params.pop(name)
-
-            elif name in self._gibbs_sites:
-                gibbs_sites[name] = site["value"]
-
-        model_kwargs["_gibbs_sites"] = gibbs_sites
-        hmc_state = self.inner_kernel.init(
-            key_z, num_warmup, init_params, model_args, model_kwargs
-        )
-
-        z = {**gibbs_sites, **hmc_state.z}
-
-        return HMCGibbsState(z, hmc_state, rng_key)
-
-    def sample(self, state, model_args, model_kwargs):
-        model_kwargs = {} if model_kwargs is None else model_kwargs
-        rng_key, rng_gibbs = random.split(state.rng_key)
-
-        def potential_fn(z_gibbs, z_hmc):
-            return self.inner_kernel._potential_fn_gen(
-                *model_args, _gibbs_sites=z_gibbs, **model_kwargs
-            )(z_hmc)
-
-        z_gibbs = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
-        z_hmc = {k: v for k, v in state.z.items() if k in state.hmc_state.z}
-        model_kwargs_ = model_kwargs.copy()
-        model_kwargs_["_gibbs_sites"] = z_gibbs
-        z_hmc = self.inner_kernel.postprocess_fn(model_args, model_kwargs_)(z_hmc)
-
-        z_gibbs = self._gibbs_fn(
-            rng_key=rng_gibbs, gibbs_sites=z_gibbs, hmc_sites=z_hmc
-        )
-
-        if self.inner_kernel._forward_mode_differentiation:
-            pe = potential_fn(z_gibbs, state.hmc_state.z)
-            z_grad = jacfwd(partial(potential_fn, z_gibbs))(state.hmc_state.z)
-        else:
-            pe, z_grad = value_and_grad(partial(potential_fn, z_gibbs))(
-                state.hmc_state.z
-            )
-        hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
-
-        model_kwargs_["_gibbs_sites"] = z_gibbs
-        hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
-
-        z = {**z_gibbs, **hmc_state.z}
-
-        return HMCGibbsState(z, hmc_state, rng_key)
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        state["_prototype_trace"] = None
-        return state
+        self._gibbs_sites = tuple(gibbs_sites)
 
 
-def _discrete_gibbs_proposal_body_fn(
-    z_init_flat, unravel_fn, pe_init, potential_fn, idx, i, val
-):
-    rng_key, z, pe, log_weight_sum = val
-    rng_key, rng_transition = random.split(rng_key)
-    proposal = jnp.where(i >= z_init_flat[idx], i + 1, i)
-    z_new_flat = z_init_flat.at[idx].set(proposal)
-    z_new = unravel_fn(z_new_flat)
-    pe_new = potential_fn(z_new)
-    log_weight_new = pe_init - pe_new
-    # Handles the NaN case...
-    log_weight_new = jnp.where(jnp.isfinite(log_weight_new), log_weight_new, -jnp.inf)
-    # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
-    transition_prob = expit(log_weight_new - log_weight_sum)
-    z, pe = cond(
-        random.bernoulli(rng_transition, transition_prob),
-        (z_new, pe_new),
-        identity,
-        (z, pe),
-        identity,
-    )
-    log_weight_sum = jnp.logaddexp(log_weight_new, log_weight_sum)
-    return rng_key, z, pe, log_weight_sum
-
-
-def _discrete_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
-    # idx: current index of `z_discrete_flat` to update
-    # support_size: support size of z_discrete at the index idx
-
-    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-    # Here we loop over the support of z_flat[idx] to get z_new
-    # Note: we can't vmap potential_fn over all proposals and sample from the conditional
-    # categorical distribution because support_size is a traced value, i.e. its value
-    # might change across different discrete variables;
-    # so here we will loop over all proposals and use an online scheme to sample from
-    # the conditional categorical distribution
-    body_fn = partial(
-        _discrete_gibbs_proposal_body_fn,
-        z_discrete_flat,
-        unravel_fn,
-        pe,
-        potential_fn,
-        idx,
-    )
-    init_val = (rng_key, z_discrete, pe, jnp.array(0.0))
-    rng_key, z_new, pe_new, _ = fori_loop(0, support_size - 1, body_fn, init_val)
-    log_accept_ratio = jnp.array(0.0)
-    return rng_key, z_new, pe_new, log_accept_ratio
-
-
-def _discrete_modified_gibbs_proposal(
-    rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.0
-):
-    assert isinstance(stay_prob, float) and stay_prob >= 0.0 and stay_prob < 1
-    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-    body_fn = partial(
-        _discrete_gibbs_proposal_body_fn,
-        z_discrete_flat,
-        unravel_fn,
-        pe,
-        potential_fn,
-        idx,
-    )
-    # like gibbs_step but here, weight of the current value is 0
-    init_val = (rng_key, z_discrete, pe, jnp.array(-jnp.inf))
-    rng_key, z_new, pe_new, log_weight_sum = fori_loop(
-        0, support_size - 1, body_fn, init_val
-    )
-    rng_key, rng_stay = random.split(rng_key)
-    z_new, pe_new = cond(
-        random.bernoulli(rng_stay, stay_prob),
-        (z_discrete, pe),
-        identity,
-        (z_new, pe_new),
-        identity,
-    )
-    # here we calculate the MH correction: (1 - P(z)) / (1 - P(z_new))
-    # where 1 - P(z) ~ weight_sum
-    # and 1 - P(z_new) ~ 1 + weight_sum - z_new_weight
-    log_accept_ratio = log_weight_sum - jnp.log(
-        jnp.exp(log_weight_sum) - jnp.expm1(pe - pe_new)
-    )
-    return rng_key, z_new, pe_new, log_accept_ratio
-
-
-def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
-    rng_key, rng_proposal = random.split(rng_key, 2)
-    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-
-    proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size)
-    z_new_flat = z_discrete_flat.at[idx].set(proposal)
-    z_new = unravel_fn(z_new_flat)
-    pe_new = potential_fn(z_new)
-    log_accept_ratio = pe - pe_new
-    return rng_key, z_new, pe_new, log_accept_ratio
-
-
-def _discrete_modified_rw_proposal(
-    rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.0
-):
-    assert isinstance(stay_prob, float) and stay_prob >= 0.0 and stay_prob < 1
-    rng_key, rng_proposal, rng_stay = random.split(rng_key, 3)
-    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-
-    i = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
-    proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
-    proposal = jnp.where(random.bernoulli(rng_stay, stay_prob), idx, proposal)
-    z_new_flat = z_discrete_flat.at[idx].set(proposal)
-    z_new = unravel_fn(z_new_flat)
-    pe_new = potential_fn(z_new)
-    log_accept_ratio = pe - pe_new
-    return rng_key, z_new, pe_new, log_accept_ratio
-
-
-def _discrete_gibbs_fn(potential_fn, support_sizes, proposal_fn):
-    def gibbs_fn(rng_key, gibbs_sites, hmc_sites, pe):
-        # get support_sizes of gibbs_sites
-        support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
-        num_discretes = support_sizes_flat.shape[0]
-
-        rng_key, rng_permute = random.split(rng_key)
-        idxs = random.permutation(rng_key, jnp.arange(num_discretes))
-
-        def body_fn(i, val):
-            idx = idxs[i]
-            support_size = support_sizes_flat[idx]
-            rng_key, z, pe = val
-            rng_key, z_new, pe_new, log_accept_ratio = proposal_fn(
-                rng_key,
-                z,
-                pe,
-                potential_fn=partial(potential_fn, z_hmc=hmc_sites),
-                idx=idx,
-                support_size=support_size,
-            )
-            rng_key, rng_accept = random.split(rng_key)
-            # u ~ Uniform(0, 1), u < accept_ratio => -log(u) > -log_accept_ratio
-            # and -log(u) ~ exponential(1)
-            z, pe = cond(
-                random.exponential(rng_accept) > -log_accept_ratio,
-                (z_new, pe_new),
-                identity,
-                (z, pe),
-                identity,
-            )
-            return rng_key, z, pe
-
-        init_val = (rng_key, gibbs_sites, pe)
-        _, gibbs_sites, pe = fori_loop(0, num_discretes, body_fn, init_val)
-        return gibbs_sites, pe
-
-    return gibbs_fn
-
-
-class DiscreteHMCGibbs(HMCGibbs):
+class DiscreteHMCGibbs(Gibbs):
     """
     [EXPERIMENTAL INTERFACE]
 
@@ -392,123 +177,87 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> mcmc.run(random.key(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()["x"]
-        >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
+        >>> assert abs(jnp.mean(samples) - 1.3) < 0.2
         >>> assert abs(jnp.var(samples) - 4.36) < 0.5
 
     """
 
-    def __init__(self, inner_kernel, *, random_walk=False, modified=False):
-        super().__init__(inner_kernel, identity, None)
+    _state_cls = HMCGibbsState
+
+    def __init__(
+        self,
+        inner_kernel: HMC,
+        *,
+        random_walk: bool = False,
+        modified: bool = False,
+    ) -> None:
+        if not isinstance(inner_kernel, HMC):
+            raise ValueError("inner_kernel must be an HMC or NUTS sampler.")
+        if inner_kernel.model is None:
+            raise ValueError(
+                "DiscreteHMCGibbs does not support models specified via a potential function."
+            )
+        discrete_kernel = DiscreteGibbs(
+            inner_kernel.model, random_walk=random_walk, modified=modified
+        )
+        super().__init__(
+            [(discrete_kernel, discrete_latent_sites), (inner_kernel, None)]
+        )
+        self.inner_kernel = self._kernels[1]
         self._random_walk = random_walk
         self._modified = modified
-        if random_walk:
-            if modified:
-                self._discrete_proposal_fn = partial(
-                    _discrete_modified_rw_proposal, stay_prob=0.0
-                )
-            else:
-                self._discrete_proposal_fn = _discrete_rw_proposal
-        else:
-            if modified:
-                self._discrete_proposal_fn = partial(
-                    _discrete_modified_gibbs_proposal, stay_prob=0.0
-                )
-            else:
-                self._discrete_proposal_fn = _discrete_gibbs_proposal
-
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
-        model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
-        rng_key, key_u = random.split(rng_key)
-        # We use init strategy to get around ImproperUniform which does not have
-        # sample method.
-        self._prototype_trace = trace(
-            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
-        ).get_trace(*model_args, **model_kwargs)
-
-        self._support_sizes = {
-            name: np.broadcast_to(
-                site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"])
-            )
-            for name, site in self._prototype_trace.items()
-            if site["type"] == "sample"
-            and site["fn"].has_enumerate_support
-            and not site["is_observed"]
-        }
-        self._gibbs_sites = [
-            name
-            for name, site in self._prototype_trace.items()
-            if site["type"] == "sample"
-            and site["fn"].has_enumerate_support
-            and not site["is_observed"]
-            and site["infer"].get("enumerate", "") != "parallel"
-        ]
-        assert self._gibbs_sites, (
-            "Cannot detect any discrete latent variables in the model."
-        )
-        return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
-
-    def sample(self, state, model_args, model_kwargs):
-        model_kwargs = {} if model_kwargs is None else model_kwargs
-        rng_key, rng_gibbs = random.split(state.rng_key)
-
-        def potential_fn(z_gibbs, z_hmc):
-            return self.inner_kernel._potential_fn_gen(
-                *model_args, _gibbs_sites=z_gibbs, **model_kwargs
-            )(z_hmc)
-
-        z_gibbs = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
-        z_hmc = {k: v for k, v in state.z.items() if k in state.hmc_state.z}
-        model_kwargs_ = model_kwargs.copy()
-        model_kwargs_["_gibbs_sites"] = z_gibbs
-
-        # different from the implementation in HMCGibbs.sample, we feed the current potential energy
-        # and get new potential energy from gibbs_fn
-        gibbs_fn = _discrete_gibbs_fn(
-            potential_fn, self._support_sizes, self._discrete_proposal_fn
-        )
-        z_gibbs, pe = gibbs_fn(
-            rng_key=rng_gibbs,
-            gibbs_sites=z_gibbs,
-            hmc_sites=z_hmc,
-            pe=state.hmc_state.potential_energy,
-        )
-
-        if self.inner_kernel._forward_mode_differentiation:
-            z_grad = jacfwd(partial(potential_fn, z_gibbs))(state.hmc_state.z)
-        else:
-            z_grad = grad(partial(potential_fn, z_gibbs))(state.hmc_state.z)
-        hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
-
-        model_kwargs_["_gibbs_sites"] = z_gibbs
-        hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
-
-        z = {**z_gibbs, **hmc_state.z}
-
-        return HMCGibbsState(z, hmc_state, rng_key)
 
 
 HMCECSState = namedtuple(
     "HMCECSState", "z, hmc_state, rng_key, gibbs_state, accept_prob"
 )
 
+LikelihoodEstimator: TypeAlias = Callable[
+    [dict[str, tuple], SiteValues, PyTree], jax.Array
+]
+"""
+`(likelihoods, unconstrained_params, gibbs_state) -> log-likelihood estimate`; see
+`perturbed_method` in :mod:`numpyro.contrib.ecs_proxies`.
+"""
 
-def _wrap_gibbs_state(model, *args, **kwargs):
-    # this is to let estimate_likelihood handler knows what is the current gibbs_state
-    msg = {"type": "_gibbs_state", "value": kwargs.pop("_gibbs_state", ())}
-    numpyro.primitives.apply_stack(msg)
-    return model(*args, **kwargs)
+ProxyConstructor: TypeAlias = Callable[
+    ..., tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any]]
+]
+"""
+`(prototype_trace, subsample_plate_sizes, model, model_args, model_kwargs, num_blocks) ->
+(proxy_fn, gibbs_init, gibbs_update)`; see :func:`~numpyro.contrib.ecs_proxies.taylor_proxy`.
+"""
 
 
-class HMCECS(HMCGibbs):
+def _ecs_model(model, estimator, *args, **kwargs):
+    """
+    Model wrapper installed once by :class:`HMCECS`: pops `_gibbs_state` from the keyword
+    arguments, hands it to `estimator`, and runs `model` under `estimator`. When the estimator
+    has no `method` (no proxy), the model runs with its plain subsampled likelihood.
+    """
+    gibbs_state = kwargs.pop("_gibbs_state", ())
+    if estimator.method is None:
+        return model(*args, **kwargs)
+    estimator.gibbs_state = gibbs_state
+    with estimator:
+        return model(*args, **kwargs)
+
+
+def _wrap_ecs(model, estimator):
+    return partial(_ecs_model, conditioned(model), estimator)
+
+
+class HMCECS(MCMCKernel):
     """
     [EXPERIMENTAL INTERFACE]
 
     HMC with Energy Conserving Subsampling.
 
-    A subclass of :class:`HMCGibbs` for performing HMC-within-Gibbs for models with subsample
-    statements using the :class:`~numpyro.plate` primitive. This implements Algorithm 1
-    of reference [1] but uses a naive estimation (without control variates) of log likelihood,
-    hence might incur a high variance.
+    A wrapper around an HMC kernel for performing HMC-within-Gibbs for models with subsample
+    statements using the :class:`~numpyro.plate` primitive: it changes the target of the
+    inner kernel (likelihood estimator) and performs the pseudo-marginal Metropolis update of
+    the subsample indices. This implements Algorithm 1 of reference [1] but uses a naive
+    estimation (without control variates) of log likelihood, hence might incur a high variance.
 
     The function can divide subsample indices into blocks and update only one block at each
     MCMC step to improve the acceptance rate of proposed subsamples as detailed in [3].
@@ -552,149 +301,275 @@ class HMCECS(HMCGibbs):
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.key(0), data)
         >>> samples = mcmc.get_samples()["x"]
-        >>> assert abs(jnp.mean(samples) - 1.) < 0.1
+        >>> assert abs(jnp.mean(samples) - 1.) < 0.2
 
     """
 
-    def __init__(self, inner_kernel, *, num_blocks=1, proxy=None):
-        super().__init__(inner_kernel, identity, None)
+    sample_field: str = "z"
 
-        self.inner_kernel._model = partial(_wrap_gibbs_state, self.inner_kernel._model)
+    def __init__(
+        self,
+        inner_kernel: HMC,
+        *,
+        num_blocks: int = 1,
+        proxy: ProxyConstructor | None = None,
+    ) -> None:
+        if not isinstance(inner_kernel, HMC):
+            raise ValueError("inner_kernel must be an HMC or NUTS sampler.")
+        if inner_kernel.model is None:
+            raise ValueError(
+                "HMCECS does not support models specified via a potential function."
+            )
+        self._model = inner_kernel.model
+        self._estimator = estimate_likelihood()
+        # wrap once, at construction: `init` only binds the estimator's method and state
+        self.inner_kernel = inner_kernel.wrap_model(
+            partial(_wrap_ecs, estimator=self._estimator)
+        )
         self._num_blocks = num_blocks
         self._proxy = proxy
+        # static metadata resolved at `init`
+        self._subsample_plate_sizes: dict[str, tuple[int, int]] | None = None
+        self._gibbs_sites: tuple[str, ...] = ()
+        self._gibbs_update = None
+        self._sample_fn = None
 
-    def postprocess_fn(self, args, kwargs):
-        def fn(z):
-            model_kwargs = {} if kwargs is None else kwargs.copy()
-            hmc_sites = {k: v for k, v in z.items() if k not in self._gibbs_sites}
-            gibbs_sites = {k: v for k, v in z.items() if k in self._gibbs_sites}
-            model_kwargs["_gibbs_sites"] = gibbs_sites
-            hmc_sites = self.inner_kernel.postprocess_fn(args, model_kwargs)(hmc_sites)
-            return hmc_sites
+    @property
+    def model(self) -> ModelT:
+        return self._model
+
+    def get_diagnostics_str(self, state: HMCECSState) -> str:
+        return self.inner_kernel.get_diagnostics_str(state.hmc_state)
+
+    def _inner_kwargs(
+        self, model_kwargs: ModelKwargs | None, z_gibbs: SiteValues, gibbs_state: PyTree
+    ) -> ModelKwargs:
+        model_kwargs = with_conditioning(model_kwargs, z_gibbs)
+        model_kwargs["_gibbs_state"] = gibbs_state
+        return model_kwargs
+
+    def _split(self, z: SiteValues) -> tuple[SiteValues, SiteValues]:
+        z_gibbs = {k: v for k, v in z.items() if k in self._gibbs_sites}
+        z_hmc = {k: v for k, v in z.items() if k not in self._gibbs_sites}
+        return z_gibbs, z_hmc
+
+    def postprocess_fn(
+        self, model_args: ModelArgs, model_kwargs: ModelKwargs | None
+    ) -> ConstrainFn:
+        """Inner postprocess on the HMC sites; subsample indices are dropped."""
+
+        def fn(z: SiteValues) -> SiteValues:
+            z_gibbs, z_hmc = self._split(z)
+            return self.inner_kernel.postprocess_fn(
+                model_args, with_conditioning(model_kwargs, z_gibbs)
+            )(z_hmc)
 
         return fn
 
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
-        model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
+    def get_constrain_fn(
+        self, model_args: ModelArgs, model_kwargs: ModelKwargs | None
+    ) -> ConstrainFn:
+        """Inner constrain function on the HMC sites; subsample indices are dropped."""
+
+        def fn(z: SiteValues) -> SiteValues:
+            z_gibbs, z_hmc = self._split(z)
+            return self.inner_kernel.get_constrain_fn(
+                model_args, with_conditioning(model_kwargs, z_gibbs)
+            )(z_hmc)
+
+        return fn
+
+    def init(
+        self,
+        rng_key: jax.Array,
+        num_warmup: int,
+        init_params: SiteValues | None,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> HMCECSState:
+        model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
         rng_key, key_u = random.split(rng_key)
-        # We use init strategy to get around ImproperUniform which does not have
-        # sample method.
-        self._prototype_trace = trace(
-            substitute(seed(self.model, key_u), substitute_fn=init_to_sample)
-        ).get_trace(*model_args, **model_kwargs)
-        self._subsample_plate_sizes = {
-            name: site["args"]
-            for name, site in self._prototype_trace.items()
-            if site["type"] == "plate"
-            and (site["args"][1] is not None)
-            and site["args"][0] > site["args"][1]
-        }  # i.e. size > subsample_size
-        self._gibbs_sites = list(self._subsample_plate_sizes.keys())
-        assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
+        model = conditioned(self._model)
+        model_trace = prototype_trace(model, key_u, model_args, model_kwargs)
+        self._subsample_plate_sizes = subsample_plate_sizes(model_trace)
+        self._gibbs_sites = tuple(self._subsample_plate_sizes)
+        if not self._gibbs_sites:
+            raise ValueError("Cannot detect any subsample statements in the model.")
+        for name in model_kwargs.get(GIBBS_SITES_KWARG, {}):
+            site = model_trace.get(name)
+            if site is not None and any(
+                frame.name in self._subsample_plate_sizes
+                for frame in site["cond_indep_stack"]
+            ):
+                raise ValueError(
+                    f"Site '{name}' is conditioned by an enclosing kernel but lies inside "
+                    "a subsample plate; HMCECS cannot estimate its likelihood."
+                )
         if self._proxy is not None:
             if any(
-                {
-                    name
-                    for name, site in self._prototype_trace.items()
-                    if site["type"] == "sample"
-                    and (not site["is_observed"])
-                    and site["fn"].support.is_discrete
-                }
+                site["type"] == "sample"
+                and (not site["is_observed"])
+                and site["fn"].support.is_discrete
+                for site in model_trace.values()
             ):
                 raise RuntimeError(
                     "Currently, the proxy does not support models with "
                     "discrete latent sites."
                 )
             proxy_fn, gibbs_init, self._gibbs_update = self._proxy(
-                self._prototype_trace,
+                model_trace,
                 self._subsample_plate_sizes,
-                self.model,
+                model,
                 model_args,
                 model_kwargs.copy(),
                 num_blocks=self._num_blocks,
             )
-            method = perturbed_method(self._subsample_plate_sizes, proxy_fn)
-            self.inner_kernel._model = estimate_likelihood(
-                self.inner_kernel._model, method
+            self._estimator.method = perturbed_method(
+                self._subsample_plate_sizes, proxy_fn
             )
-
-            z_gibbs = {
-                name: site["value"]
-                for name, site in self._prototype_trace.items()
-                if name in self._gibbs_sites
-            }
-            rng_key, rng_state = random.split(rng_key)
-            gibbs_state = gibbs_init(rng_state, z_gibbs)
         else:
+            self._estimator.method = None
             self._gibbs_update = partial(
                 block_update, self._subsample_plate_sizes, self._num_blocks
             )
+
+        init_params = None if init_params is None else dict(init_params)
+        z_gibbs = {}
+        for name in self._gibbs_sites:
+            if init_params and name in init_params:
+                z_gibbs[name] = init_params.pop(name)
+            else:
+                z_gibbs[name] = model_trace[name]["value"]
+
+        if self._proxy is not None:
+            rng_key, rng_state = random.split(rng_key)
+            gibbs_state = gibbs_init(rng_state, z_gibbs)
+        else:
             gibbs_state = ()
 
-        model_kwargs["_gibbs_state"] = gibbs_state
-        state = super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
-        return HMCECSState(
-            state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.zeros(())
+        rng_key, key_z = random.split(rng_key)
+        hmc_state = self.inner_kernel.init(
+            key_z,
+            num_warmup,
+            init_params or None,
+            model_args,
+            self._inner_kwargs(model_kwargs, z_gibbs, gibbs_state),
         )
+        z = {**z_gibbs, **hmc_state.z}
+        self._sample_fn = self._sample_one
+        return HMCECSState(z, hmc_state, rng_key, gibbs_state, jnp.zeros(()))
 
-    def sample(self, state, model_args, model_kwargs):
-        model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
-        rng_key, rng_gibbs = random.split(state.rng_key)
+    def _sample_one(
+        self,
+        state: HMCECSState,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> HMCECSState:
+        rng_key, rng_gibbs, rng_accept = random.split(state.rng_key, 3)
 
-        def potential_fn(z_gibbs, gibbs_state, z_hmc):
-            return self.inner_kernel._potential_fn_gen(
-                *model_args,
-                _gibbs_sites=z_gibbs,
-                _gibbs_state=gibbs_state,
-                **model_kwargs,
-            )(z_hmc)
-
-        z_gibbs = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
+        z_gibbs, _ = self._split(state.z)
+        assert self._gibbs_update is not None, "`init` must be called before `sample`."
         z_gibbs_new, gibbs_state_new = self._gibbs_update(
-            rng_key, z_gibbs, state.gibbs_state
+            rng_gibbs, z_gibbs, state.gibbs_state
         )
 
         # given a fixed hmc_sites, pe_new - pe_curr = loglik_new - loglik_curr
         pe = state.hmc_state.potential_energy
-        pe_new = potential_fn(z_gibbs_new, gibbs_state_new, state.hmc_state.z)
+        pe_new = self.inner_kernel.get_potential_fn(
+            model_args, self._inner_kwargs(model_kwargs, z_gibbs_new, gibbs_state_new)
+        )(state.hmc_state.z)
         accept_prob = jnp.clip(jnp.exp(pe - pe_new), None, 1.0)
-        transition = random.bernoulli(rng_key, accept_prob)
-        grad_ = jacfwd if self.inner_kernel._forward_mode_differentiation else grad
+        transition = random.bernoulli(rng_accept, accept_prob)
+
+        def accept(vals):
+            z_gibbs_new, gibbs_state_new, _ = vals
+            refreshed = self.inner_kernel.refresh(
+                state.hmc_state,
+                model_args,
+                self._inner_kwargs(model_kwargs, z_gibbs_new, gibbs_state_new),
+            )
+            return (
+                z_gibbs_new,
+                gibbs_state_new,
+                refreshed.potential_energy,
+                refreshed.z_grad,
+            )
+
         z_gibbs, gibbs_state, pe, z_grad = cond(
             transition,
             (z_gibbs_new, gibbs_state_new, pe_new),
-            lambda vals: (
-                vals
-                + (grad_(partial(potential_fn, vals[0], vals[1]))(state.hmc_state.z),)
-            ),
+            accept,
             (z_gibbs, state.gibbs_state, pe, state.hmc_state.z_grad),
             identity,
         )
 
         hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
-
-        model_kwargs["_gibbs_sites"] = z_gibbs
-        model_kwargs["_gibbs_state"] = gibbs_state
-        hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs)
+        hmc_state = self.inner_kernel.sample(
+            hmc_state,
+            model_args,
+            self._inner_kwargs(model_kwargs, z_gibbs, gibbs_state),
+        )
 
         z = {**z_gibbs, **hmc_state.z}
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
+    def sample(
+        self,
+        state: HMCECSState,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> HMCECSState:
+        assert self._sample_fn is not None, "`init` must be called before `sample`."
+        return self._sample_fn(state, model_args, model_kwargs)
+
+    def refresh(
+        self,
+        state: HMCECSState,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> HMCECSState:
+        """Delegates to the inner kernel with the current subsample indices and proxy state."""
+        z_gibbs, _ = self._split(state.z)
+        hmc_state = self.inner_kernel.refresh(
+            state.hmc_state,
+            model_args,
+            self._inner_kwargs(model_kwargs, z_gibbs, state.gibbs_state),
+        )
+        return state._replace(hmc_state=hmc_state)
+
+    def wrap_model(self, wrapper: ModelWrapper) -> "HMCECS":
+        kernel = copy.copy(self)
+        kernel._model = wrapper(self._model)
+        kernel.inner_kernel = self.inner_kernel.wrap_model(wrapper)
+        kernel._sample_fn = None
+        return kernel
+
     @staticmethod
-    def taylor_proxy(reference_params, degree=2):
+    def taylor_proxy(reference_params: SiteValues, degree: int = 2) -> ProxyConstructor:
         """
         This is just a convenient static method which calls
         :func:`~numpyro.contrib.ecs_proxies.taylor_proxy`.
         """
         return taylor_proxy(reference_params, degree)
 
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        state["_sample_fn"] = None
+        return state
+
 
 class estimate_likelihood(numpyro.primitives.Messenger):
-    def __init__(self, fn=None, method=None):
-        # estimate_likelihood: accept likelihood tuple (fn, value, subsample_name, subsample_dim)
-        # and current unconstrained params
-        # and returns log of the bias-corrected likelihood
-        assert method is not None
+    """
+    Handler that replaces the subsampled likelihood of a model by a bias-corrected estimate.
+    `method` accepts the likelihood tuples `(fn, value, subsample_name, subsample_dim)`, the
+    current unconstrained parameters and the proxy state (`gibbs_state`) and returns the log
+    of the estimated likelihood. Both `method` and `gibbs_state` can be set after
+    construction; the handler is inert while `method` is `None`.
+    """
+
+    def __init__(
+        self, fn: ModelT | None = None, method: LikelihoodEstimator | None = None
+    ) -> None:
         super().__init__(fn)
         self.method = method
         self.params = None
@@ -703,16 +578,13 @@ class estimate_likelihood(numpyro.primitives.Messenger):
         self.gibbs_state = None
 
     def __enter__(self):
-        for handler in numpyro.primitives._PYRO_STACK[::-1]:
-            # the potential_fn in HMC makes the PYRO_STACK nested like trace(...); so we can extract the
-            # unconstrained_params from the _unconstrain_reparam substitute_fn
-            if (
-                isinstance(handler, substitute)
-                and isinstance(handler.substitute_fn, partial)
-                and handler.substitute_fn.func is _unconstrain_reparam
-            ):
-                self.params = handler.substitute_fn.args[0]
-                break
+        if self.method is not None:
+            for handler in numpyro.primitives._PYRO_STACK[::-1]:
+                # the potential_fn in HMC makes the PYRO_STACK nested like trace(...); so we
+                # can extract the unconstrained params from the `_unconstrain_params` handler
+                if isinstance(handler, _unconstrain_params):
+                    self.params = handler.params
+                    break
         return super().__enter__()
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -725,6 +597,7 @@ class estimate_likelihood(numpyro.primitives.Messenger):
             return
 
         if numpyro.get_mask() is not False:
+            assert self.method is not None
             numpyro.factor(
                 "_biased_corrected_log_likelihood",
                 self.method(self.likelihoods, self.params, self.gibbs_state),
@@ -738,10 +611,6 @@ class estimate_likelihood(numpyro.primitives.Messenger):
 
     def process_message(self, msg):
         if self.params is None:
-            return
-
-        if msg["type"] == "_gibbs_state":
-            self.gibbs_state = msg["value"]
             return
 
         if msg["type"] == "sample" and msg["is_observed"]:

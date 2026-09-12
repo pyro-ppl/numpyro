@@ -2,23 +2,39 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+import copy
 from functools import partial
+from typing import Any
 
-from jax import grad, jacfwd, lax, random
-from jax.flatten_util import ravel_pytree
+import numpy as np
+
+import jax
+from jax import random
 import jax.numpy as jnp
 
-from numpyro.infer.hmc import momentum_generator
-from numpyro.infer.hmc_gibbs import DiscreteHMCGibbs
+from numpyro._typing import ConstrainFn, ModelArgs, ModelKwargs, ModelT, SiteValues
+from numpyro.infer.gibbs import (
+    ModelWrapper,
+    _flat_support_sizes,
+    conditioned,
+    discrete_latent_sites,
+    prototype_trace,
+    select_discrete_proposal,
+    with_conditioning,
+)
+from numpyro.infer.hmc import HMC, NUTS, momentum_generator
 from numpyro.infer.hmc_util import euclidean_kinetic_energy, warmup_adapter
+from numpyro.infer.mcmc import MCMCKernel
 from numpyro.util import cond, fori_loop, identity
 
 MixedHMCState = namedtuple("MixedHMCState", "z, hmc_state, rng_key, accept_prob")
 
 
-class MixedHMC(DiscreteHMCGibbs):
+class MixedHMC(MCMCKernel):
     """
-    Implementation of Mixed Hamiltonian Monte Carlo (reference [1]).
+    Implementation of Mixed Hamiltonian Monte Carlo (reference [1]). An HMC-family wrapper
+    that interleaves discrete updates inside the HMC trajectory; it can also be used as a
+    block of :class:`~numpyro.infer.gibbs.Gibbs`.
 
     .. note:: The number of discrete sites to update at each MCMC iteration
         (`n_D` in reference [1]) is fixed at value 1.
@@ -68,30 +84,112 @@ class MixedHMC(DiscreteHMCGibbs):
         >>> assert abs(jnp.var(samples["x"]) - 4.36) < 0.5
     """
 
+    sample_field: str = "z"
+
     def __init__(
         self,
-        inner_kernel,
+        inner_kernel: HMC,
         *,
-        num_discrete_updates=None,
-        random_walk=False,
-        modified=False,
-    ):
-        super().__init__(inner_kernel, random_walk=random_walk, modified=modified)
-        if inner_kernel._algo == "NUTS":
+        num_discrete_updates: int | None = None,
+        random_walk: bool = False,
+        modified: bool = False,
+    ) -> None:
+        if not isinstance(inner_kernel, HMC):
+            raise ValueError("inner_kernel must be an HMC sampler.")
+        if isinstance(inner_kernel, NUTS):
             raise ValueError(
                 "The algorithm only works with HMC and and does not support NUTS."
             )
+        if inner_kernel.model is None:
+            raise ValueError(
+                "MixedHMC does not support models specified via a potential function."
+            )
+        self._model = inner_kernel.model
+        self.inner_kernel = inner_kernel.wrap_model(conditioned)
         self._num_discrete_updates = num_discrete_updates
+        self._random_walk = random_walk
+        self._modified = modified
+        self._discrete_proposal_fn = select_discrete_proposal(random_walk, modified)
+        # static metadata resolved at `init`
+        self._gibbs_sites: tuple[str, ...] = ()
+        self._support_sizes_flat: np.ndarray | None = None
+        self._num_warmup = None
+        self._wa_update = None
 
-    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
-        rng_key, rng_r = random.split(rng_key)
-        state = super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
-        self._support_sizes_flat, _ = ravel_pytree(
-            {k: self._support_sizes[k] for k in self._gibbs_sites}
+    @property
+    def model(self) -> ModelT:
+        return self._model
+
+    def get_diagnostics_str(self, state: MixedHMCState) -> str:
+        return self.inner_kernel.get_diagnostics_str(state.hmc_state)
+
+    def _split(self, z: SiteValues) -> tuple[SiteValues, SiteValues]:
+        z_discrete = {k: v for k, v in z.items() if k in self._gibbs_sites}
+        z_hmc = {k: v for k, v in z.items() if k not in self._gibbs_sites}
+        return z_discrete, z_hmc
+
+    def postprocess_fn(
+        self, model_args: ModelArgs, model_kwargs: ModelKwargs | None
+    ) -> ConstrainFn:
+        def fn(z: SiteValues) -> SiteValues:
+            z_discrete, z_hmc = self._split(z)
+            z_hmc = self.inner_kernel.postprocess_fn(
+                model_args, with_conditioning(model_kwargs, z_discrete)
+            )(z_hmc)
+            return {**z_discrete, **z_hmc}
+
+        return fn
+
+    def get_constrain_fn(
+        self, model_args: ModelArgs, model_kwargs: ModelKwargs | None
+    ) -> ConstrainFn:
+        def fn(z: SiteValues) -> SiteValues:
+            z_discrete, z_hmc = self._split(z)
+            z_hmc = self.inner_kernel.get_constrain_fn(
+                model_args, with_conditioning(model_kwargs, z_discrete)
+            )(z_hmc)
+            return {**z_discrete, **z_hmc}
+
+        return fn
+
+    def init(
+        self,
+        rng_key: jax.Array,
+        num_warmup: int,
+        init_params: SiteValues | None,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> MixedHMCState:
+        model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
+        rng_key, key_u, key_z, rng_r = random.split(rng_key, 4)
+        model_trace = prototype_trace(
+            conditioned(self._model), key_u, model_args, model_kwargs
         )
+        self._gibbs_sites = discrete_latent_sites(model_trace)
+        if not self._gibbs_sites:
+            raise ValueError(
+                "Cannot detect any discrete latent variables in the model."
+            )
+        self._support_sizes_flat = _flat_support_sizes(model_trace, self._gibbs_sites)
         if self._num_discrete_updates is None:
             self._num_discrete_updates = self._support_sizes_flat.shape[0]
         self._num_warmup = num_warmup
+
+        init_params = None if init_params is None else dict(init_params)
+        z_discrete = {}
+        for name in self._gibbs_sites:
+            if init_params and name in init_params:
+                z_discrete[name] = init_params.pop(name)
+            else:
+                z_discrete[name] = model_trace[name]["value"]
+        z_discrete = {k: jnp.asarray(v) for k, v in z_discrete.items()}
+        hmc_state = self.inner_kernel.init(
+            key_z,
+            num_warmup,
+            init_params or None,
+            model_args,
+            with_conditioning(model_kwargs, z_discrete),
+        )
 
         # NB: the warmup adaptation can not be performed in sub-trajectories (i.e. the hmc trajectory
         # between two discrete updates), so we will do it here, at the end of each MixedHMC step.
@@ -107,19 +205,46 @@ class MixedHMC(DiscreteHMCGibbs):
         # In HMC, when `hmc_state.r` is not None, we will skip drawing a random momentum at the
         # beginning of an HMC step. The reason is we need to maintain `r` between each sub-trajectories.
         r = momentum_generator(
-            state.hmc_state.z, state.hmc_state.adapt_state.mass_matrix_sqrt, rng_r
+            hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_r
         )
-        return MixedHMCState(
-            state.z, state.hmc_state._replace(r=r), state.rng_key, jnp.zeros(())
-        )
+        z = {**z_discrete, **hmc_state.z}
+        return MixedHMCState(z, hmc_state._replace(r=r), rng_key, jnp.zeros(()))
 
-    def sample(self, state, model_args, model_kwargs):
+    def refresh(
+        self,
+        state: MixedHMCState,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> MixedHMCState:
+        """Delegates to the inner kernel with the current discrete values in the kwargs."""
+        z_discrete, _ = self._split(state.z)
+        hmc_state = self.inner_kernel.refresh(
+            state.hmc_state, model_args, with_conditioning(model_kwargs, z_discrete)
+        )
+        return state._replace(hmc_state=hmc_state)
+
+    def wrap_model(self, wrapper: ModelWrapper) -> "MixedHMC":
+        kernel = copy.copy(self)
+        kernel._model = wrapper(self._model)
+        kernel.inner_kernel = self.inner_kernel.wrap_model(wrapper)
+        return kernel
+
+    def sample(
+        self,
+        state: MixedHMCState,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> MixedHMCState:
         model_kwargs = {} if model_kwargs is None else model_kwargs
+        assert self._support_sizes_flat is not None, (
+            "`init` must be called before `sample`."
+        )
         num_discretes = self._support_sizes_flat.shape[0]
+        support_sizes_flat = jnp.asarray(self._support_sizes_flat)
 
         def potential_fn(z_gibbs, z_hmc):
-            return self.inner_kernel._potential_fn_gen(
-                *model_args, _gibbs_sites=z_gibbs, **model_kwargs
+            return self.inner_kernel.get_potential_fn(
+                model_args, with_conditioning(model_kwargs, z_gibbs)
             )(z_hmc)
 
         def update_discrete(
@@ -137,19 +262,31 @@ class MixedHMC(DiscreteHMCGibbs):
                 hmc_state.potential_energy,
                 partial(potential_fn, z_hmc=hmc_state.z),
                 idx,
-                self._support_sizes_flat[idx],
+                support_sizes_flat[idx],
             )
             # Algo 1, line 20: depending on reject or refract, we will update
             # the discrete variable and its corresponding kinetic energy. In case of
             # refract, we will need to update the potential energy and its grad w.r.t. hmc_state.z
             ke_discrete_i_new = ke_discrete[idx] + log_accept_ratio
-            grad_ = jacfwd if self.inner_kernel._forward_mode_differentiation else grad
-            z_discrete, pe, ke_discrete_i, z_grad = lax.cond(
+
+            def refract(vals):
+                z_discrete_new, _, ke_discrete_i_new = vals
+                refreshed = self.inner_kernel.refresh(
+                    hmc_state,
+                    model_args,
+                    with_conditioning(model_kwargs, z_discrete_new),
+                )
+                return (
+                    z_discrete_new,
+                    refreshed.potential_energy,
+                    ke_discrete_i_new,
+                    refreshed.z_grad,
+                )
+
+            z_discrete, pe, ke_discrete_i, z_grad = cond(
                 ke_discrete_i_new > 0,
                 (z_discrete_new, pe_new, ke_discrete_i_new),
-                lambda vals: (
-                    vals + (grad_(partial(potential_fn, vals[0]))(hmc_state.z),)
-                ),
+                refract,
                 (
                     z_discrete,
                     hmc_state.potential_energy,
@@ -165,10 +302,8 @@ class MixedHMC(DiscreteHMCGibbs):
             return rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum
 
         def update_continuous(hmc_state, z_discrete):
-            model_kwargs_ = model_kwargs.copy()
-            model_kwargs_["_gibbs_sites"] = z_discrete
             hmc_state_new = self.inner_kernel.sample(
-                hmc_state, model_args, model_kwargs_
+                hmc_state, model_args, with_conditioning(model_kwargs, z_discrete)
             )
 
             # each time a sub-trajectory is performed, we need to reset i and adapt_state
@@ -217,7 +352,7 @@ class MixedHMC(DiscreteHMCGibbs):
                 arrival_times,
             )
 
-        z_discrete = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
+        z_discrete, _ = self._split(state.z)
         rng_key, rng_ke, rng_time, rng_r, rng_accept = random.split(state.rng_key, 5)
         # Algo 1, line 2: sample discrete kinetic energy
         ke_discrete = random.exponential(rng_ke, (num_discretes,))
@@ -226,9 +361,11 @@ class MixedHMC(DiscreteHMCGibbs):
         # the same job: the sub-trajectory length eta_t * M_t is the lag between two arrival time.
         arrival_times = random.uniform(rng_time, (num_discretes,))
         # compute the amount of time to make `num_discrete_updates` discrete updates
-        total_time = (self._num_discrete_updates - 1) // num_discretes + jnp.sort(
+        num_discrete_updates = self._num_discrete_updates
+        assert num_discrete_updates is not None
+        total_time = (num_discrete_updates - 1) // num_discretes + jnp.sort(
             arrival_times
-        )[(self._num_discrete_updates - 1) % num_discretes]
+        )[(num_discrete_updates - 1) % num_discretes]
         # NB: total_time can be different from the HMC trajectory length, so we need to scale
         # the time unit so that total_time * time_unit = hmc_trajectory_length
         time_unit = state.hmc_state.trajectory_length / total_time
@@ -273,7 +410,7 @@ class MixedHMC(DiscreteHMCGibbs):
             trajectory_length=hmc_state.trajectory_length
         )
         hmc_state, z_discrete = cond(
-            random.bernoulli(rng_key, accept_prob),
+            random.bernoulli(rng_accept, accept_prob),
             (hmc_state_new, z_discrete_new),
             identity,
             (hmc_state, z_discrete),
@@ -281,10 +418,12 @@ class MixedHMC(DiscreteHMCGibbs):
         )
 
         # perform hmc adapting (similar to the implementation in hmc)
+        wa_update = self._wa_update
+        assert wa_update is not None
         adapt_state = cond(
             hmc_state.i < self._num_warmup,
             (hmc_state.i, accept_prob, (hmc_state.z,), hmc_state.adapt_state),
-            lambda args: self._wa_update(*args),
+            lambda args: wa_update(*args),
             hmc_state.adapt_state,
             identity,
         )
@@ -305,9 +444,7 @@ class MixedHMC(DiscreteHMCGibbs):
         z = {**z_discrete, **hmc_state.z}
         return MixedHMCState(z, hmc_state, rng_key, accept_prob)
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
         state["_wa_update"] = None
-        state["_prototype_trace"] = None
-        state["_support_sizes_flat"] = None
         return state
