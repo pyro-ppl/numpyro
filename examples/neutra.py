@@ -200,7 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-samples", nargs="?", default=4000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
-    parser.add_argument("--hidden-factor", nargs="?", default=8, type=int)
+    parser.add_argument("--hidden-factor", nargs="?", default=4, type=int)
     parser.add_argument("--num-iters", nargs="?", default=10000, type=int)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
