@@ -3419,6 +3419,37 @@ class Normal(Distribution):
 
 
 class Pareto(TransformedDistribution):
+    r"""Pareto distribution parameterized by scale (:attr:`scale`) and tail
+    index (:attr:`alpha`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; x_m, \alpha) = \frac{\alpha x_m^{\alpha}}{x^{\alpha + 1}}
+
+    where :math:`x > x_m`, :math:`x_m > 0` is the scale and :math:`\alpha > 0`
+    is the shape. The cumulative distribution function (CDF) is
+    :math:`F(x) = 1 - (x_m / x)^{\alpha}`.
+
+    The distribution is implemented as a :class:`TransformedDistribution`:
+    :math:`X = x_m e^{E}` with :math:`E \sim \mathrm{Exponential}(\alpha)`,
+    i.e. an :class:`Exponential` base distribution followed by
+    :class:`~numpyro.distributions.transforms.ExpTransform` and
+    :class:`~numpyro.distributions.transforms.AffineTransform`.
+
+    The mean :math:`\alpha x_m / (\alpha - 1)` is finite only for
+    :math:`\alpha > 1` and the variance
+    :math:`\alpha x_m^2 / ((\alpha - 1)^2 (\alpha - 2))` only for
+    :math:`\alpha > 2`; both properties return ``inf`` otherwise.
+
+    :param scale: Scale parameter (:math:`x_m`), the lower bound of the support.
+    :type scale: ArrayLike
+    :param alpha: Shape (tail index) parameter (:math:`\alpha`).
+    :type alpha: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
     reparametrized_params = ["scale", "alpha"]
 
@@ -3790,6 +3821,37 @@ class Uniform(Distribution):
 
 
 class Weibull(Distribution):
+    r"""Weibull distribution parameterized by scale (:attr:`scale`) and shape
+    (:attr:`concentration`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \lambda, k) = \frac{k}{\lambda}
+       \left(\frac{x}{\lambda}\right)^{k - 1}
+       \exp\left(-\left(\frac{x}{\lambda}\right)^{k}\right)
+
+    where :math:`x > 0`, :math:`\lambda > 0` is the scale and :math:`k > 0` is
+    the shape. The cumulative distribution function (CDF) is
+    :math:`F(x) = 1 - \exp(-(x / \lambda)^{k})`.
+
+    For :math:`k = 1` this reduces to :math:`\mathrm{Exponential}(1 / \lambda)`.
+    The hazard rate :math:`h(x) = (k / \lambda)(x / \lambda)^{k - 1}` is
+    decreasing for :math:`k < 1` and increasing for :math:`k > 1`.
+
+    The mean is :math:`\lambda \, \Gamma(1 + 1/k)` and the variance is
+    :math:`\lambda^2 \left[\Gamma(1 + 2/k) - \Gamma(1 + 1/k)^2\right]`.
+
+    Samples are drawn with :func:`jax.random.weibull_min`.
+
+    :param scale: Scale parameter (:math:`\lambda`).
+    :type scale: ArrayLike
+    :param concentration: Shape parameter (:math:`k`).
+    :type concentration: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {
         "scale": constraints.positive,
         "concentration": constraints.positive,
