@@ -1183,7 +1183,7 @@ class GaussianRandomWalk(Distribution):
     and the number of steps (:attr:`num_steps`).
 
     A Gaussian random walk :math:`\mathbf{X} = (X_0, \ldots, X_{n-1})` of
-    length :math:`n = ` :attr:`num_steps` starts at :math:`X_0` and evolves
+    length :math:`n` (given by :attr:`num_steps`) starts at :math:`X_0` and evolves
     through independent Normal increments:
 
     .. math::
@@ -1197,11 +1197,11 @@ class GaussianRandomWalk(Distribution):
 
     .. math::
 
-        p(\mathbf{x}) = f(x_0; 0, \sigma^2)
-        \prod_{t=1}^{n-1} f(x_t - x_{t-1}; 0, \sigma^2),
+        p(\mathbf{x}) = f(x_0; 0, \sigma)
+        \prod_{t=1}^{n-1} f(x_t - x_{t-1}; 0, \sigma),
 
-    where :math:`f(\cdot; \mu, \sigma^2)` denotes the univariate Normal
-    density with mean :math:`\mu` and variance :math:`\sigma^2`.
+    where :math:`f(\cdot; \mu, \sigma)` denotes the univariate Normal
+    density with mean :math:`\mu` and standard deviation :math:`\sigma`.
 
     :param scale: Scale parameter (:math:`\sigma`), the standard deviation of
         the initial position and of each increment.
@@ -1252,7 +1252,7 @@ class GaussianRandomWalk(Distribution):
         :type sample_shape: tuple[int, ...]
         :return: Samples from the Gaussian random walk of shape
             ``sample_shape + batch_shape + event_shape``.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
         assert is_prng_key(key)
         assert key is not None
@@ -1266,15 +1266,15 @@ class GaussianRandomWalk(Distribution):
 
         .. math::
 
-            \log p(\mathbf{x}) = \log f(x_0; 0, \sigma^2)
-            + \sum_{t=1}^{n-1} \log f(x_t - x_{t-1}; 0, \sigma^2),
+            \log p(\mathbf{x}) = \log f(x_0; 0, \sigma)
+            + \sum_{t=1}^{n-1} \log f(x_t - x_{t-1}; 0, \sigma),
 
-        where :math:`f(\cdot; \mu, \sigma^2)` is the univariate Normal density.
+        where :math:`f(\cdot; \mu, \sigma)` is the univariate Normal density.
 
         :param value: Values at which to evaluate the log density.
         :type value: ArrayLike
         :return: Log probability density.
-        :rtype: ArrayLike
+        :rtype: jax.Array
         """
         value = jnp.asarray(value)
         init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
@@ -1288,7 +1288,7 @@ class GaussianRandomWalk(Distribution):
 
     @property
     def mean(self) -> Array:
-        r"""Calculates the mean of the Gaussian random walk.
+        r"""Calculates the analytical mean of the Gaussian random walk.
 
         .. math::
 
@@ -1298,7 +1298,7 @@ class GaussianRandomWalk(Distribution):
 
     @property
     def variance(self) -> Array:
-        r"""Calculates the variance of the Gaussian random walk.
+        r"""Calculates the analytical variance of the Gaussian random walk.
 
         The variance grows linearly with the step index:
 
