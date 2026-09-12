@@ -25,7 +25,8 @@ def spectral_density_squared_exponential(
     """
     Spectral density of the squared exponential kernel.
 
-    See Section 4.2 in [1] and Section 2.1 in [2].
+    See Section 4.2 in [`1 <spectral-density-squared-exponential-ref-1_>`__] and Section 2.1 in [`2
+    <spectral-density-squared-exponential-ref-2_>`__].
 
     .. math::
 
@@ -35,9 +36,13 @@ def spectral_density_squared_exponential(
 
     **References:**
 
-        1. Rasmussen, C. E., & Williams, C. K. I. (2006). Gaussian Processes for Machine Learning.
+        1. .. _spectral-density-squared-exponential-ref-1:
 
-        2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           Rasmussen, C. E., & Williams, C. K. I. (2006). Gaussian Processes for Machine Learning.
+
+        2. .. _spectral-density-squared-exponential-ref-2:
+
+           Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param int dim: dimension
@@ -59,7 +64,7 @@ def spectral_density_matern(
     """
     Spectral density of the Matérn kernel.
 
-    See Eq. (4.15) in [1] and Section 2.1 in [2].
+    See Eq. (4.15) in [`1 <spectral-density-matern-ref-1_>`__] and Section 2.1 in [`2 <spectral-density-matern-ref-2_>`__].
 
     .. math::
 
@@ -70,9 +75,13 @@ def spectral_density_matern(
 
     **References:**
 
-        1. Rasmussen, C. E., & Williams, C. K. I. (2006). Gaussian Processes for Machine Learning.
+        1. .. _spectral-density-matern-ref-1:
 
-        2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+           Rasmussen, C. E., & Williams, C. K. I. (2006). Gaussian Processes for Machine Learning.
+
+        2. .. _spectral-density-matern-ref-2:
+
+           Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param int dim: dimension
@@ -362,11 +371,13 @@ def diag_spectral_density_periodic(
     """
     Not actually a spectral density but these are used in the same
     way. These are simply the first `m` coefficients of the low rank
-    approximation for the periodic kernel. See Appendix B in [1].
+    approximation for the periodic kernel. See Appendix B in [`1 <diag-spectral-density-periodic-ref-1_>`__].
 
     **References:**
 
-        1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+        1. .. _diag-spectral-density-periodic-ref-1:
+
+           Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayLike alpha: amplitude

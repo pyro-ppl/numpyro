@@ -56,7 +56,7 @@ class SteinKernel(ABC):
 
 
 class RBFKernel(SteinKernel):
-    """Calculates the Gaussian RBF kernel function used in [1]. The kernel is given by
+    """Calculates the Gaussian RBF kernel function used in [`1 <rbfkernel-ref-1_>`__]. The kernel is given by
 
         :math:`k(x,y) = \\exp(\\frac{-1}{h} \\|x-y\\|^2)`,
 
@@ -76,7 +76,9 @@ class RBFKernel(SteinKernel):
 
     **References:**
 
-    1. Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm."
+    1. .. _rbfkernel-ref-1:
+
+       Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm."
         Advances in neural information processing systems 29 (2016).
     """
 
@@ -162,13 +164,15 @@ class IMQKernel(SteinKernel):
 
 class LinearKernel(SteinKernel):
     """
-    Calculates the linear kernel from Theorem 3.3 in [1]. The kernel is given by
+    Calculates the linear kernel from Theorem 3.3 in [`1 <linearkernel-ref-1_>`__]. The kernel is given by
 
         :math:`k(x,y) = x^T y + 1`.
 
     **References:**
 
-    1. Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent as Moment Matching."
+    1. .. _linearkernel-ref-1:
+
+       Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent as Moment Matching."
         Advances in Neural Information Processing Systems 31 (2018).
     """
 
@@ -191,7 +195,8 @@ class LinearKernel(SteinKernel):
 
 
 class RandomFeatureKernel(SteinKernel):
-    """Calculates the Gaussian variate of random kernel in eq. 5 and 6 of [1]. The kernel is given by
+    """Calculates the Gaussian variate of random kernel in eq. 5 and 6 of [`1 <randomfeaturekernel-ref-1_>`__]. The
+    kernel is given by
 
         :math:`k(x,y)= \\frac{1}{m}\\sum_{l=1}^{m}\\phi(x,w_l)\\phi(y,w_l)`,
 
@@ -210,7 +215,9 @@ class RandomFeatureKernel(SteinKernel):
 
     **References:**
 
-    1. Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent as Moment Matching."
+    1. .. _randomfeaturekernel-ref-1:
+
+       Liu, Qiang, and Dilin Wang. "Stein Variational Gradient Descent as Moment Matching."
         Advances in Neural Information Processing Systems 31 (2018).
     """
 
@@ -283,7 +290,7 @@ class RandomFeatureKernel(SteinKernel):
 
 
 class MixtureKernel(SteinKernel):
-    """Calculates a mixture of multiple kernels from eq. 1 of [1]. The kernel is given by
+    """Calculates a mixture of multiple kernels from eq. 1 of [`1 <mixturekernel-ref-1_>`__]. The kernel is given by
 
         :math:`k(x,y) = \\sum_i w_ik_i(x,y)`,
 
@@ -294,7 +301,9 @@ class MixtureKernel(SteinKernel):
 
     **References:**
 
-    1. Ai, Qingzhong, et al. "Stein variational gradient descent with multiple kernels."
+    1. .. _mixturekernel-ref-1:
+
+       Ai, Qingzhong, et al. "Stein variational gradient descent with multiple kernels."
         Cognitive Computation 15.2 (2023): 672-682.
     """
 
@@ -330,7 +339,8 @@ class MixtureKernel(SteinKernel):
 
 
 class GraphicalKernel(SteinKernel):
-    """Calculates the graphical kernel, also called the coordinate-wise kernel, from Theorem 1 in [1].
+    """Calculates the graphical kernel, also called the coordinate-wise kernel, from Theorem 1 in [`1
+    <graphicalkernel-ref-1_>`__].
     The kernel is given by
 
         :math:`k(x,y) = diag({k_l(x_l,y_l)})`,
@@ -344,7 +354,9 @@ class GraphicalKernel(SteinKernel):
 
     **References:**
 
-    1. Wang, Dilin, Zhe Zeng, and Qiang Liu. "Stein variational message passing for continuous graphical models."
+    1. .. _graphicalkernel-ref-1:
+
+       Wang, Dilin, Zhe Zeng, and Qiang Liu. "Stein variational message passing for continuous graphical models."
         International Conference on Machine Learning. PMLR, 2018.
     """
 
@@ -401,11 +413,14 @@ class GraphicalKernel(SteinKernel):
 
 
 class ProbabilityProductKernel(SteinKernel):
-    """**EXPERIMENTAL** Compute the unormalized probability product kernel for Gaussians given by eq. 5 in [1].
+    """**EXPERIMENTAL** Compute the unormalized probability product kernel for Gaussians given by eq. 5 in [`1
+    <probabilityproductkernel-ref-1_>`__].
 
     **References**:
 
-    1. Jebara, Tony, Risi Kondor, and Andrew Howard. "Probability product kernels."
+    1. .. _probabilityproductkernel-ref-1:
+
+       Jebara, Tony, Risi Kondor, and Andrew Howard. "Probability product kernels."
         The Journal of Machine Learning Research 5 (2004): 819-844.
     """
 

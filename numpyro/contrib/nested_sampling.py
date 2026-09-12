@@ -125,7 +125,7 @@ class NestedSampler:
     (EXPERIMENTAL) A wrapper for `jaxns <https://github.com/Joshuaalbert/jaxns>`_ ,
     a nested sampling package based on JAX.
 
-    See reference [1] for details on the meaning of each parameter.
+    See reference [`1 <nestedsampler-ref-1_>`__] for details on the meaning of each parameter.
     Please consider citing this reference if you use the nested sampler in your research.
 
     .. note:: To enumerate over a discrete latent variable, you can add the keyword
@@ -136,7 +136,9 @@ class NestedSampler:
 
     **References**
 
-    1. *JAXNS: a high-performance nested sampling package based on JAX*,
+    1. .. _nestedsampler-ref-1:
+
+       *JAXNS: a high-performance nested sampling package based on JAX*,
        Joshua G. Albert (https://arxiv.org/abs/2012.15286)
 
     :param callable model: a call with NumPyro primitives
