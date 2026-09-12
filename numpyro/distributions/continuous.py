@@ -2175,6 +2175,24 @@ class LKJCholesky(Distribution):
 
 
 class LogNormal(TransformedDistribution):
+    r"""The Log-Normal distribution, a continuous distribution on the positive
+    reals parameterized by :math:`\mu` and :math:`\sigma > 0`. It is the
+    distribution of :math:`\exp(Y)` where
+    :math:`Y \sim \mathrm{Normal}(\mu, \sigma)`, so :math:`\mu` and
+    :math:`\sigma` describe the variable on the log scale rather than the mean
+    and standard deviation of :math:`X` itself.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, \sigma) = \frac{1}{x \sigma \sqrt{2\pi}}
+        \exp\!\left(-\frac{(\ln x - \mu)^{2}}{2\sigma^{2}}\right), \quad x > 0
+
+    where :math:`\mu \in \mathbb{R}` is the location on the log scale
+    (:attr:`loc`) and :math:`\sigma > 0` is the scale on the log scale
+    (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
@@ -2186,6 +2204,11 @@ class LogNormal(TransformedDistribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location on the log scale :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale on the log scale :math:`\sigma > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         base_dist = Normal(loc, scale)
         self.loc, self.scale = base_dist.loc, base_dist.scale
         super(LogNormal, self).__init__(
@@ -2194,13 +2217,28 @@ class LogNormal(TransformedDistribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Log-Normal distribution:
+
+        .. math::
+            \mathbb{E}[X] = \exp\!\left(\mu + \frac{\sigma^{2}}{2}\right)
+        """
         return jnp.exp(self.loc + self.scale**2 / 2)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Log-Normal distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \left(e^{\sigma^{2}} - 1\right) e^{2\mu + \sigma^{2}}
+        """
         return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
 
     def entropy(self) -> Array:
+        r"""Differential entropy of the Log-Normal distribution:
+
+        .. math::
+            H(X) = \mu + \frac{1}{2}\ln\!\left(2\pi e \sigma^{2}\right)
+        """
         return (1 + jnp.log(2 * jnp.pi)) / 2 + self.loc + jnp.log(self.scale)
 
 
@@ -2341,6 +2379,22 @@ class Logistic(Distribution):
 
 
 class LogUniform(TransformedDistribution):
+    r"""The Log-Uniform (reciprocal) distribution, a continuous distribution on
+    :math:`[a, b]` with :math:`0 < a < b`. It is the distribution of
+    :math:`\exp(Y)` where :math:`Y` is uniform on :math:`[\ln a, \ln b]`, so
+    its density is flat on a log scale and every order of magnitude in
+    :math:`[a, b]` carries equal probability.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid a, b) = \frac{1}{x \left(\ln b - \ln a\right)},
+        \quad a \leq x \leq b
+
+    where :math:`a > 0` is the lower bound (:attr:`low`) and :math:`b > a` is
+    the upper bound (:attr:`high`).
+    """
+
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
     reparametrized_params = ["low", "high"]
     pytree_data_fields = ("low", "high", "_support")
@@ -2353,6 +2407,11 @@ class LogUniform(TransformedDistribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param low: Lower bound :math:`a > 0` of the support.
+        :param high: Upper bound :math:`b > a` of the support.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         base_dist = Uniform(jnp.log(low), jnp.log(high))
         self.low, self.high = promote_shapes(low, high)
         self._support = constraints.interval(self.low, self.high)
@@ -2366,16 +2425,32 @@ class LogUniform(TransformedDistribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Log-Uniform distribution:
+
+        .. math::
+            \mathbb{E}[X] = \frac{b - a}{\ln b - \ln a}
+        """
         return (self.high - self.low) / jnp.log(self.high / self.low)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Log-Uniform distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{b^{2} - a^{2}}{2\left(\ln b - \ln a\right)}
+            - \left(\frac{b - a}{\ln b - \ln a}\right)^{2}
+        """
         return (
             0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
             - self.mean**2
         )
 
     def entropy(self) -> Array:
+        r"""Differential entropy of the Log-Uniform distribution:
+
+        .. math::
+            H(X) = \frac{\ln a + \ln b}{2} + \ln\!\left(\ln b - \ln a\right)
+        """
         log_low = jnp.log(self.low)
         log_high = jnp.log(self.high)
         return (log_low + log_high) / 2 + jnp.log(log_high - log_low)
