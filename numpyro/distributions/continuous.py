@@ -1461,8 +1461,8 @@ class InverseGamma(TransformedDistribution):
     positive reals parameterized by concentration :math:`\alpha > 0` and
     a positive parameter called ``rate`` in this library. It is the
     distribution of :math:`1/Y` where
-    :math:`Y \sim \mathrm{Gamma}(\alpha, \lambda)` with the same
-    concentration and rate, and is implemented as a
+    :math:`Y \sim \mathrm{Gamma}(\alpha, \beta)` with the same
+    concentration and rate :math:`\beta`, and is implemented as a
     :class:`~numpyro.distributions.TransformedDistribution` of that Gamma
     under a :class:`~numpyro.distributions.transforms.PowerTransform` with
     exponent ``-1``.
@@ -1524,7 +1524,6 @@ class InverseGamma(TransformedDistribution):
             \mathbb{E}[X] = \frac{\beta}{\alpha - 1} \quad (\alpha > 1)
 
         For :math:`\alpha \le 1` the mean is infinite (returned as ``inf``).
-        Here :math:`\beta` is the NumPyro ``rate`` parameter (Wikipedia scale).
         """
         # mean is inf for alpha <= 1
         a = self.rate / (self.concentration - 1)
@@ -1540,8 +1539,7 @@ class InverseGamma(TransformedDistribution):
             \quad (\alpha > 2)
 
         For :math:`\alpha \le 2` the variance is infinite (returned as
-        ``inf``). Here :math:`\beta` is the NumPyro ``rate`` parameter
-        (Wikipedia scale).
+        ``inf``).
         """
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
@@ -1552,11 +1550,10 @@ class InverseGamma(TransformedDistribution):
 
         .. math::
             H(X) =
-            \alpha + \log\beta + \log\Gamma(\alpha)
+            \alpha + \ln\beta + \ln\Gamma(\alpha)
             - (1 + \alpha)\,\psi(\alpha)
 
-        where :math:`\psi` is the digamma function and :math:`\beta` is the
-        NumPyro ``rate`` parameter (Wikipedia scale).
+        where :math:`\psi` is the digamma function.
         """
         return (
             self.concentration
@@ -1767,8 +1764,13 @@ class Kumaraswamy(Distribution):
         f(x \mid a, b) = a\, b\, x^{a-1}\,(1 - x^{a})^{b-1},
         \quad x \in (0, 1)
 
-    where :math:`a > 0` is (:attr:`concentration1`) and :math:`b > 0` is
-    (:attr:`concentration0`).
+    The Cumulative Distribution Function (CDF) is:
+
+    .. math::
+        F(x \mid a, b) = 1 - (1 - x^{a})^{b}, \quad x \in (0, 1)
+
+    where :math:`a > 0` is the first shape parameter (:attr:`concentration1`)
+    and :math:`b > 0` is the second shape parameter (:attr:`concentration0`).
     """
 
     arg_constraints = {
@@ -1838,9 +1840,9 @@ class Kumaraswamy(Distribution):
 
         .. math::
             \ln f(x \mid a, b) =
-            \log a + \log b
-            + (a - 1)\log x
-            + (b - 1)\log(1 - x^{a})
+            \ln a + \ln b
+            + (a - 1)\ln x
+            + (b - 1)\ln(1 - x^{a})
 
         :param value: Point :math:`x \in (0, 1)` at which to evaluate the log PDF.
         :return: Log probability density under the Kumaraswamy distribution.
