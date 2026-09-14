@@ -92,12 +92,15 @@ class VonMises(Distribution):
     .. math::
         f(x \mid \mu, \kappa) =
         \frac{\exp\!\bigl(\kappa \cos(x - \mu)\bigr)}{2\pi\, I_{0}(\kappa)},
-        \quad x \in [-\pi, \pi)
+        \quad x \in [-\pi, \pi]
 
     where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`),
     :math:`\kappa > 0` is the concentration (:attr:`concentration`), and
     :math:`I_{0}` is the modified Bessel function of the first kind of order
-    zero. The implementation evaluates the log-density with the
+    zero. The closed interval matches :attr:`support`
+    (:data:`~numpyro.distributions.constraints.circular`). The density is
+    :math:`2\pi`-periodic in :math:`x`, and :meth:`log_prob` wraps ``value``
+    modulo :math:`2\pi`. The implementation evaluates the log-density with the
     exponentially scaled Bessel :math:`I_{0}^{e}(\kappa) = I_{0}(\kappa)\,e^{-\kappa}`
     for numerical stability.
 
@@ -127,7 +130,8 @@ class VonMises(Distribution):
         validate_args: Optional[bool] = None,
     ):
         r"""
-        :param loc: Location (mean direction) :math:`\mu \in \mathbb{R}`.
+        :param loc: Location (mean direction) :math:`\mu \in \mathbb{R}`;
+            only :math:`\mu \bmod 2\pi` matters.
         :param concentration: Concentration :math:`\kappa > 0`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
@@ -143,11 +147,12 @@ class VonMises(Distribution):
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
         r"""Draw samples by generating a centered von Mises variate and
-        shifting by :attr:`loc`, then wrapping into :math:`[-\pi, \pi)`.
+        shifting by :attr:`loc`, then wrapping into :math:`[-\pi, \pi]`.
 
         :param key: A JAX PRNG key.
         :param sample_shape: Sample dimensions to prepend to the batch shape.
-        :return: Circular samples in :math:`[-\pi, \pi)`.
+        :return: Circular samples in :math:`[-\pi, \pi]` (endpoint
+            :math:`-\pi` is reachable).
         """
         assert key is not None
         assert is_prng_key(key)
@@ -182,7 +187,7 @@ class VonMises(Distribution):
     @property
     def mean(self) -> Array:
         r"""Circular mean of the von Mises distribution, equal to :attr:`loc`
-        wrapped into :math:`[-\pi, \pi)`:
+        wrapped into :math:`[-\pi, \pi]`:
 
         .. math::
             \mathbb{E}_{\mathrm{circ}}[X] =
