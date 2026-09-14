@@ -3562,8 +3562,8 @@ class StudentT(Distribution):
     r"""Student's t-distribution, a continuous location-scale family on
     :math:`\mathbb{R}` parameterized by degrees of freedom :math:`\nu > 0`,
     location :math:`\mu` and scale :math:`\sigma > 0`. It is the distribution
-    of :math:`\mu + \sigma Z` where :math:`Z = U / \sqrt{V / \nu}`,
-    :math:`U \sim \mathrm{Normal}(0, 1)` independent of
+    of :math:`\mu + \sigma T` where :math:`T = Z / \sqrt{V / \nu}`,
+    :math:`Z \sim \mathrm{Normal}(0, 1)` independent of
     :math:`V \sim \chi^2(\nu)`. For :math:`\nu = 1` it recovers the Cauchy
     distribution; as :math:`\nu \to \infty` it approaches
     :math:`\mathrm{Normal}(\mu, \sigma)`.
@@ -3571,10 +3571,10 @@ class StudentT(Distribution):
     The Probability Density Function (PDF) is:
 
     .. math::
-        f(x \mid \nu, \mu, \sigma) =
+        f(x ; \nu, \mu, \sigma) =
         \frac{\Gamma\bigl(\tfrac{\nu+1}{2}\bigr)}
         {\sqrt{\nu\pi}\,\Gamma\bigl(\tfrac{\nu}{2}\bigr)\,\sigma}
-        \left(1 + \frac{((x-\mu)/\sigma)^{2}}{\nu}\right)^{-\frac{\nu+1}{2}},
+        \left(1 + \frac{1}{\nu}\left(\frac{x-\mu}{\sigma}\right)^{2}\right)^{-\frac{\nu+1}{2}},
         \quad x \in \mathbb{R}
 
     where :math:`\nu > 0` is the degrees of freedom (:attr:`df`),
@@ -3618,6 +3618,16 @@ class StudentT(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples via the location-scale representation
+        :math:`X = \mu + \sigma T` where
+        :math:`T = Z / \sqrt{V / \nu}`,
+        :math:`Z \sim \mathrm{Normal}(0, 1)` independent of
+        :math:`V \sim \chi^{2}(\nu)`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Student's t-distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         key_normal, key_chi2 = random.split(key)
@@ -3628,6 +3638,22 @@ class StudentT(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; \nu, \mu, \sigma) =
+            \ln\Gamma\bigl(\tfrac{\nu+1}{2}\bigr)
+            - \ln\Gamma\bigl(\tfrac{\nu}{2}\bigr)
+            - \tfrac{1}{2}\ln(\nu\pi)
+            - \ln\sigma
+            - \tfrac{\nu+1}{2}
+              \ln\!\left(
+                  1 + \tfrac{1}{\nu}\left(\tfrac{x-\mu}{\sigma}\right)^{2}
+              \right)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density under the Student's t-distribution.
+        """
         y = (value - self.loc) / self.scale
         z = (
             jnp.log(self.scale)
@@ -3643,10 +3669,14 @@ class StudentT(Distribution):
         r"""Mean of the Student's t-distribution.
 
         .. math::
-            \mathbb{E}[X] = \mu \quad (\nu > 1)
+            \mathbb{E}[X] =
+            \begin{cases}
+                \mu & \nu > 1 \\
+                \text{undefined} & \nu \le 1
+            \end{cases}
 
-        For :math:`\nu \le 1` the mean is undefined. This implementation
-        returns ``inf`` in that case, matching SciPy.
+        This implementation returns ``inf`` when the mean is undefined,
+        matching SciPy.
         """
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
@@ -3658,11 +3688,15 @@ class StudentT(Distribution):
         r"""Variance of the Student's t-distribution.
 
         .. math::
-            \mathrm{Var}(X) = \sigma^{2} \frac{\nu}{\nu - 2} \quad (\nu > 2)
+            \mathrm{Var}(X) =
+            \begin{cases}
+                \sigma^{2} \dfrac{\nu}{\nu - 2} & \nu > 2 \\
+                \infty & 1 < \nu \le 2 \\
+                \text{undefined} & \nu \le 1
+            \end{cases}
 
-        For :math:`1 < \nu \le 2` the variance is infinite (returned as
-        ``inf``). For :math:`\nu \le 1` it is undefined (returned as
-        ``nan``).
+        This implementation returns ``inf`` when the variance is infinite
+        and ``nan`` when it is undefined.
         """
         var = jnp.where(
             self.df > 2, jnp.divide(self.scale**2 * self.df, self.df - 2.0), jnp.inf
@@ -3671,6 +3705,25 @@ class StudentT(Distribution):
         return jnp.broadcast_to(var, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Student's
+        t-distribution.
+
+        With :math:`Z = (x - \mu)/\sigma` and
+        :math:`u = \nu / (\nu + Z^{2})`,
+
+        .. math::
+            F(x ; \nu, \mu, \sigma) =
+            \tfrac{1}{2}
+            + \tfrac{1}{2}\,\operatorname{sign}(Z)
+            \bigl(1 - I_{u}(\tfrac{\nu}{2}, \tfrac{1}{2})\bigr)
+
+        where :math:`I_{u}` is the regularized incomplete beta function.
+        Equivalently, :math:`Z^{2}` follows an
+        :math:`F(1, \nu)` distribution.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         # Ref: https://en.wikipedia.org/wiki/Student's_t-distribution#Related_distributions
         # X^2 ~ F(1, df) -> df / (df + X^2) ~ Beta(df/2, 0.5)
         scaled = (value - self.loc) / self.scale
@@ -3686,6 +3739,20 @@ class StudentT(Distribution):
         )
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the Student's t-distribution.
+
+        Obtained by inverting the Beta representation used in :meth:`cdf`:
+        with :math:`u = I^{-1}_{1 - |1 - 2q|}(\nu/2, 1/2)`,
+
+        .. math::
+            F^{-1}(q ; \nu, \mu, \sigma) =
+            \mu + \sigma\,\operatorname{sign}(q - \tfrac{1}{2})
+            \sqrt{\nu\,(1/u - 1)},
+            \quad q \in [0, 1]
+
+        :param q: Quantile values in :math:`[0, 1]`.
+        :return: Real-valued quantiles of the Student's t-distribution at ``q``.
+        """
         beta_value = betaincinv(0.5 * self.df, 0.5, 1 - jnp.abs(1 - 2 * q))
         scaled_squared = self.df * (1 / beta_value - 1)
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
@@ -3697,12 +3764,12 @@ class StudentT(Distribution):
         .. math::
             H(X) =
             \frac{\nu+1}{2}
-            \left(
-                \psi\!\left(\tfrac{\nu+1}{2}\right)
-                - \psi\!\left(\tfrac{\nu}{2}\right)
-            \right)
-            + \tfrac{1}{2}\log\nu
-            + \log B\!\left(\tfrac{\nu}{2}, \tfrac{1}{2}\right)
+            \left[
+                \psi\!\left(\frac{\nu+1}{2}\right)
+                - \psi\!\left(\frac{\nu}{2}\right)
+            \right]
+            + \frac{1}{2}\log\nu
+            + \log B\!\left(\frac{\nu}{2}, \frac{1}{2}\right)
             + \log\sigma
         """
         return jnp.broadcast_to(
