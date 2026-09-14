@@ -3743,6 +3743,37 @@ def test_mask_grad(event_shape):
 
 
 @pytest.mark.parametrize(
+    "make_dist",
+    [
+        lambda low: dist.DoublyTruncatedPowerLaw(alpha=-1.5, low=low, high=100.0),
+        lambda low: dist.LowerTruncatedPowerLaw(alpha=-2.5, low=low),
+    ],
+    ids=["DoublyTruncatedPowerLaw", "LowerTruncatedPowerLaw"],
+)
+def test_truncation_bounds_are_pytree_leaves(make_dist):
+    """Parameter-derived supports belong in ``pytree_data_fields``.
+
+    Holding ``_support`` in ``pytree_aux_fields`` puts the truncation bounds in the
+    static treedef, so a jitted function taking the distribution as an argument
+    retraces for every distinct bound.
+    """
+    traces = []
+
+    @jax.jit
+    def log_prob(d, value):
+        traces.append(None)
+        return d.log_prob(value)
+
+    for low in [1.0, 1.1, 1.2, 1.3, 1.4]:
+        log_prob(make_dist(low), jnp.array(5.0))
+    assert len(traces) == 1
+
+    d = make_dist(2.0)
+    leaves, _ = jax.tree.flatten(d)
+    assert any(jnp.ndim(leaf) == 0 and leaf == 2.0 for leaf in leaves)
+
+
+@pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_dist_pytree(jax_dist, sp_dist, params):
