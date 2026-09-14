@@ -1170,8 +1170,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         "high": constraints.greater_than(0),
     }
     reparametrized_params = ["alpha", "low", "high"]
-    pytree_aux_fields = ("_support",)
-    pytree_data_fields = ("alpha", "low", "high")
+    pytree_data_fields = ("alpha", "low", "high", "_support")
     _support: constraints.Constraint
 
     def __init__(
@@ -1655,7 +1654,7 @@ class LowerTruncatedPowerLaw(Distribution):
         "low": constraints.greater_than(0.0),
     }
     reparametrized_params = ["alpha", "low"]
-    pytree_aux_fields = ("_support",)
+    pytree_data_fields = ("alpha", "low", "_support")
     _support: constraints.Constraint
 
     def __init__(
