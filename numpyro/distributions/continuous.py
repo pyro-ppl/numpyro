@@ -1536,10 +1536,35 @@ class HalfNormal(Distribution):
 
 
 class InverseGamma(TransformedDistribution):
-    """
-    .. note:: We keep the same notation `rate` as in Pyro but
-        it plays the role of scale parameter of InverseGamma in literatures
-        (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
+    r"""The Inverse-Gamma distribution, a continuous distribution on the
+    positive reals parameterized by concentration :math:`\alpha > 0` and
+    a positive parameter called ``rate`` in this library. It is the
+    distribution of :math:`1/Y` where
+    :math:`Y \sim \mathrm{Gamma}(\alpha, \beta)` with the same
+    concentration and rate :math:`\beta`, and is implemented as a
+    :class:`~numpyro.distributions.TransformedDistribution` of that Gamma
+    under a :class:`~numpyro.distributions.transforms.PowerTransform` with
+    exponent ``-1``.
+
+    .. note:: We keep the same notation ``rate`` as in Pyro, but it plays
+        the role of the *scale* parameter of the Inverse-Gamma in the
+        literature (e.g. Wikipedia:
+        https://en.wikipedia.org/wiki/Inverse-gamma_distribution).
+        In the formulas below, :math:`\beta` denotes this NumPyro ``rate``
+        parameter (Wikipedia scale), not a rate in the Wikipedia sense.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \alpha, \beta) =
+        \frac{\beta^{\alpha}}{\Gamma(\alpha)}
+        x^{-\alpha-1}
+        \exp\!\left(-\frac{\beta}{x}\right),
+        \quad x > 0
+
+    where :math:`\alpha > 0` is the concentration (:attr:`concentration`)
+    and :math:`\beta > 0` is the NumPyro ``rate`` parameter (:attr:`rate`),
+    which corresponds to Wikipedia's scale.
     """
 
     arg_constraints = {
@@ -1556,6 +1581,13 @@ class InverseGamma(TransformedDistribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param concentration: Concentration (shape) :math:`\alpha > 0`.
+        :param rate: NumPyro ``rate`` parameter :math:`\beta > 0`, which
+            plays the role of Wikipedia's *scale* (see class note). Defaults
+            to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         base_dist = Gamma(concentration, rate)
         self.concentration = base_dist.concentration
         self.rate = base_dist.rate
@@ -1565,17 +1597,43 @@ class InverseGamma(TransformedDistribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Inverse-Gamma distribution:
+
+        .. math::
+            \mathbb{E}[X] = \frac{\beta}{\alpha - 1} \quad (\alpha > 1)
+
+        For :math:`\alpha \le 1` the mean is infinite (returned as ``inf``).
+        """
         # mean is inf for alpha <= 1
         a = self.rate / (self.concentration - 1)
         return jnp.where(self.concentration <= 1, jnp.inf, a)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Inverse-Gamma distribution:
+
+        .. math::
+            \mathrm{Var}(X) =
+            \frac{\beta^{2}}{(\alpha - 1)^{2} (\alpha - 2)}
+            \quad (\alpha > 2)
+
+        For :math:`\alpha \le 2` the variance is infinite (returned as
+        ``inf``).
+        """
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
     def entropy(self) -> Array:
+        r"""Differential entropy of the Inverse-Gamma distribution:
+
+        .. math::
+            H(X) =
+            \alpha + \ln\beta + \ln\Gamma(\alpha)
+            - (1 + \alpha)\,\psi(\alpha)
+
+        where :math:`\psi` is the digamma function.
+        """
         return (
             self.concentration
             + jnp.log(self.rate)
@@ -1772,6 +1830,28 @@ class Gumbel(Distribution):
 
 
 class Kumaraswamy(Distribution):
+    r"""The Kumaraswamy distribution, a continuous distribution on the unit
+    interval parameterized by two positive shape parameters
+    :math:`a` (:attr:`concentration1`) and :math:`b`
+    (:attr:`concentration0`). It is a Beta-like family with a simple closed
+    form PDF and CDF, often used as a computationally convenient alternative
+    to the Beta distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid a, b) = a\, b\, x^{a-1}\,(1 - x^{a})^{b-1},
+        \quad x \in (0, 1)
+
+    The Cumulative Distribution Function (CDF) is:
+
+    .. math::
+        F(x \mid a, b) = 1 - (1 - x^{a})^{b}, \quad x \in (0, 1)
+
+    where :math:`a > 0` is the first shape parameter (:attr:`concentration1`)
+    and :math:`b > 0` is the second shape parameter (:attr:`concentration0`).
+    """
+
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
@@ -1792,6 +1872,11 @@ class Kumaraswamy(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param concentration1: Shape parameter :math:`a > 0`.
+        :param concentration0: Shape parameter :math:`b > 0`.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.concentration1, self.concentration0 = promote_shapes(
             concentration1, concentration0
         )
@@ -1803,6 +1888,21 @@ class Kumaraswamy(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples via the inverse CDF transform. If
+        :math:`U \sim \mathrm{Uniform}(0, 1)`, then
+
+        .. math::
+            X = \bigl(1 - U^{1/b}\bigr)^{1/a}
+
+        which has the same law as the usual inverse
+        :math:`\bigl(1 - (1-U)^{1/b}\bigr)^{1/a}` because :math:`U` and
+        :math:`1-U` are equal in distribution. Values are clipped away from
+        ``0`` and ``1`` for numerical stability.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples in the open unit interval.
+        """
         assert is_prng_key(key)
         assert key is not None
         finfo = jnp.finfo(jnp.result_type(float))
@@ -1815,6 +1915,17 @@ class Kumaraswamy(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x \mid a, b) =
+            \ln a + \ln b
+            + (a - 1)\ln x
+            + (b - 1)\ln(1 - x^{a})
+
+        :param value: Point :math:`x \in (0, 1)` at which to evaluate the log PDF.
+        :return: Log probability density under the Kumaraswamy distribution.
+        """
         finfo = jnp.finfo(jnp.result_type(float))
         normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
         value_con1 = jnp.clip(value**self.concentration1, None, 1 - finfo.eps)
@@ -1826,11 +1937,25 @@ class Kumaraswamy(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Kumaraswamy distribution:
+
+        .. math::
+            \mathbb{E}[X] = b\, B\!\left(1 + \tfrac{1}{a},\, b\right)
+
+        where :math:`B` is the beta function.
+        """
         log_beta = betaln(1 + 1 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Kumaraswamy distribution:
+
+        .. math::
+            \mathrm{Var}(X) =
+            b\, B\!\left(1 + \tfrac{2}{a},\, b\right)
+            - \bigl(\mathbb{E}[X]\bigr)^{2}
+        """
         log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
 
