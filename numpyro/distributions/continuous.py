@@ -3559,6 +3559,29 @@ class SoftLaplace(Distribution):
 
 
 class StudentT(Distribution):
+    r"""Student's t-distribution, a continuous location-scale family on
+    :math:`\mathbb{R}` parameterized by degrees of freedom :math:`\nu > 0`,
+    location :math:`\mu` and scale :math:`\sigma > 0`. It is the distribution
+    of :math:`\mu + \sigma Z` where :math:`Z = U / \sqrt{V / \nu}`,
+    :math:`U \sim \mathrm{Normal}(0, 1)` independent of
+    :math:`V \sim \chi^2(\nu)`. For :math:`\nu = 1` it recovers the Cauchy
+    distribution; as :math:`\nu \to \infty` it approaches
+    :math:`\mathrm{Normal}(\mu, \sigma)`.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \nu, \mu, \sigma) =
+        \frac{\Gamma\bigl(\tfrac{\nu+1}{2}\bigr)}
+        {\sqrt{\nu\pi}\,\Gamma\bigl(\tfrac{\nu}{2}\bigr)\,\sigma}
+        \left(1 + \frac{((x-\mu)/\sigma)^{2}}{\nu}\right)^{-\frac{\nu+1}{2}},
+        \quad x \in \mathbb{R}
+
+    where :math:`\nu > 0` is the degrees of freedom (:attr:`df`),
+    :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`\sigma > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {
         "df": constraints.positive,
         "loc": constraints.real,
@@ -3576,6 +3599,12 @@ class StudentT(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param df: Degrees of freedom :math:`\nu > 0`.
+        :param loc: Location :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale :math:`\sigma > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         batch_shape = lax.broadcast_shapes(
             jnp.shape(df), jnp.shape(loc), jnp.shape(scale)
         )
@@ -3611,6 +3640,14 @@ class StudentT(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Student's t-distribution.
+
+        .. math::
+            \mathbb{E}[X] = \mu \quad (\nu > 1)
+
+        For :math:`\nu \le 1` the mean is undefined. This implementation
+        returns ``inf`` in that case, matching SciPy.
+        """
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
             jnp.where(self.df <= 1, jnp.inf, self.loc), self.batch_shape
@@ -3618,6 +3655,15 @@ class StudentT(Distribution):
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Student's t-distribution.
+
+        .. math::
+            \mathrm{Var}(X) = \sigma^{2} \frac{\nu}{\nu - 2} \quad (\nu > 2)
+
+        For :math:`1 < \nu \le 2` the variance is infinite (returned as
+        ``inf``). For :math:`\nu \le 1` it is undefined (returned as
+        ``nan``).
+        """
         var = jnp.where(
             self.df > 2, jnp.divide(self.scale**2 * self.df, self.df - 2.0), jnp.inf
         )
@@ -3646,6 +3692,19 @@ class StudentT(Distribution):
         return scaled * self.scale + self.loc
 
     def entropy(self) -> Array:
+        r"""Differential entropy of the Student's t-distribution.
+
+        .. math::
+            H(X) =
+            \frac{\nu+1}{2}
+            \left(
+                \psi\!\left(\tfrac{\nu+1}{2}\right)
+                - \psi\!\left(\tfrac{\nu}{2}\right)
+            \right)
+            + \tfrac{1}{2}\log\nu
+            + \log B\!\left(\tfrac{\nu}{2}, \tfrac{1}{2}\right)
+            + \log\sigma
+        """
         return jnp.broadcast_to(
             (self.df + 1) / 2 * (digamma((self.df + 1) / 2) - digamma(self.df / 2))
             + jnp.log(self.df) / 2
