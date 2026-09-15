@@ -37,6 +37,13 @@ def test_binary_cross_entropy_with_logits(x, y):
     assert_allclose(actual, expect, rtol=1e-6)
 
 
+def test_binary_cross_entropy_with_logits_at_boundary():
+    assert binary_cross_entropy_with_logits(-jnp.inf, 0) == 0
+    assert binary_cross_entropy_with_logits(jnp.inf, 0) == jnp.inf
+    assert binary_cross_entropy_with_logits(-jnp.inf, 1) == jnp.inf
+    assert binary_cross_entropy_with_logits(jnp.inf, 1) == 0
+
+
 @pytest.mark.parametrize("prim", [xlogy, xlog1py])
 def test_binop_batch_rule(prim):
     bx = np.array([1.0, 2.0, 3.0])

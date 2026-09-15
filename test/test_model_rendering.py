@@ -183,3 +183,28 @@ def test_param_with_lambda_and_sample():
     assert "x" in relations["sample_dist"]
     assert relations["sample_dist"]["x"] == "CategoricalProbs"
     assert "p" in relations["sample_param"]["x"]
+
+
+def test_get_model_relations_masked_observations():
+    """
+    Regression test for https://github.com/pyro-ppl/numpyro/issues/2254.
+
+    On JAX >= 0.11, boolean masks passed through Distribution.mask() appear
+    as closed-over constants in the jaxpr, which used to crash provenance
+    tracking with "AssertionError: length mismatch" in track_deps_jaxpr.
+    """
+
+    def model(obs, mask):
+        alpha = numpyro.sample("alpha", dist.Normal(0.0, 1.0))
+        sigma = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
+        with numpyro.plate("data", obs.shape[0]):
+            numpyro.sample("obs", dist.Normal(alpha, sigma).mask(mask), obs=obs)
+
+    obs = jnp.array([1.0, 2.0, jnp.nan, 4.0])
+    mask = jnp.array([True, True, False, True])
+
+    relations = get_model_relations(model, model_args=(obs, mask))
+
+    assert relations["observed"] == ["obs"]
+    assert relations["sample_dist"]["obs"] == "Normal"
+    assert set(relations["sample_sample"]["obs"]) == {"alpha", "sigma"}

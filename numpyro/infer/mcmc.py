@@ -340,12 +340,18 @@ class MCMC(object):
         self.sampler = sampler
         self._sample_field = sampler.sample_field
         self._default_fields = sampler.default_fields
+        if not isinstance(num_warmup, int) or num_warmup < 0:
+            raise ValueError("num_warmup must be a nonnegative integer")
         self.num_warmup = num_warmup
-        self.num_samples = num_samples
         self.num_chains = num_chains
         if not isinstance(thinning, int) or thinning < 1:
             raise ValueError("thinning must be a positive integer")
         self.thinning = thinning
+        if not isinstance(num_samples, int) or num_samples < thinning:
+            raise ValueError(
+                "num_samples must be a positive integer greater than thinning"
+            )
+        self.num_samples = num_samples
         self.postprocess_fn = postprocess_fn
         if not callable(chain_method) and chain_method not in [
             "parallel",

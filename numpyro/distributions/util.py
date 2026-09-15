@@ -11,7 +11,8 @@ import warnings
 import numpy as np
 
 import jax
-from jax import jit, lax, random, vmap
+from jax import Array, jit, lax, random, vmap
+from jax.core import Tracer
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import digamma
@@ -41,7 +42,8 @@ def array_equiv(a: ArrayLike, b: ArrayLike, static: bool = False):
 
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
-    "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]
+    "_tr_params",
+    ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"],
 )
 
 
@@ -140,10 +142,9 @@ def _binomial_btrs(key, p, n):
         cond_exclude_small_mu = p * n >= _binomial_mu_thresh
         cond_main = lax.cond(
             early_accept | early_reject,
-            (),
             lambda _: ~early_accept,
-            (k, u, v),
             lambda x: ~accept_fn(*x),
+            (k, u, v),
         )
         return cond_exclude_small_mu & cond_main
 
@@ -185,10 +186,9 @@ def _binomial_dispatch(key, p, n):
         mu = n * pq
         k = lax.cond(
             mu < _binomial_mu_thresh,
-            (key, pq, n),
             lambda x: _binomial_inversion(*x),
-            (key, pq, n),
             lambda x: _binomial_btrs(*x),
+            (key, pq, n),
         )
         return jnp.where(is_le_mid, k, n - k)
 
@@ -196,10 +196,9 @@ def _binomial_dispatch(key, p, n):
     cond0 = jnp.isfinite(p) & (n > 0) & (p > 0)
     return lax.cond(
         cond0 & (p < 1),
-        (key, p, n),
         lambda x: dispatch(*x),
-        (),
         lambda _: jnp.where(cond0, n, 0),
+        (key, p, n),
     )
 
 
@@ -291,7 +290,7 @@ def _multinomial(key, p, n, n_max, shape=()):
 
 def multinomial(key, p, n, shape=(), total_count_max=None):
     if total_count_max is None:
-        if isinstance(n, jax.core.Tracer):
+        if isinstance(n, Tracer):
             raise ValueError(
                 "Please specify total_count_max in Multinomial distribution."
             )
@@ -316,8 +315,28 @@ def cholesky_of_inverse(matrix):
 # TODO: move upstream to jax.nn
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
+    #   = log1p(exp(-|x|)) - yx + max(x, 0)
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
-    return jnp.clip(x, 0) + jnp.log1p(jnp.exp(-jnp.abs(x))) - x * y
+    #
+    # Handling nans: only the portion (- yx + max(x,0)) can produce them:
+    # y=0, x=-inf ->  0*inf + 0   = nan             -> should be 0
+    # y=0, x= inf -> -0*inf + inf = nan + inf = nan -> should be inf
+    # y=1, x=-inf ->  1*inf + 0   = inf             -> correct
+    # y=1, x= inf -> -1*inf + inf = nan             -> should be 0
+    # Use "double where" trick with special clause to handle the nans.
+    # To make a one-liner for the clause, notice that
+    # y=0, x=-inf -> (x>0)=0 and xor(y, x>0)=0
+    # y=0, x= inf -> (x>0)=1 and xor(y, x>0)=1
+    # y=1, x=-inf -> (x>0)=0 and xor(y, x>0)=1
+    # y=1, x= inf -> (x>0)=1 and xor(y, x>0)=0
+    # and that jnp.inf*jnp.array(False) == 0; i.e., no nan, even though
+    # jnp.array(False) == 0.
+    condition = jnp.isfinite(x)
+    safe_x = jnp.where(condition, x, jnp.zeros_like(x))
+    usual_result = (
+        jnp.clip(safe_x, 0) + jnp.log1p(jnp.exp(-jnp.abs(safe_x))) - safe_x * y
+    )
+    return jnp.where(condition, usual_result, jnp.inf * jnp.logical_xor(y, x > 0))
 
 
 def _reshape(x, shape):
@@ -455,7 +474,7 @@ def logmatmulexp(x, y):
 
 
 @jax.custom_jvp
-def log1mexp(x: ArrayLike) -> ArrayLike:
+def log1mexp(x: ArrayLike) -> Array:
     """
     Numerically stable calculation of the quantity
     :math:`\\log(1 - \\exp(x))`, following the algorithm
@@ -469,6 +488,7 @@ def log1mexp(x: ArrayLike) -> ArrayLike:
     :param x: A number or array of numbers.
     :return: The value of :math:`\\log(1 - \\exp(x))`.
     """
+    x = jnp.asarray(x)
     return jnp.where(
         x > -0.6931472,  # approx -log(2)
         jnp.log(-jnp.expm1(x)),
@@ -485,7 +505,7 @@ def log1mexp(x: ArrayLike) -> ArrayLike:
 log1mexp.defjvps(lambda t, ans, x: -t / jnp.expm1(-x))
 
 
-def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
+def logdiffexp(a: ArrayLike, b: ArrayLike) -> Array:
     """
     Numerically stable calculation of the
     quantity :math:`\\log(\\exp(a) - \\exp(b))`,
@@ -504,6 +524,8 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     :param b: A number or array of numbers.
     :return: The value of :math:`\\log(\\exp(a) - \\exp(b))`.
     """
+    a = jnp.asarray(a)
+    b = jnp.asarray(b)
     return jnp.where(
         (a < jnp.inf) & (a > b),
         a + log1mexp(b - a),
@@ -511,7 +533,7 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> ArrayLike:
     )
 
 
-def clamp_probs(probs: ArrayLike) -> ArrayLike:
+def clamp_probs(probs: ArrayLike) -> Array:
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
 
@@ -731,14 +753,14 @@ def assert_one_of(**kwargs):
         )
 
 
-def multidigamma(a: jnp.ndarray, d: jnp.ndarray) -> jnp.ndarray:
+def multidigamma(a: ArrayLike, d: ArrayLike) -> Array:
     """
     Derivative of the log of multivariate gamma.
     """
-    return digamma(a[..., None] - 0.5 * jnp.arange(d)).sum(axis=-1)
+    return digamma(jnp.expand_dims(a, -1) - 0.5 * jnp.arange(d)).sum(axis=-1)
 
 
-def tri_logabsdet(a: jnp.ndarray) -> jnp.ndarray:
+def tri_logabsdet(a: ArrayLike) -> Array:
     """
     Evaluate the `logabsdet` of a triangular positive-definite matrix.
     """
@@ -806,7 +828,7 @@ def validate_sample(log_prob_fn):
     return wrapper
 
 
-def add_diag(matrix: jnp.ndarray, diag: jnp.ndarray) -> jnp.ndarray:
+def add_diag(matrix: Array, diag: ArrayLike) -> Array:
     """
     Add `diag` to the trailing diagonal of `matrix`.
     """

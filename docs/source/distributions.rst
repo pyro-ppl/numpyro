@@ -782,6 +782,14 @@ LeftTruncatedDistribution
     :show-inheritance:
     :member-order: bysource
 
+LeftTruncatedGamma
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.LeftTruncatedGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowerTruncatedPowerLaw
 ^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.truncated.LowerTruncatedPowerLaw
@@ -798,6 +806,14 @@ RightTruncatedDistribution
     :show-inheritance:
     :member-order: bysource
 
+RightTruncatedGamma
+^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.RightTruncatedGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TruncatedCauchy
 ^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.truncated.TruncatedCauchy
@@ -809,6 +825,10 @@ TruncatedCauchy
 TruncatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.truncated.TruncatedDistribution
+
+TruncatedGamma
+^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.truncated.TruncatedGamma
 
 TruncatedNormal
 ^^^^^^^^^^^^^^^
@@ -829,6 +849,14 @@ TruncatedPolyaGamma
 TwoSidedTruncatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.truncated.TwoSidedTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TwoSidedTruncatedGamma
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.TwoSidedTruncatedGamma
     :members:
     :undoc-members:
     :show-inheritance:

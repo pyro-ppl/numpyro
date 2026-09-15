@@ -403,12 +403,16 @@ class SVI(object):
             svi_state = init_state
         if progress_bar:
             losses = []
+            jitted_body_fn = jit(body_fn)
             with tqdm.trange(1, num_steps + 1) as t:
                 batch = max(num_steps // 20, 1)
                 for i in t:
-                    svi_state, loss = jit(body_fn)(svi_state, None)
-                    losses.append(jax.device_get(loss))
+                    svi_state, loss = jitted_body_fn(svi_state, None)
+                    losses.append(loss)
                     if i % batch == 0:
+                        # transfer the whole batch to the host at once instead of
+                        # blocking on the device at every step
+                        losses[i - batch :] = jax.device_get(losses[i - batch :])
                         if stable_update:
                             valid_losses = [x for x in losses[i - batch :] if x == x]
                             num_valid = len(valid_losses)

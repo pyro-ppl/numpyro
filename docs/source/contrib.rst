@@ -17,16 +17,16 @@ Nested Sampling is a non-MCMC approach that works for arbitrary probability mode
 Stein Variational Inference
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Stein variational inference (SteinVI) is a family of VI techniques for approximate Bayesian inference based on
-Stein’s method (see [1] for an overview). It is gaining popularity as it combines
+Stein’s method (see [`1 <steinvi-ref-1_>`__] for an overview). It is gaining popularity as it combines
 the scalability of traditional VI with the flexibility of non-parametric particle-based methods.
 
-Stein variational gradient descent (SVGD) [2] is a recent SteinVI technique which uses iteratively moves a set of
+Stein variational gradient descent (SVGD) [`2 <steinvi-ref-2_>`__] is a recent SteinVI technique which uses iteratively moves a set of
 particles :math:`\{z_i\}_{i=1}^N` to approximate a distribution p(z).
 SVGD is well suited for capturing correlations between latent variables as a particle-based method.
 The technique preserves the scalability of traditional VI approaches while offering the flexibility and modeling scope
-of methods such as Markov chain Monte Carlo (MCMC). SVGD is good at capturing multi-modality [3].
+of methods such as Markov chain Monte Carlo (MCMC). SVGD is good at capturing multi-modality [`3 <steinvi-ref-3_>`__].
 
-``numpyro.contrib.einstein`` is a framework for particle-based inference using the Stein mixture inference algorithm [4].
+``numpyro.contrib.einstein`` is a framework for particle-based inference using the Stein mixture inference algorithm [`4 <steinvi-ref-4_>`__].
 The framework works on Stein mixtures, a restricted mixture of guide programs parameterized by Stein particles.
 Similarly to how SVGD works, Stein mixtures can approximate model posteriors by moving the Stein particles according
 to the Stein forces. Because the Stein particles parameterize a guide, they capture a neighborhood rather than a
@@ -53,20 +53,28 @@ SteinVI based examples include:
 
 **References**
 
-1. *Stein's Method Meets Statistics: A Review of Some Recent Developments.* 2021.
-    Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
-    Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
-    Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
-    Yvik Swan.
+1.  .. _steinvi-ref-1:
 
-2. *Stein Variational Gradient Descent: A General-Purpose Bayesian Inference Algorithm.* 2016.
-    Qiang Liu, Dilin Wang. NeurIPS
+    *Stein's Method Meets Statistics: A Review of Some Recent Developments.* 2021.
+     Andreas Anastasiou, Alessandro Barp, François-Xavier Briol, Bruno Ebner,
+     Robert E. Gaunt, Fatemeh Ghaderinezhad, Jackson Gorham, Arthur Gretton,
+     Christophe Ley, Qiang Liu, Lester Mackey, Chris. J. Oates, Gesine Reinert,
+     Yvik Swan.
 
-3. *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models.* 2019.
-    Dilin Wang, Qiang Liu. PMLR
+2.  .. _steinvi-ref-2:
 
-4. *ELBOing Stein: Variational Bayes with Stein Mixture Inference.* 2024.
-    Ola Rønning, Eric Nalisnick, Christophe Ley, Padhraic Smyth, and Thomas Hamelryck. arXiv:2410.22948.
+    *Stein Variational Gradient Descent: A General-Purpose Bayesian Inference Algorithm.* 2016.
+     Qiang Liu, Dilin Wang. NeurIPS
+
+3.  .. _steinvi-ref-3:
+
+    *Nonlinear Stein Variational Gradient Descent for Learning Diversified Mixture Models.* 2019.
+     Dilin Wang, Qiang Liu. PMLR
+
+4.  .. _steinvi-ref-4:
+
+    *ELBOing Stein: Variational Bayes with Stein Mixture Inference.* 2024.
+     Ola Rønning, Eric Nalisnick, Christophe Ley, Padhraic Smyth, and Thomas Hamelryck. arXiv:2410.22948.
 
 SteinVI Interface
 -----------------
@@ -110,7 +118,7 @@ Hilbert Space Gaussian Processes Approximation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This module contains helper functions for use in the Hilbert Space Gaussian Process (HSGP) approximation method
-described in [1] and [2].
+described in [`1 <hsgp-ref-1_>`__] and [`2 <hsgp-ref-2_>`__].
 
 .. warning::
     This module is experimental.
@@ -124,7 +132,7 @@ to :math:`\mathcal{O}(mn + m)`, where :math:`m` is the number of basis functions
 
 **Approximation Strategy Steps:**
 
-We strongly recommend reading [1] and [2] for a detailed explanation of the approximation method. In [3] you can find
+We strongly recommend reading [`1 <hsgp-ref-1_>`__] and [`2 <hsgp-ref-2_>`__] for a detailed explanation of the approximation method. In [`3 <hsgp-ref-3_>`__] you can find
 a practical approach using NumPyro and PyMC.
 
 Here we provide the main steps and ingredients of the approximation method:
@@ -151,13 +159,13 @@ Let :math:`m^\star = \prod_{d=1}^D m_d` be the total number of terms of the appr
     \overbrace{\color{green}{\beta_{j}}}^{\sim \: \text{Normal}(0,1)}
 
 where :math:`\boldsymbol{x}` is a :math:`D` vector of inputs, :math:`\boldsymbol{\lambda}_j` are the eigenvalues of the Laplacian operator, :math:`\phi_{j}(\boldsymbol{x})` are the eigenfunctions of the
-Laplacian operator, and :math:`\beta_{j}` are the coefficients of the expansion (see Eq. (8) in [2]). We expect this
+Laplacian operator, and :math:`\beta_{j}` are the coefficients of the expansion (see Eq. (8) in [`2 <hsgp-ref-2_>`__]). We expect this
 to be a good approximation for a finite number of :math:`m^\star` terms in the series as long as the inputs values :math:`x`
 are not too close to the boundaries :math:`-L_d` and :math:`L_d`.
 
 .. note::
     Even though the periodic kernel is not stationary, one can still adapt and find a similar approximation formula. However, these kernels are not supported for multidimensional inputs.
-    See Appendix B in [2] for more details.
+    See Appendix B in [`2 <hsgp-ref-2_>`__] for more details.
 
 **Example:**
 
@@ -246,21 +254,31 @@ Other kernels can be used similarly.
 
 
 .. note::
-    Additional examples with code can be found in [3], [4] and [5].
+    Additional examples with code can be found in [`3 <hsgp-ref-3_>`__], [`4 <hsgp-ref-4_>`__] and [`5 <hsgp-ref-5_>`__].
 
 **References:**
 
-    1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+    1. .. _hsgp-ref-1:
+
+       Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
        Stat Comput 30, 419-446 (2020).
 
-    2. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+    2. .. _hsgp-ref-2:
+
+       Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
        approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
-    
-    3. `Orduz, J., A Conceptual and Practical Introduction to Hilbert Space GPs Approximation Methods <https://juanitorduz.github.io/hsgp_intro>`_.
-    
-    4. `Example: Hilbert space approximation for Gaussian processes <https://num.pyro.ai/en/stable/examples/hsgp.html>`_.
-    
-    5. `Gelman, Vehtari, Simpson, et al., Bayesian workflow book - Birthdays <https://avehtari.github.io/casestudies/Birthdays/birthdays.html>`_.
+
+    3. .. _hsgp-ref-3:
+
+       `Orduz, J., A Conceptual and Practical Introduction to Hilbert Space GPs Approximation Methods <https://juanitorduz.github.io/hsgp_intro>`_.
+
+    4. .. _hsgp-ref-4:
+
+       `Example: Hilbert space approximation for Gaussian processes <https://num.pyro.ai/en/stable/examples/hsgp.html>`_.
+
+    5. .. _hsgp-ref-5:
+
+       `Gelman, Vehtari, Simpson, et al., Bayesian workflow book - Birthdays <https://avehtari.github.io/casestudies/Birthdays/birthdays.html>`_.
 
 .. note::
     The code of this module is based on the code of the example

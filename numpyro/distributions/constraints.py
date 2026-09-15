@@ -28,6 +28,7 @@
 
 __all__ = [
     "boolean",
+    "cat",
     "circular",
     "complex",
     "corr_cholesky",
@@ -65,7 +66,7 @@ __all__ = [
 ]
 
 import math
-from typing import ClassVar, Generic, Optional, cast
+from typing import ClassVar, Generic, Optional, Sequence, cast
 
 import numpy as np
 
@@ -425,6 +426,105 @@ class _IndependentConstraint(Constraint[NumLikeT]):
         if self.reinterpreted_batch_ndims != other.reinterpreted_batch_ndims:
             return False
         return self.base_constraint.eq(other.base_constraint, static=static)
+
+
+class _Cat(Constraint[NonScalarArray]):
+    """
+    Applies a sequence of constraints to slices along a dimension, in a way
+    compatible with :func:`jax.numpy.concatenate`.
+
+    :param cseq: Sequence of constraints to apply to consecutive slices.
+    :param int dim: Dimension along which to slice.
+    :param lengths: Length of each slice. Defaults to one per constraint.
+    """
+
+    def __init__(
+        self,
+        cseq: Sequence[Constraint],
+        dim: int = 0,
+        lengths: Optional[Sequence[int]] = None,
+    ) -> None:
+        assert cseq, "cseq cannot be empty"
+        assert all(isinstance(c, Constraint) for c in cseq), (
+            "cseq must contain only Constraint instances"
+        )
+        assert isinstance(dim, int), "dim must be an integer"
+        self.cseq = tuple(cseq)
+        if lengths is None:
+            lengths = (1,) * len(self.cseq)
+        assert len(lengths) == len(self.cseq), (
+            "lengths must have the same number of elements as cseq"
+        )
+        assert all(isinstance(length, int) and length >= 0 for length in lengths), (
+            "lengths must contain only nonnegative integers"
+        )
+        self.lengths = tuple(lengths)
+        self.dim = dim
+
+    @property
+    def is_discrete(self) -> bool:
+        return any(c.is_discrete for c in self.cseq)
+
+    @property
+    def event_dim(self) -> int:
+        return max(c.event_dim for c in self.cseq)
+
+    def _slices(self, value: NonScalarArray) -> list[NonScalarArray]:
+        ndim = jnp.ndim(value)
+        if not -ndim <= self.dim < ndim:
+            raise ValueError(
+                f"dim {self.dim} out of range for value with {ndim} dimensions"
+            )
+        if jnp.shape(value)[self.dim] != sum(self.lengths):
+            raise ValueError(
+                f"value.shape[{self.dim}] = {jnp.shape(value)[self.dim]} must equal "
+                f"the sum of lengths {sum(self.lengths)}"
+            )
+
+        values = []
+        start = 0
+        for length in self.lengths:
+            values.append(
+                jax.lax.slice_in_dim(value, start, start + length, axis=self.dim)
+            )
+            start += length
+        return values
+
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
+        checks = [
+            constraint(value) for constraint, value in zip(self.cseq, self._slices(x))
+        ]
+        return jnp.concatenate(checks, axis=self.dim)
+
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
+        values = [
+            constraint.feasible_like(value)
+            for constraint, value in zip(self.cseq, self._slices(prototype))
+        ]
+        return jnp.concatenate(values, axis=self.dim)
+
+    def __repr__(self) -> str:
+        return "{}({}, dim={}, lengths={})".format(
+            self.__class__.__name__[1:], self.cseq, self.dim, self.lengths
+        )
+
+    def tree_flatten(self):
+        return (self.cseq,), (
+            ("cseq",),
+            {"dim": self.dim, "lengths": self.lengths},
+        )
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        if not isinstance(other, _Cat):
+            return False
+        if self.dim != other.dim or self.lengths != other.lengths:
+            return False
+        if static:
+            return all(c1.eq(c2, static=True) for c1, c2 in zip(self.cseq, other.cseq))
+        result = jnp.array(True)
+        for c1, c2 in zip(self.cseq, other.cseq):
+            result = result & c1.eq(c2, static=False)
+        return result
 
 
 class _RealVector(
@@ -850,11 +950,16 @@ class _ZeroSum(Constraint[NonScalarArray]):
         return self._event_dim
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
+        """Return a boolean mask of shape ``x.shape[:-event_dim]`` that is true where
+        ``x`` sums to zero along each of the last ``event_dim`` axes."""
         xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
-        tol = xp.finfo(x.dtype).eps * x.shape[-1] * 10
+        event_axes = tuple(range(-self.event_dim, 0))
+        scale = xp.maximum(xp.max(xp.abs(x), axis=event_axes, keepdims=True), 1.0)
         zerosum_true = True
-        for dim in range(-self.event_dim, 0):
-            zerosum_true = zerosum_true & xp.allclose(x.sum(dim), 0, atol=tol)
+        for dim in event_axes:
+            tol = xp.finfo(x.dtype).eps * 10 * x.shape[dim] * scale
+            is_zero = xp.isclose(x.sum(dim, keepdims=True), 0, atol=tol)
+            zerosum_true = zerosum_true & xp.all(is_zero, axis=event_axes)
         return zerosum_true
 
     def eq(self, other: object, static: bool = False) -> ArrayLike:
@@ -874,6 +979,7 @@ class _ZeroSum(Constraint[NonScalarArray]):
 
 
 boolean = _Boolean()
+cat = _Cat
 circular = _Circular()
 complex = _Complex()
 corr_cholesky = _CorrCholesky()

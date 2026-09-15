@@ -20,6 +20,7 @@ from numpyro.distributions.flows import (
 from numpyro.distributions.transforms import (
     AbsTransform,
     AffineTransform,
+    CatTransform,
     CholeskyTransform,
     ComplexTransform,
     ComposeTransform,
@@ -76,6 +77,11 @@ TRANSFORMS = {
             ],
         ),
         dict(),
+    ),
+    "cat": T(
+        CatTransform,
+        ([AffineTransform(np.array(1.0), np.array(2.0)), ExpTransform()],),
+        dict(dim=-1, lengths=(2, 1)),
     ),
     "independent": T(
         IndependentTransform,
@@ -259,6 +265,55 @@ def test_reshape_transform_invalid():
 
     with pytest.raises(TypeError, match="cannot reshape array"):
         ReshapeTransform((2, 3), (6,))(jnp.arange(2))
+
+
+def test_cat_transform():
+    transform = CatTransform(
+        [AffineTransform(1.0, 2.0), ExpTransform()], dim=-1, lengths=[2, 1]
+    )
+    x = jnp.array([[0.0, 1.0, 2.0], [-1.0, 3.0, 0.5]])
+    expected = jnp.concatenate([1.0 + 2.0 * x[..., :2], jnp.exp(x[..., 2:])], -1)
+
+    y, intermediates = jax.jit(transform.call_with_intermediates)(x)
+    assert jnp.allclose(y, expected)
+    assert jnp.allclose(jax.jit(lambda value: transform.inv(value))(y), x)
+    assert jnp.allclose(
+        jax.jit(transform.log_abs_det_jacobian)(x, y),
+        jnp.concatenate([jnp.full_like(x[..., :2], jnp.log(2.0)), x[..., 2:]], axis=-1),
+    )
+    assert jnp.allclose(
+        transform.log_abs_det_jacobian(x, y, intermediates),
+        transform.log_abs_det_jacobian(x, y),
+    )
+
+
+def test_biject_to_cat_constraint():
+    constraint = constraints.cat(
+        [constraints.interval(-2.0, 3.0), constraints.positive],
+        dim=-1,
+        lengths=[2, 1],
+    )
+    transform = biject_to(constraint)
+    x = jnp.array([[0.0, -1.0, 2.0], [1.0, 0.5, -2.0]])
+    y = jax.jit(lambda value: transform(value))(x)
+
+    assert transform.codomain.dim == constraint.dim
+    assert transform.codomain.lengths == constraint.lengths
+    assert jnp.array_equal(constraint(y), jnp.ones_like(y, dtype=bool))
+    assert jnp.allclose(jax.jit(lambda value: transform.inv(value))(y), x)
+
+
+def test_cat_transform_invalid_shape():
+    transform = CatTransform([ExpTransform(), ExpTransform()], lengths=[1, 2])
+    with pytest.raises(ValueError, match="must equal the sum of lengths 3"):
+        transform(jnp.ones(2))
+
+    with pytest.raises(AssertionError, match="tseq cannot be empty"):
+        CatTransform([])
+    with pytest.raises(AssertionError, match="dim must be an integer"):
+        CatTransform([ExpTransform()], dim=0.5)
+    with pytest.raises(AssertionError, match="nonnegative integers"):
+        CatTransform([ExpTransform()], lengths=[-1])
 
 
 @pytest.mark.parametrize(
@@ -576,3 +631,84 @@ def test_time_transform_dtype(transform):
         y64 = transform(x64)
         assert y64.dtype == jnp.float64
         assert jnp.allclose(transform.inv(y64), x64, atol=1e-12)
+
+
+def _assert_lower_cholesky_affine_roundtrip(transform, x):
+    y = transform(x)
+    assert y.shape == transform.forward_shape(x.shape)
+    x_inv = transform.inv(y)
+    assert x_inv.shape == transform.inverse_shape(y.shape)
+    assert jnp.allclose(x_inv, x, atol=1e-5)
+    log_det = transform.log_abs_det_jacobian(x, y)
+    assert log_det.shape == x.shape[:-1]
+    expected_log_det = jnp.broadcast_to(
+        jnp.log(jnp.diagonal(transform.scale_tril, axis1=-2, axis2=-1)).sum(-1),
+        x.shape[:-1],
+    )
+    assert jnp.allclose(log_det, expected_log_det, atol=1e-5)
+
+
+def test_lower_cholesky_affine_2d():
+    loc = jnp.array([1.0, -0.5])
+    scale_tril = jnp.array([[0.6, 0.0], [1.5, 0.4]])
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(0), (5, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+    y = transform(jnp.ones(2))
+    assert jnp.allclose(y, loc + scale_tril @ jnp.ones(2), atol=1e-5)
+
+
+def test_lower_cholesky_affine_batched_loc_shared_scale_tril():
+    loc = jnp.array([[1.0, 0.0], [-1.0, 2.0], [0.5, -0.5]])
+    scale_tril = jnp.array([[0.6, 0.0], [1.5, 0.4]])
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(1), (3, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+    y = transform(x)
+    expected = loc + jnp.einsum("ij,bj->bi", scale_tril, x)
+    assert jnp.allclose(y, expected, atol=1e-5)
+
+
+def test_lower_cholesky_affine_batched_scale_tril():
+    loc = jnp.array([[1.0, 0.0], [-1.0, 2.0], [0.5, -0.5]])
+    scale_tril = jnp.array(
+        [
+            [[0.6, 0.0], [1.5, 0.4]],
+            [[1.0, 0.0], [0.0, 2.0]],
+            [[0.3, 0.0], [-0.2, 0.5]],
+        ]
+    )
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(2), (3, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+    y = transform(x)
+    expected = loc + jnp.einsum("bij,bj->bi", scale_tril, x)
+    assert jnp.allclose(y, expected, atol=1e-5)
+
+
+def test_lower_cholesky_affine_batched_scale_tril_extra_sample_dims():
+    scale_tril = jnp.array(
+        [
+            [[0.6, 0.0], [1.5, 0.4]],
+            [[1.0, 0.0], [0.0, 2.0]],
+        ]
+    )
+    loc = jnp.zeros(2)
+    transform = LowerCholeskyAffine(loc, scale_tril)
+    x = random.normal(random.key(3), (4, 2, 2))
+    _assert_lower_cholesky_affine_roundtrip(transform, x)
+
+
+@pytest.mark.parametrize(
+    "scale_tril",
+    [
+        np.array([1.0, 2.0]),
+        np.ones((2, 3)),
+        np.ones((2, 2, 3)),
+    ],
+    ids=["1d", "nonsquare_2d", "nonsquare_batched"],
+)
+def test_lower_cholesky_affine_invalid_scale_tril(scale_tril):
+    loc = np.zeros(scale_tril.shape[-1])
+    with pytest.raises(ValueError, match="scale_tril"):
+        LowerCholeskyAffine(loc, scale_tril)

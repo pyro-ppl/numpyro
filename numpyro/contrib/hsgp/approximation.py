@@ -240,11 +240,13 @@ def hsgp_periodic_non_centered(
     """
     Low rank approximation for the periodic squared exponential kernel in the non-centered parametrization.
 
-    See Appendix B in [1].
+    See Appendix B in [`1 <hsgp-periodic-non-centered-ref-1_>`__].
 
     **References:**
 
-        1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
+        1. .. _hsgp-periodic-non-centered-ref-1:
+
+           Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
     :param ArrayLike x: input data

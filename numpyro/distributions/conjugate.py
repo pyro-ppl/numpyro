@@ -5,9 +5,9 @@
 from typing import Optional
 
 import jax
-from jax import lax, nn, random
+from jax import Array, lax, nn, random
 import jax.numpy as jnp
-from jax.scipy.special import betainc, betaln, gammaln
+from jax.scipy.special import betainc, betaln, gammaln, xlog1py, xlogy
 from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
@@ -72,7 +72,10 @@ class BetaBinomial(Distribution):
         self._beta = Beta(concentration1, concentration0)
         super(BetaBinomial, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert key is not None
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
@@ -81,7 +84,7 @@ class BetaBinomial(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         return (
             -_log_beta_1(self.total_count - value + 1, value)
             + betaln(
@@ -92,11 +95,11 @@ class BetaBinomial(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self._beta.mean * self.total_count
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return (
             self._beta.variance
             * self.total_count
@@ -161,7 +164,9 @@ class BetaNegativeBinomial(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the sampling
         procedure is:
 
@@ -176,13 +181,14 @@ class BetaNegativeBinomial(Distribution):
         :class:`~numpyro.distributions.discrete.NegativeBinomialProbs` to generate samples
         from the Negative Binomial distribution.
         """
+        assert key is not None
         assert is_prng_key(key)
         key_beta, key_nb = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
         return NegativeBinomialProbs(total_count=self.n, probs=probs).sample(key_nb)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)`, then the log
         probability mass function is:
 
@@ -201,7 +207,7 @@ class BetaNegativeBinomial(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)` and
         :math:`\beta > 1`, then the mean is:
 
@@ -217,7 +223,7 @@ class BetaNegativeBinomial(Distribution):
         )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""If :math:`X \sim \mathrm{BetaNegativeBinomial}(\alpha, \beta, n)` and
         :math:`\beta > 2`, then the variance is:
 
@@ -289,7 +295,10 @@ class DirichletMultinomial(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert key is not None
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
         probs = self._dirichlet.sample(key_dirichlet, sample_shape)
@@ -300,18 +309,18 @@ class DirichletMultinomial(Distribution):
         ).sample(key_multinom)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         alpha = self.concentration
-        return _log_beta_1(alpha.sum(-1), value.sum(-1)) - _log_beta_1(
-            alpha, value
-        ).sum(-1)
+        return _log_beta_1(jnp.sum(alpha, -1), jnp.sum(value, -1)) - jnp.sum(
+            _log_beta_1(alpha, value), -1
+        )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self._dirichlet.mean * jnp.expand_dims(self.total_count, -1)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         n = jnp.expand_dims(self.total_count, -1)
         alpha = self.concentration
         alpha_sum = self.concentration.sum(-1, keepdims=True)
@@ -322,9 +331,9 @@ class DirichletMultinomial(Distribution):
     def support(self) -> Constraint:
         return constraints.multinomial(self.total_count)
 
-    @staticmethod
+    @classmethod
     def infer_shapes(
-        concentration: ArrayLike, total_count=()
+        cls, concentration: tuple[int, ...], total_count: tuple[int, ...] = ()
     ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(concentration[:-1], total_count)
         event_shape = concentration[-1:]
@@ -362,7 +371,9 @@ class GammaPoisson(Distribution):
             self._gamma.batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the sampling
         procedure is:
 
@@ -377,46 +388,51 @@ class GammaPoisson(Distribution):
         :class:`~numpyro.distributions.continuous.Poisson` to generate samples from the
         Poisson distribution.
         """
+        assert key is not None
         assert is_prng_key(key)
         key_gamma, key_poisson = random.split(key)
         rate = self._gamma.sample(key_gamma, sample_shape)
         return Poisson(rate).sample(key_poisson)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the
         probability mass function is:
 
         .. math::
             p_{X}(k) = \frac{\lambda^\alpha}{(\alpha + k)(1+\lambda)^{\alpha + k}\mathrm{B}(\alpha, k + 1)}
         """
-        post_value = self.concentration + value
+        dtype = jnp.result_type(float)
+        concentration = jnp.array(self.concentration, dtype=dtype)
+        rate = jnp.array(self.rate, dtype=dtype)
+        value = jnp.array(value, dtype=dtype)
+        post_value = concentration + value
         return (
-            -betaln(self.concentration, value + 1)
+            -betaln(concentration, value + 1)
             - jnp.log(post_value)
-            + self.concentration * jnp.log(self.rate)
-            - post_value * jnp.log1p(self.rate)
+            + xlogy(-concentration, 1 + 1 / rate)
+            - xlog1py(value, rate)
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the mean is:
 
         .. math::
             \mathbb{E}[X] = \frac{\alpha}{\lambda}
         """
-        return self.concentration / self.rate
+        return jnp.asarray(self.concentration / self.rate)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the variance is:
 
         .. math::
             \mathrm{Var}[X] = \frac{\alpha}{\lambda^2}(1 + \lambda)
         """
-        return self.concentration / jnp.square(self.rate) * (1 + self.rate)
+        return jnp.asarray(self.concentration / self.rate * (1 + 1 / self.rate))
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
         distribution function is:
 
@@ -427,7 +443,12 @@ class GammaPoisson(Distribution):
         which is the regularized incomplete beta function.
         This implementation uses :func:`~jax.scipy.special.betainc`.
         """
-        bt = betainc(self.concentration, value + 1.0, self.rate / (self.rate + 1.0))
+        rate_fraction = jnp.where(
+            jnp.isinf(self.rate),
+            jnp.ones_like(self.rate),
+            self.rate / (self.rate + 1.0),
+        )
+        bt = betainc(self.concentration, value + 1.0, rate_fraction)
         return bt
 
 
@@ -481,7 +502,7 @@ class NegativeBinomialProbs(GammaPoisson):
     ):
         self.total_count, self.probs = promote_shapes(total_count, probs)
         concentration = total_count
-        rate = 1.0 / probs - 1.0
+        rate = jnp.divide(1.0, probs) - 1.0
         super().__init__(concentration, rate, validate_args=validate_args)
 
 
@@ -510,11 +531,11 @@ class NegativeBinomialLogits(GammaPoisson):
     ):
         self.total_count, self.logits = promote_shapes(total_count, logits)
         concentration = total_count
-        rate = jnp.exp(-logits)
+        rate = jnp.exp(jnp.negative(logits))
         super().__init__(concentration, rate, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value: ArrayLike) -> ArrayLike:
+    def log_prob(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{NegativeBinomial}(r, \mathrm{logits}(p))`, then the log
         probability mass function is:
 
@@ -539,7 +560,7 @@ class NegativeBinomial2(GammaPoisson):
     """
 
     arg_constraints = {
-        "mean": constraints.positive,
+        "mean": constraints.nonnegative,
         "concentration": constraints.positive,
     }
     support = constraints.nonnegative_integer
@@ -552,8 +573,15 @@ class NegativeBinomial2(GammaPoisson):
         *,
         validate_args: Optional[bool] = None,
     ):
-        rate = concentration / mean
+        rate = jnp.divide(concentration, mean)
         super().__init__(concentration, rate, validate_args=validate_args)
+
+
+class _HurdleNegativeBinomial2(NegativeBinomial2):
+    arg_constraints = {
+        **NegativeBinomial2.arg_constraints,
+        "mean": constraints.positive,
+    }
 
 
 def ZeroInflatedNegativeBinomial2(
@@ -612,7 +640,7 @@ def HurdleNegativeBinomial2(
        *Econometrica*, 39(5), 829-844.
     """
     return HurdleProbs(
-        NegativeBinomial2(mean, concentration, validate_args=validate_args),
+        _HurdleNegativeBinomial2(mean, concentration, validate_args=validate_args),
         gate,
         validate_args=validate_args,
     )

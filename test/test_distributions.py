@@ -8,21 +8,23 @@ import inspect
 from itertools import product
 import math
 import os
-from typing import Callable
+from typing import Callable, get_args, get_origin, get_type_hints
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 import scipy
+import scipy.integrate as osp_integrate
 from scipy.sparse import csr_matrix
 import scipy.stats as osp
 
 import jax
-from jax import grad, lax, vmap
+from jax import Array, grad, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, logsumexp
 from jax.scipy.stats import norm as jax_norm, truncnorm as jax_truncnorm
+from jax.typing import ArrayLike
 
 import numpyro
 import numpyro.distributions as dist
@@ -165,6 +167,10 @@ def _TruncatedCauchy(loc, scale, low, high):
     return dist.TruncatedCauchy(loc=loc, scale=scale, low=low, high=high)
 
 
+def _TruncatedGamma(concentration, rate, low, high):
+    return dist.TruncatedGamma(concentration, rate, low=low, high=high)
+
+
 def _LeftCensoredHalfNormal(scale, censored):
     base_dist = dist.HalfNormal(scale)
     return LeftCensoredDistribution(base_dist, censored)
@@ -213,6 +219,10 @@ def _IntervalCensoredWeibull(scale, concentration, left_censored, right_censored
 _TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+_TruncatedGamma.arg_constraints = {}
+_TruncatedGamma.reparametrized_params = []
+_TruncatedGamma.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
 
 class SineSkewedUniform(dist.SineSkewed):
@@ -385,7 +395,7 @@ def _vmap_over_general_2d_mixture(self: _General2DMixture, locs=None):
 
 
 class _ImproperWrapper(dist.ImproperUniform):
-    def sample(self, key, sample_shape=()):
+    def sample(self, key, sample_shape=()) -> Array:
         transform = biject_to(self.support)
         prototype_value = jnp.zeros(self.event_shape)
         unconstrained_event_shape = jnp.shape(transform.inv(prototype_value))
@@ -928,6 +938,14 @@ CONTINUOUS = [
         np.array([-2.0, 2.0]),
     ),
     T(dist.TwoSidedTruncatedDistribution, dist.Laplace(0.0, 1.0), -2.0, 3.0),
+    T(_TruncatedGamma, 2.0, 1.0, 0.5, 3.0),
+    T(_TruncatedGamma, 0.7, 2.0, 0.2, None),
+    T(_TruncatedGamma, 3.0, 1.5, None, 4.0),
+    T(_TruncatedGamma, np.array([1.5, 2.5]), 1.0, 0.5, 3.0),
+    T(_TruncatedGamma, 2.0, np.array([[1.0], [2.0]]), np.array([0.3, 0.6]), 5.0),
+    T(dist.TwoSidedTruncatedGamma, dist.Gamma(2.0, 1.0), 0.5, 3.0),
+    T(dist.LeftTruncatedGamma, dist.Gamma(2.0, 1.0), 1.0),
+    T(dist.RightTruncatedGamma, dist.Gamma(2.0, 1.0), 3.0),
     T(dist.Uniform, 0.0, 2.0),
     T(dist.Uniform, 1.0, np.array([2.0, 3.0])),
     T(dist.Uniform, np.array([0.0, 0.0]), np.array([[2.0], [3.0]])),
@@ -1887,9 +1905,13 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
             in (
                 _TruncatedCauchy,
                 _TruncatedNormal,
+                _TruncatedGamma,
                 dist.Gamma,
+                dist.LeftTruncatedGamma,
                 dist.LogNormal,
+                dist.RightTruncatedGamma,
                 dist.StudentT,
+                dist.TwoSidedTruncatedGamma,
             )
             else 1e-5
         )
@@ -2117,6 +2139,81 @@ def test_gamma_poisson_log_prob(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
+@pytest.mark.parametrize(
+    "distribution_type",
+    [
+        "gamma_poisson",
+        "negative_binomial_probs",
+        "negative_binomial_factory",
+        "negative_binomial_2",
+    ],
+)
+def test_zero_mean_negative_binomial(distribution_type):
+    if distribution_type == "gamma_poisson":
+        distribution = dist.GammaPoisson(1.0, jnp.inf, validate_args=True)
+    elif distribution_type == "negative_binomial_probs":
+        distribution = dist.NegativeBinomialProbs(1.0, 0.0, validate_args=True)
+    elif distribution_type == "negative_binomial_factory":
+        distribution = dist.NegativeBinomial(1.0, probs=0.0, validate_args=True)
+    else:
+        distribution = dist.NegativeBinomial2(0.0, 1.0, validate_args=True)
+
+    actual = distribution.log_prob(jnp.arange(2))
+    expected = jnp.array([0.0, -jnp.inf])
+
+    assert_allclose(actual, expected, atol=1e-6)
+    assert_allclose(distribution.variance, 0.0)
+    assert_allclose(distribution.cdf(jnp.arange(2)), 1.0)
+    assert_array_equal(distribution.sample(random.key(0), (10,)), 0)
+
+
+@pytest.mark.parametrize(
+    "distribution_type",
+    ["gamma_poisson", "negative_binomial_probs", "negative_binomial_2"],
+)
+def test_negative_binomial_log_prob_gradient(distribution_type):
+    def log_prob(parameter):
+        if distribution_type == "gamma_poisson":
+            distribution = dist.GammaPoisson(10, parameter)
+        elif distribution_type == "negative_binomial_probs":
+            distribution = dist.NegativeBinomialProbs(10, parameter)
+        else:
+            distribution = dist.NegativeBinomial2(parameter, 10)
+        return distribution.log_prob(0)
+
+    parameter = {
+        "gamma_poisson": 2.0,
+        "negative_binomial_probs": 0.5,
+        "negative_binomial_2": 2.0,
+    }[distribution_type]
+    expected_gradient = {
+        "gamma_poisson": 10 / (2 * 3),
+        "negative_binomial_probs": -10 / 0.5,
+        "negative_binomial_2": -10 / 12,
+    }[distribution_type]
+    actual_gradient = jax.jit(jax.grad(log_prob))(parameter)
+    assert_allclose(actual_gradient, expected_gradient, atol=1e-6)
+
+
+def test_hurdle_negative_binomial_requires_positive_mean():
+    with pytest.raises(ValueError, match="mean"):
+        dist.HurdleNegativeBinomial2(0.4, 0.0, 1.0, validate_args=True)
+
+
+def test_gamma_poisson_mixed_finite_and_infinite_rates():
+    distribution = dist.GammaPoisson(
+        jnp.ones(2), jnp.array([2.0, jnp.inf]), validate_args=True
+    )
+
+    assert_allclose(
+        distribution.log_prob(jnp.zeros(2)),
+        jnp.array([jnp.log(2 / 3), 0.0]),
+        atol=1e-6,
+    )
+    assert_allclose(distribution.variance, jnp.array([0.75, 0.0]))
+    assert_allclose(distribution.cdf(jnp.zeros(2)), jnp.array([2 / 3, 1.0]), atol=1e-6)
+
+
 @pytest.mark.parametrize("conc", [15.0, 20.0, 30.0])
 def test_inverse_wishart_variance(conc):
     """Test InverseWishart variance formula against Monte Carlo samples.
@@ -2219,6 +2316,155 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
             # but numerical value will give nan (= inf - inf)
             expected_grad = 0.0
         assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=rtol, atol=atol)
+
+
+@pytest.mark.parametrize("jit", [False, True])
+@pytest.mark.parametrize(
+    "method",
+    [
+        "sample",
+        "log_prob",
+        "mean",
+        "variance",
+        "entropy",
+        "cdf",
+        "icdf",
+        "rsample",
+        "sample_with_intermediates",
+        "mode",
+        "enumerate_support",
+    ],
+)
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
+def test_output_is_array(jax_dist, sp_dist, params, method, jit, request):
+    # Distribution methods should return jax arrays so that consumers can index,
+    # reshape, and compare the result without tripping a type checker (``ArrayLike``
+    # admits python/numpy scalars that are not indexable and have no ``.shape``).
+    # Validation is disabled so the test is independent of global validation state.
+
+    with dist.distribution.validation_enabled(False):
+        d = jax_dist(*params)
+
+        cls = d.__class__
+        # Verify the correct annotation after unpacking.
+        impl = getattr(cls, method)
+        if isinstance(impl, property):
+            impl = impl.fget
+        while isinstance(impl, partial):
+            impl = impl.func
+        # Base/wrapper classes keep ``ArrayLike`` on the value-carrying methods so
+        # that handlers can pass through non-jax values (e.g. ``Delta`` over a
+        # numpy string array); concrete distributions return ``Array``.
+        allowed = (
+            (jax.Array, ArrayLike)
+            if method in {"sample", "rsample", "log_prob", "sample_with_intermediates"}
+            else (jax.Array,)
+        )
+        return_annotation = get_type_hints(impl).get("return")
+        if method == "sample_with_intermediates":
+            # ``tuple[<sample type>, list[...]]``: check the sample component.
+            assert get_origin(return_annotation) is tuple
+            return_annotation = get_args(return_annotation)[0]
+        assert return_annotation in allowed, (
+            f"{cls.__name__}.{method} ({impl.__code__.co_filename}:"
+            f"{impl.__code__.co_firstlineno}) is annotated with {return_annotation}"
+        )
+
+        if method in {"sample", "rsample", "sample_with_intermediates"}:
+            fn = lambda: getattr(d, method)(random.PRNGKey(0))  # noqa: E731
+        elif method in {"log_prob", "cdf"}:
+            # IntervalCensoredDistribution takes an interval (lo, hi) as log_prob
+            # input but returns univariate samples, so log_prob(sample) is not
+            # well-formed for it (mirrors the special-casing in test_dist_shape).
+            if isinstance(d, dist.IntervalCensoredDistribution):
+                pytest.skip(
+                    "log_prob(sample) is ill-formed for interval-censored dists"
+                )
+            value = d.sample(random.PRNGKey(0))
+            fn = lambda: getattr(d, method)(value)  # noqa: E731
+        elif method == "icdf":
+            fn = lambda: d.icdf(0.3)  # noqa: E731
+        elif method == "entropy":
+            fn = lambda: d.entropy()  # noqa: E731
+        elif method in {"mean", "mode", "variance"}:
+            fn = lambda: getattr(d, method)  # noqa: E731
+        elif method == "enumerate_support":
+            fn = lambda: d.enumerate_support()  # noqa: E731
+        else:
+            raise RuntimeError(method)
+        try:
+            out = jax.jit(fn)() if jit else fn()
+        except NotImplementedError:
+            pytest.skip(f"{cls.__name__}.{method} is not implemented")
+    if (
+        isinstance(d, dist.Delta)
+        and method in {"sample", "rsample", "sample_with_intermediates"}
+        and not jit
+    ):
+        # Delta.sample returns ``v`` untouched by design (a python scalar or numpy
+        # array in this grid); under jit the output is always a jax array.
+        return
+    if method == "sample_with_intermediates":
+        out, intermediates = out
+        for leaf in jax.tree_util.tree_leaves(intermediates):
+            assert isinstance(leaf, jax.Array), (
+                f"{cls.__name__} intermediate {type(leaf)}"
+            )
+    assert isinstance(out, jax.Array), f"{cls.__name__}.{method} returned {type(out)}"
+
+
+@pytest.mark.parametrize(
+    "make_dist",
+    [
+        lambda: dist.CategoricalProbs(np.array([0.2, 0.3, 0.5])),
+        lambda: dist.CategoricalLogits(np.array([0.1, -0.4, 1.2])),
+        lambda: dist.MultinomialProbs(np.array([0.2, 0.3, 0.5]), total_count=4),
+        lambda: dist.MultinomialLogits(np.array([0.1, -0.4, 1.2]), total_count=4),
+        lambda: dist.ProjectedNormal(np.array([0.5, -1.0])),
+        lambda: dist.GaussianCopula(
+            dist.Normal(0.0, 1.0), correlation_matrix=np.eye(2)
+        ),
+        lambda: dist.Dirichlet(np.array([1.0, 2.0, 3.0])),
+        lambda: dist.EulerMaruyama(
+            np.array([0.0, 0.5, 1.0]),
+            lambda x, t: (-x, jnp.ones_like(x)),
+            dist.Normal(0.0, 1.0).expand((2,)).to_event(1),
+        ),
+        lambda: dist.GaussianStateSpace(3, np.eye(2), np.eye(2)),
+        lambda: dist.MatrixNormal(np.zeros((2, 3)), np.eye(2), np.eye(3)),
+        lambda: dist.CAR(
+            np.zeros(3),
+            0.5,
+            np.array(1.0),
+            np.array([[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0]]),
+        ),
+        lambda: dist.LowRankMultivariateNormal(
+            np.zeros(3), np.ones((3, 1)), np.ones(3)
+        ),
+    ],
+    ids=[
+        "CategoricalProbs",
+        "CategoricalLogits",
+        "MultinomialProbs",
+        "MultinomialLogits",
+        "ProjectedNormal",
+        "GaussianCopula",
+        "Dirichlet",
+        "EulerMaruyama",
+        "GaussianStateSpace",
+        "MatrixNormal",
+        "CAR",
+        "LowRankMultivariateNormal",
+    ],
+)
+def test_numpy_inputs_to_widened_constructors(make_dist):
+    # Constructor parameters are annotated ``ArrayLike``; numpy inputs must work
+    # without being coerced to jax arrays at construction time.
+    d = make_dist()
+    sample = d.sample(random.PRNGKey(0))
+    assert jnp.isfinite(d.log_prob(sample)).all()
 
 
 @pytest.mark.parametrize(
@@ -2456,6 +2702,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     if jax_dist in (
         _TruncatedNormal,
         _TruncatedCauchy,
+        _TruncatedGamma,
         _LeftCensoredHalfNormal,
         _RightCensoredWeibull,
         _LeftCensoredNormal,
@@ -2488,7 +2735,13 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         if jax_dist is dist.EulerMaruyama and dist_args[i] != "t":
             continue
         if (
-            jax_dist is dist.TwoSidedTruncatedDistribution
+            jax_dist
+            in (
+                dist.TwoSidedTruncatedDistribution,
+                dist.LeftTruncatedGamma,
+                dist.RightTruncatedGamma,
+                dist.TwoSidedTruncatedGamma,
+            )
             and dist_args[i] == "base_dist"
         ):
             continue
@@ -2643,12 +2896,55 @@ def test_beta_proportion_invalid_mean():
 ########################################
 
 
+def test_validate_args_of_derived_parameter_under_jit():
+    with pytest.raises(ValueError, match="invalid mean"):
+        jax.jit(lambda: dist.BetaProportion(1.5, 2.0, validate_args=True))()
+
+    log_prob = jax.jit(
+        lambda m: dist.BetaProportion(m, 2.0, validate_args=True).log_prob(0.3)
+    )
+    assert jnp.isfinite(log_prob(0.4))
+    assert log_prob(1.5) == -jnp.inf
+
+
 @pytest.mark.parametrize(
     "constraint, x, expected",
     [
         (constraints.boolean, np.array([True, False]), np.array([True, True])),
         (constraints.boolean, np.array([1, 1]), np.array([True, True])),
         (constraints.boolean, np.array([-1, 1]), np.array([False, True])),
+        (
+            constraints.cat(
+                [constraints.interval(-1, 1), constraints.positive],
+                dim=-1,
+                lengths=[2, 1],
+            ),
+            np.array([[0.0, 2.0, 1.0], [-2.0, 0.5, -1.0]]),
+            np.array([[True, False, True], [False, True, False]]),
+        ),
+        (
+            constraints.cat([constraints.positive, constraints.unit_interval]),
+            np.array([[1.0, 0.0, -1.0], [0.0, 0.5, 2.0]]),
+            np.array([[True, False, False], [True, True, False]]),
+        ),
+        (
+            constraints.cat(
+                [constraints.less_than(0), constraints.nonnegative],
+                dim=1,
+                lengths=[1, 2],
+            ),
+            np.array([[-1.0, 0.0, 2.0], [1.0, -1.0, 0.0]]),
+            np.array([[True, True, True], [False, False, True]]),
+        ),
+        (
+            constraints.cat(
+                [constraints.positive, constraints.unit_interval],
+                dim=-1,
+                lengths=[0, 2],
+            ),
+            np.array([[0.0, 0.5], [-1.0, 2.0]]),
+            np.array([[True, True], [False, False]]),
+        ),
         (
             constraints.corr_cholesky,
             np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
@@ -2763,6 +3059,28 @@ def test_beta_proportion_invalid_mean():
             np.array([-5, 0, 0.5, 1, 7]),
             np.array([False, False, True, False, False]),
         ),
+        (
+            constraints.zero_sum(1),
+            np.array([[1.0, -1.0, 0.0], [1.0, 1.0, -1.0]]),
+            np.array([True, False]),
+        ),
+        (
+            constraints.zero_sum(2),
+            np.array(
+                [
+                    [[1.0, -1.0], [-1.0, 1.0]],
+                    [[1.0, 0.0], [0.0, -1.0]],
+                    [[1.0, -1.0], [1.0, -1.0]],
+                ]
+            ),
+            np.array([True, False, False]),
+        ),
+        (
+            # the tolerance is relative to the scale of the entries
+            constraints.zero_sum(1),
+            np.array([[100.0, -100.0, 1e-5], [100.0, -100.0, 1e-2]], np.float32),
+            np.array([True, False]),
+        ),
     ],
 )
 def test_constraints(constraint, x, expected):
@@ -2781,6 +3099,40 @@ def test_constraints(constraint, x, expected):
         pass
     else:
         assert_allclose(inverse, jnp.zeros_like(inverse), atol=2e-7)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e3])
+@pytest.mark.parametrize("event_shape", [(5,), (4, 5)])
+def test_zero_sum_support_of_samples(scale, event_shape):
+    d = dist.ZeroSumNormal(scale, event_shape)
+    samples = d.sample(random.PRNGKey(0), (100,))
+    mask = d.support(samples)
+    assert jnp.shape(mask) == (100,)
+    assert jnp.all(mask)
+
+
+def test_cat_constraint_pytree_and_validation():
+    constraint = constraints.cat(
+        [constraints.interval(-1.0, 1.0), constraints.positive],
+        dim=-1,
+        lengths=[2, 1],
+    )
+    value = jnp.array([[0.0, 2.0, 1.0], [-2.0, 0.5, -1.0]])
+    expected = jnp.array([[True, False, True], [False, True, False]])
+
+    assert_array_equal(jax.jit(lambda c, x: c(x))(constraint, value), expected)
+    leaves, treedef = jax.tree.flatten(constraint)
+    assert constraint.eq(jax.tree.unflatten(treedef, leaves), static=True)
+
+    with pytest.raises(ValueError, match="must equal the sum of lengths 3"):
+        constraint(jnp.ones(2))
+
+    with pytest.raises(AssertionError, match="cseq cannot be empty"):
+        constraints.cat([])
+    with pytest.raises(AssertionError, match="dim must be an integer"):
+        constraints.cat([constraints.real], dim=0.5)
+    with pytest.raises(AssertionError, match="nonnegative integers"):
+        constraints.cat([constraints.real], lengths=[-1])
 
 
 @pytest.mark.parametrize(
@@ -3391,6 +3743,37 @@ def test_mask_grad(event_shape):
 
 
 @pytest.mark.parametrize(
+    "make_dist",
+    [
+        lambda low: dist.DoublyTruncatedPowerLaw(alpha=-1.5, low=low, high=100.0),
+        lambda low: dist.LowerTruncatedPowerLaw(alpha=-2.5, low=low),
+    ],
+    ids=["DoublyTruncatedPowerLaw", "LowerTruncatedPowerLaw"],
+)
+def test_truncation_bounds_are_pytree_leaves(make_dist):
+    """Parameter-derived supports belong in ``pytree_data_fields``.
+
+    Holding ``_support`` in ``pytree_aux_fields`` puts the truncation bounds in the
+    static treedef, so a jitted function taking the distribution as an argument
+    retraces for every distinct bound.
+    """
+    traces = []
+
+    @jax.jit
+    def log_prob(d, value):
+        traces.append(None)
+        return d.log_prob(value)
+
+    for low in [1.0, 1.1, 1.2, 1.3, 1.4]:
+        log_prob(make_dist(low), jnp.array(5.0))
+    assert len(traces) == 1
+
+    d = make_dist(2.0)
+    leaves, _ = jax.tree.flatten(d)
+    assert any(jnp.ndim(leaf) == 0 and leaf == 2.0 for leaf in leaves)
+
+
+@pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
 def test_dist_pytree(jax_dist, sp_dist, params):
@@ -3662,6 +4045,8 @@ def _get_vmappable_dist_init_params(jax_dist):
     if jax_dist.__name__ == ("_TruncatedCauchy"):
         return [2, 3]
     elif jax_dist.__name__ == ("_TruncatedNormal"):
+        return [2, 3]
+    elif jax_dist.__name__ == ("_TruncatedGamma"):
         return [2, 3]
     elif jax_dist.__name__ == ("_LeftCensoredHalfNormal"):
         return [1]
@@ -5169,3 +5554,349 @@ def test_interval_censored_point_interval_discrete():
         return d.log_prob(jnp.stack([x1, y], axis=-1)).sum()
 
     assert jnp.isfinite(grad(total_log_prob)(1.0))
+
+
+_TRUNCATED_GAMMA_CASES = [
+    (2.0, 1.0, 1.0, 3.0),
+    (0.5, 2.0, 0.1, 1.0),
+    (5.0, 1.5, 0.5, 10.0),
+    (3.7, 0.4, 2.0, 4.0),
+    (1.3, 1.0, 0.05, 2.0),
+]
+
+
+def _truncated_gamma_reference_logpdf(x, concentration, rate, low, high):
+    """Reference density built from scipy's survival function.
+
+    The survival function is used rather than the cdf because ``cdf(high) -
+    cdf(low)`` cancels catastrophically once the interval sits in the right tail.
+    """
+    normalizer = osp.gamma.sf(low, concentration, scale=1 / rate) - osp.gamma.sf(
+        high, concentration, scale=1 / rate
+    )
+    return osp.gamma.logpdf(x, concentration, scale=1 / rate) - np.log(normalizer)
+
+
+@pytest.mark.parametrize("concentration, rate, low, high", _TRUNCATED_GAMMA_CASES)
+def test_truncated_gamma_log_prob(concentration, rate, low, high):
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+    x = np.linspace(low, high, 25)[1:-1]
+    expected = _truncated_gamma_reference_logpdf(x, concentration, rate, low, high)
+    assert_allclose(d.log_prob(x), expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("concentration, rate, low", [(2.0, 1.0, 1.5), (0.7, 3.0, 0.2)])
+def test_left_truncated_gamma_log_prob(concentration, rate, low):
+    d = dist.TruncatedGamma(concentration, rate, low=low)
+    assert isinstance(d, dist.LeftTruncatedGamma)
+    x = np.linspace(low, low + 8.0, 20)[1:]
+    expected = osp.gamma.logpdf(x, concentration, scale=1 / rate) - np.log(
+        osp.gamma.sf(low, concentration, scale=1 / rate)
+    )
+    assert_allclose(d.log_prob(x), expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "concentration, rate, high", [(2.0, 1.0, 3.0), (0.7, 3.0, 1.0)]
+)
+def test_right_truncated_gamma_log_prob(concentration, rate, high):
+    d = dist.TruncatedGamma(concentration, rate, high=high)
+    assert isinstance(d, dist.RightTruncatedGamma)
+    x = np.linspace(0.0, high, 20)[1:-1]
+    expected = osp.gamma.logpdf(x, concentration, scale=1 / rate) - np.log(
+        osp.gamma.cdf(high, concentration, scale=1 / rate)
+    )
+    assert_allclose(d.log_prob(x), expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("concentration, rate, low, high", _TRUNCATED_GAMMA_CASES)
+def test_truncated_gamma_normalized(concentration, rate, low, high):
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+    integral, _ = osp_integrate.quad(
+        lambda x: float(jnp.exp(d.log_prob(jnp.array(x)))), low, high, limit=200
+    )
+    assert_allclose(integral, 1.0, atol=1e-5)
+
+
+@pytest.mark.parametrize("concentration, rate, low, high", _TRUNCATED_GAMMA_CASES)
+def test_truncated_gamma_cdf_icdf_round_trip(concentration, rate, low, high):
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+    q = jnp.linspace(0.01, 0.99, 25)
+    assert_allclose(d.cdf(d.icdf(q)), q, atol=1e-5)
+
+
+def test_truncated_gamma_cdf_edges():
+    d = dist.TruncatedGamma(2.0, 1.0, low=1.0, high=3.0)
+    assert_allclose(d.cdf(jnp.array(0.5)), 0.0, atol=1e-7)
+    assert_allclose(d.cdf(jnp.array(3.5)), 1.0, atol=1e-7)
+    assert_allclose(d.cdf(jnp.array(1.0)), 0.0, atol=1e-6)
+    assert_allclose(d.cdf(jnp.array(3.0)), 1.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("concentration, rate, low, high", _TRUNCATED_GAMMA_CASES)
+def test_truncated_gamma_sample(concentration, rate, low, high):
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+    samples = d.sample(random.key(0), (20000,))
+    assert jnp.all(samples >= low) and jnp.all(samples <= high)
+
+    normalizer = osp.gamma.cdf(high, concentration, scale=1 / rate) - osp.gamma.cdf(
+        low, concentration, scale=1 / rate
+    )
+
+    def reference_cdf(x):
+        return (
+            osp.gamma.cdf(x, concentration, scale=1 / rate)
+            - osp.gamma.cdf(low, concentration, scale=1 / rate)
+        ) / normalizer
+
+    assert osp.kstest(np.asarray(samples), reference_cdf).pvalue > 0.01
+
+
+@pytest.mark.parametrize("concentration, rate, low, high", _TRUNCATED_GAMMA_CASES)
+def test_truncated_gamma_moments(concentration, rate, low, high):
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+    pdf = lambda x: float(jnp.exp(d.log_prob(jnp.array(x))))  # noqa: E731
+    mean, _ = osp_integrate.quad(lambda x: x * pdf(x), low, high, limit=200)
+    second, _ = osp_integrate.quad(lambda x: x * x * pdf(x), low, high, limit=200)
+    assert_allclose(d.mean, mean, rtol=1e-4)
+    assert_allclose(d.variance, second - mean**2, rtol=1e-3)
+
+
+def test_truncated_gamma_moment_tail_switch_per_order():
+    """The tail switch has to be re-decided at each moment order.
+
+    ``Gamma(alpha + k)`` has a larger median than ``Gamma(alpha)``, so an interval
+    above the base median can sit deep in the lower tail at the shifted order, where
+    the upper-tail difference is the one that cancels. Reusing the order-zero branch
+    collapsed the second moment to zero and produced a negative variance.
+    """
+    concentration, rate, low, high = 0.05, 1.0, 1e-6, 1e-5
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+
+    def exact_moment(order):
+        shifted = concentration + order
+        numerator = osp.gamma.cdf(high, shifted, scale=1 / rate) - osp.gamma.cdf(
+            low, shifted, scale=1 / rate
+        )
+        denominator = osp.gamma.cdf(
+            high, concentration, scale=1 / rate
+        ) - osp.gamma.cdf(low, concentration, scale=1 / rate)
+        falling = np.prod([concentration + i for i in range(order)])
+        return falling / rate**order * numerator / denominator
+
+    expected_variance = exact_moment(2) - exact_moment(1) ** 2
+    assert float(d.variance) > 0
+    assert_allclose(d.mean, exact_moment(1), rtol=1e-4)
+    assert_allclose(d.variance, expected_variance, rtol=1e-3)
+
+
+def test_truncated_gamma_one_sided_moments():
+    left = dist.TruncatedGamma(2.0, 1.0, low=1.5)
+    pdf = lambda x: float(jnp.exp(left.log_prob(jnp.array(x))))  # noqa: E731
+    mean, _ = osp_integrate.quad(lambda x: x * pdf(x), 1.5, np.inf, limit=300)
+    assert_allclose(left.mean, mean, rtol=1e-4)
+
+    right = dist.TruncatedGamma(2.0, 1.0, high=3.0)
+    pdf = lambda x: float(jnp.exp(right.log_prob(jnp.array(x))))  # noqa: E731
+    mean, _ = osp_integrate.quad(lambda x: x * pdf(x), 0.0, 3.0, limit=300)
+    assert_allclose(right.mean, mean, rtol=1e-4)
+
+
+@pytest.mark.parametrize("low, high", [(20.0, 25.0), (30.0, 40.0)])
+def test_truncated_gamma_far_tail_normalizer(low, high):
+    """The lower-tail normalizer ``F(high) - F(low)`` cancels away to nothing out in
+    the right tail; the upper-tail form used by the implementation does not."""
+    concentration, rate = 2.0, 1.0
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+    x = np.linspace(low, high, 10)[1:-1]
+
+    log_prob = d.log_prob(x)
+    assert jnp.all(jnp.isfinite(log_prob))
+
+    expected = _truncated_gamma_reference_logpdf(x, concentration, rate, low, high)
+    assert_allclose(log_prob, expected, rtol=1e-4)
+
+
+def test_truncated_gamma_samples_in_far_tail():
+    """The inverse incomplete gamma saturates below a tail probability of ~3e-8, which
+    used to put draws outside the support once the retained mass got small. ``icdf``
+    bisects the cdf instead, so these regimes sample correctly."""
+    for low, high in [(20.0, 25.0), (30.0, 40.0), (50.0, 60.0)]:
+        d = dist.TruncatedGamma(2.0, 1.0, low=low, high=high)
+        samples = d.sample(random.key(0), (2000,))
+        assert not jnp.any(jnp.isnan(samples))
+        assert jnp.all(samples >= low) and jnp.all(samples <= high)
+
+    # left truncation retaining only ~0.3% of the base mass
+    d = dist.TruncatedGamma(2.0, 1.0, low=8.0)
+    samples = d.sample(random.key(0), (200000,))
+    assert not jnp.any(jnp.isnan(samples))
+    assert jnp.all(samples >= 8.0)
+
+    # the support is unbounded above, so q = 1 is still legitimately infinite
+    assert jnp.isinf(d.icdf(jnp.array(1.0)))
+
+
+def test_truncated_gamma_icdf_is_differentiable():
+    """Bisection alone is piecewise constant in the parameters; the Newton step in
+    ``icdf`` restores the implicit-function derivative."""
+
+    def icdf_of(concentration, rate, low, high):
+        return dist.TruncatedGamma(concentration, rate, low=low, high=high).icdf(
+            jnp.array(0.4)
+        )
+
+    args = (jnp.array(2.0), jnp.array(1.0), jnp.array(0.5), jnp.array(3.0))
+    eps = 1e-3
+    for argnum in range(4):
+        grad = jax.grad(icdf_of, argnums=argnum)(*args)
+        assert jnp.isfinite(grad) and grad != 0.0
+        bumped_up = [a + (eps if i == argnum else 0.0) for i, a in enumerate(args)]
+        bumped_dn = [a - (eps if i == argnum else 0.0) for i, a in enumerate(args)]
+        fd = (icdf_of(*bumped_up) - icdf_of(*bumped_dn)) / (2 * eps)
+        assert_allclose(grad, fd, rtol=2e-2)
+
+
+def test_truncated_gamma_low_zero_matches_base():
+    """``low = 0`` truncates nothing, so the density must equal the base Gamma's."""
+    x = jnp.linspace(0.1, 6.0, 20)
+    assert_allclose(
+        dist.TruncatedGamma(2.0, 1.0, low=0.0).log_prob(x),
+        dist.Gamma(2.0, 1.0).log_prob(x),
+        rtol=1e-6,
+    )
+
+
+def test_truncated_gamma_accepts_gamma_subclass():
+    """``Chi2`` is a ``Gamma``, so it passes the ``supported_types`` check."""
+    d = dist.LeftTruncatedGamma(dist.Chi2(4.0), low=1.0)
+    expected = osp.chi2.logpdf(3.0, 4) - np.log(osp.chi2.sf(1.0, 4))
+    assert_allclose(d.log_prob(jnp.array(3.0)), expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("low, high", [(3.0, 1.0), (2.0, 2.0)])
+def test_truncated_gamma_degenerate_interval(low, high):
+    """An empty or point interval retains no mass: -inf, never +inf."""
+    # every value is outside an empty interval, so support validation would warn
+    d = dist.TruncatedGamma(2.0, 1.0, low=low, high=high, validate_args=False)
+    log_prob = d.log_prob(jnp.array(2.0))
+    assert jnp.isneginf(log_prob) or jnp.isnan(log_prob)
+    assert not (log_prob > 0)
+
+
+def test_truncated_gamma_underflowed_normalizer():
+    """When the retained probability underflows, ``log_prob`` returns -inf rather than
+    +inf, and the gradient stays finite."""
+    d = dist.TruncatedGamma(2.0, 1.0, low=120.0, high=130.0)
+    log_prob = d.log_prob(jnp.array(125.0))
+    assert jnp.isneginf(log_prob)
+    assert jnp.isnan(d.cdf(jnp.array(125.0)))
+
+    grad = jax.grad(
+        lambda a: dist.TruncatedGamma(a, 1.0, low=120.0, high=130.0).log_prob(
+            jnp.array(125.0)
+        )
+    )(jnp.array(2.0))
+    assert jnp.isfinite(grad)
+
+
+def test_truncated_gamma_dispatch():
+    assert isinstance(dist.TruncatedGamma(2.0, 1.0, low=1.0), dist.LeftTruncatedGamma)
+    assert isinstance(dist.TruncatedGamma(2.0, 1.0, high=3.0), dist.RightTruncatedGamma)
+    assert isinstance(
+        dist.TruncatedGamma(2.0, 1.0, low=1.0, high=3.0), dist.TwoSidedTruncatedGamma
+    )
+    untruncated = dist.TruncatedGamma(2.0, 1.0)
+    assert isinstance(untruncated, dist.Gamma) and not isinstance(
+        untruncated, dist.TwoSidedTruncatedGamma
+    )
+
+
+@pytest.mark.parametrize(
+    "concentration, rate, low, high, expected_shape",
+    [
+        (np.array([1.5, 2.5]), 1.0, 0.5, 3.0, (2,)),
+        (2.0, np.array([[1.0], [2.0]]), np.array([0.3, 0.6]), 5.0, (2, 2)),
+        (2.0, 1.0, np.array([0.3, 0.6]), np.array([3.0, 4.0]), (2,)),
+    ],
+)
+def test_truncated_gamma_batch_shape(concentration, rate, low, high, expected_shape):
+    d = dist.TruncatedGamma(concentration, rate, low=low, high=high)
+    assert d.batch_shape == expected_shape
+    samples = d.sample(random.key(0), (7,))
+    assert samples.shape == (7,) + expected_shape
+    assert d.log_prob(samples).shape == (7,) + expected_shape
+    assert jnp.all(d.support(samples))
+
+
+def test_truncated_gamma_gradient_wrt_bounds():
+    """The derivative of the log density w.r.t. either bound has a closed form.
+
+    With :math:`Z = F(b) - F(a)` we have :math:`\\partial Z/\\partial b = f(b)`, so
+    :math:`\\partial \\log f_T(x)/\\partial b = -f_T(b)`, and symmetrically
+    :math:`\\partial \\log f_T(x)/\\partial a = f_T(a)`. Checking against these
+    identities avoids a finite-difference reference, which is unreliable in single
+    precision.
+    """
+    low, high, value = 0.5, 3.0, 1.5
+    d = dist.TruncatedGamma(2.0, 1.0, low=low, high=high)
+
+    grad_high = jax.grad(
+        lambda h: dist.TruncatedGamma(2.0, 1.0, low=low, high=h).log_prob(
+            jnp.array(value)
+        )
+    )(jnp.array(high))
+    assert_allclose(grad_high, -jnp.exp(d.log_prob(jnp.array(high))), rtol=1e-5)
+
+    grad_low = jax.grad(
+        lambda lo: dist.TruncatedGamma(2.0, 1.0, low=lo, high=high).log_prob(
+            jnp.array(value)
+        )
+    )(jnp.array(low))
+    assert_allclose(grad_low, jnp.exp(d.log_prob(jnp.array(low))), rtol=1e-5)
+
+
+def test_truncated_gamma_gradients():
+    """Gradients w.r.t. the base parameters must be finite and correct; HMC
+    differentiates straight through the incomplete gamma functions."""
+
+    def log_prob_fn(concentration, rate):
+        return dist.TruncatedGamma(concentration, rate, low=0.5, high=3.0).log_prob(
+            jnp.array(1.5)
+        )
+
+    grads = jax.grad(log_prob_fn, argnums=(0, 1))(jnp.array(2.0), jnp.array(1.0))
+    assert all(jnp.isfinite(g) for g in grads)
+
+    # A central difference on an O(1) log density is limited by cancellation, so the
+    # step is kept well above the single-precision noise floor.
+    eps = 1e-2
+    fd_concentration = (log_prob_fn(2.0 + eps, 1.0) - log_prob_fn(2.0 - eps, 1.0)) / (
+        2 * eps
+    )
+    fd_rate = (log_prob_fn(2.0, 1.0 + eps) - log_prob_fn(2.0, 1.0 - eps)) / (2 * eps)
+    assert_allclose(grads[0], fd_concentration, rtol=2e-2)
+    assert_allclose(grads[1], fd_rate, rtol=2e-2)
+
+
+def test_truncated_gamma_inference():
+    """End-to-end MCMC smoke test: NUTS recovers the concentration and rate."""
+    true_concentration, true_rate = 3.0, 1.5
+    low, high = 0.5, 6.0
+    key_data, key_mcmc = random.split(random.key(2))
+    data = dist.TruncatedGamma(
+        true_concentration, true_rate, low=low, high=high
+    ).sample(key_data, (2000,))
+
+    def model(y):
+        concentration = numpyro.sample("concentration", dist.LogNormal(1.0, 1.0))
+        rate = numpyro.sample("rate", dist.LogNormal(0.0, 1.0))
+        numpyro.sample(
+            "y", dist.TruncatedGamma(concentration, rate, low=low, high=high), obs=y
+        )
+
+    mcmc = MCMC(NUTS(model), num_warmup=400, num_samples=400, progress_bar=False)
+    mcmc.run(key_mcmc, y=data)
+    samples = mcmc.get_samples()
+    assert abs(float(jnp.mean(samples["concentration"])) - true_concentration) < 0.7
+    assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.4

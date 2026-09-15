@@ -938,3 +938,50 @@ def test_uncondition_multiple_sites():
     # The unobserved site should remain unobserved
     assert not trace["z"]["is_observed"]
     assert not trace["z"]["infer"].get("was_observed", False)
+
+
+class _StringCategorical(dist.Distribution):
+    """Fake categorical over string labels; samples are numpy ``<U1`` arrays."""
+
+    def __init__(self, probs):
+        self.probs = jnp.asarray(probs)
+        self.values = np.array(["A", "B", "C"])
+        super().__init__(batch_shape=jnp.shape(self.probs)[:-1])
+
+    def sample(self, key, sample_shape=()):
+        idx = dist.CategoricalProbs(self.probs).sample(key, sample_shape)
+        return self.values[np.asarray(idx)]
+
+    def log_prob(self, value):
+        idx = np.searchsorted(self.values, np.asarray(value))
+        return jnp.log(self.probs[..., idx])
+
+
+def test_handlers_with_string_valued_distribution():
+    # Base-class return types stay ``ArrayLike`` so special distributions may emit
+    # non-jax values; seed/trace/plate/log_density must pass them through.
+    probs = jnp.array([0.2, 0.3, 0.5])
+
+    def model():
+        z = numpyro.sample("z", _StringCategorical(probs))
+        with numpyro.plate("n", 4):
+            # plate wraps the distribution in ExpandedDistribution
+            numpyro.sample("w", _StringCategorical(probs))
+        numpyro.sample("x", dist.Normal(jnp.where(z == "A", 0.0, 1.0), 1.0), obs=0.3)
+
+    tr = handlers.trace(handlers.seed(model, 0)).get_trace()
+    assert np.asarray(tr["z"]["value"]).dtype.kind == "U"
+    assert tr["w"]["value"].shape == (4,) and tr["w"]["value"].dtype.kind == "U"
+
+    params = {"z": np.array("B"), "w": np.array(["A", "B", "C", "C"])}
+    ld, _ = log_density(model, (), {}, params)
+    expected = (
+        jnp.log(probs[1])
+        + jnp.log(probs[np.array([0, 1, 2, 2])]).sum()
+        + dist.Normal(1.0, 1.0).log_prob(0.3)
+    )
+    assert_allclose(ld, expected, rtol=1e-6)
+
+    d = dist.Delta(np.array("A"))
+    assert d.sample(random.PRNGKey(0)) == "A"
+    assert_allclose(d.log_prob(np.array("A")), 0.0)

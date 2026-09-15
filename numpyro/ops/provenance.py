@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import jax
-from jax.api_util import debug_info, flatten_fun, shaped_abstractify
+from jax.api_util import debug_info, flatten_fun
 from jax.extend.core import Literal
 from jax.extend.core.primitives import call_p, closed_call_p, jit_p
 
@@ -11,7 +11,6 @@ try:
 except ImportError:
     xla_pmap_p = None
 import jax.extend.linear_util as lu
-from jax.interpreters.partial_eval import trace_to_jaxpr_dynamic
 
 
 # Adapted from definition in jax v0.5.0
@@ -52,24 +51,9 @@ def eval_provenance(fn, **kwargs):
         else {}
     )
     wrapped_fun, out_tree = flatten_fun(lu.wrap_init(fn, **fn_info), in_tree)
-    # Abstract eval to get output pytree
-    avals = _safe_map(shaped_abstractify, args)
-    # Note: we split out the process of abstract evaluation and provenance tracking
-    # for simplicity. In principle, they can be merged so that we only need to walk
-    # through the equations once.
-
-    wrapped_info = (
-        dict(
-            debug_info=debug_info(
-                "eval_provenance wrapped", wrapped_fun.call_wrapped, args, {}
-            )
-        )
-        if debug_info is not None
-        else {}
-    )
-    jaxpr, avals_out, _ = trace_to_jaxpr_dynamic(
-        lu.wrap_init(wrapped_fun.call_wrapped, {}, **wrapped_info), avals
-    )
+    # Use JAX's public tracing API so closed-over constants remain separate from
+    # the explicit inputs whose provenance is tracked.
+    jaxpr = jax.make_jaxpr(wrapped_fun.call_wrapped)(*args)
 
     # get provenances of flatten kwargs
     aval_kwargs = {}
@@ -77,7 +61,7 @@ def eval_provenance(fn, **kwargs):
         aval_kwargs[n] = jax.tree.map(lambda _: frozenset({n}), v)
     provenance_inputs, _ = jax.tree.flatten(((), aval_kwargs))
 
-    provenance_outputs = track_deps_jaxpr(jaxpr, provenance_inputs)
+    provenance_outputs = track_deps_jaxpr(jaxpr.jaxpr, provenance_inputs)
     return jax.tree.unflatten(out_tree(), provenance_outputs)
 
 

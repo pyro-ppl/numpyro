@@ -282,6 +282,33 @@ def test_run(vectorize_particles, progress_bar):
     )
 
 
+def test_run_progress_bar_matches_scan_path():
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1.0, 1.0))
+        with numpyro.plate("N", len(data)):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    def guide(data):
+        alpha_q = numpyro.param("alpha_q", 1.0, constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", 1.0, constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
+
+    svi = SVI(model, guide, optim.Adam(0.05), Trace_ELBO())
+    # use a step count that is not a multiple of the progress-bar update batch
+    # so that the last losses are collected outside a batch boundary
+    result_pbar = svi.run(random.key(1), 123, data, progress_bar=True)
+    result_scan = svi.run(random.key(1), 123, data, progress_bar=False)
+    assert result_pbar.losses.shape == result_scan.losses.shape == (123,)
+    assert result_pbar.losses.dtype == result_scan.losses.dtype
+    # the two paths run differently compiled programs (jitted python loop vs
+    # lax.scan), so they can differ by a few ulps
+    assert_allclose(result_pbar.losses, result_scan.losses, rtol=1e-5)
+    for name in result_scan.params:
+        assert_allclose(result_pbar.params[name], result_scan.params[name], rtol=1e-5)
+
+
 def test_jitted_update_fn():
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 

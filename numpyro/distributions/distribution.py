@@ -296,20 +296,21 @@ class Distribution(metaclass=DistributionMeta):
         :param strict: Require strict validation, raising an error if the function is
             called inside jitted code.
         """
-        for param, value in self.get_args().items():
-            constraint = self.arg_constraints[param]
-            if constraints.is_dependent(constraint):
-                continue  # skip constraints that cannot be checked
-            is_valid = constraint(value)
-            if not_jax_tracer(is_valid):
-                if not np.all(is_valid):
-                    raise ValueError(
-                        "{} distribution got invalid {} parameter.".format(
-                            self.__class__.__name__, param
+        with jax.ensure_compile_time_eval():
+            for param, value in self.get_args().items():
+                constraint = self.arg_constraints[param]
+                if constraints.is_dependent(constraint):
+                    continue  # skip constraints that cannot be checked
+                is_valid = constraint(value)
+                if not_jax_tracer(is_valid):
+                    if not np.all(is_valid):
+                        raise ValueError(
+                            "{} distribution got invalid {} parameter.".format(
+                                self.__class__.__name__, param
+                            )
                         )
-                    )
-            elif strict:
-                raise RuntimeError("Cannot validate arguments inside jitted code.")
+                elif strict:
+                    raise RuntimeError("Cannot validate arguments inside jitted code.")
 
     @property
     def batch_shape(self) -> tuple[int, ...]:
@@ -414,16 +415,23 @@ class Distribution(metaclass=DistributionMeta):
         raise NotImplementedError
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         """
         Mean of the distribution.
         """
         raise NotImplementedError
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         """
         Variance of the distribution.
+        """
+        raise NotImplementedError
+
+    @property
+    def mode(self) -> Array:
+        """
+        Mode of the distribution.
         """
         raise NotImplementedError
 
@@ -488,14 +496,14 @@ class Distribution(metaclass=DistributionMeta):
             return self
         return Independent(self, reinterpreted_batch_ndims)
 
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+    def enumerate_support(self, expand: bool = True) -> Array:
         """
         Returns an array with shape `len(support) x batch_shape`
         containing all values in the support.
         """
         raise NotImplementedError
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         """
         Returns the entropy of the distribution.
         """
@@ -632,7 +640,7 @@ class Distribution(metaclass=DistributionMeta):
         event_shape = ()
         return batch_shape, event_shape
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         """
         The cumulative distribution function of this distribution.
 
@@ -641,7 +649,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         raise NotImplementedError
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         """
         The inverse cumulative distribution function of this distribution.
 
@@ -812,7 +820,7 @@ class ExpandedDistribution(Distribution):
             log_prob = self.base_dist.log_prob(value, intermediates)
         return jnp.broadcast_to(log_prob, shape)
 
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+    def enumerate_support(self, expand: bool = True) -> Array:
         samples = jnp.asarray(self.base_dist.enumerate_support(expand=False))
         enum_shape = samples.shape[:1]
         samples = samples.reshape(enum_shape + (1,) * len(self.batch_shape))
@@ -823,18 +831,18 @@ class ExpandedDistribution(Distribution):
         return samples
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return jnp.broadcast_to(
             self.base_dist.mean, self.batch_shape + self.event_shape
         )
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.broadcast_to(
             self.base_dist.variance, self.batch_shape + self.event_shape
         )
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return jnp.broadcast_to(self.base_dist.entropy(), self.batch_shape)
 
 
@@ -982,11 +990,11 @@ class Independent(Distribution):
         )
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.base_dist.mean
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return self.base_dist.variance
 
     @property
@@ -1030,7 +1038,7 @@ class Independent(Distribution):
             self.reinterpreted_batch_ndims
         )
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         axes = range(-self.reinterpreted_batch_ndims, 0)
         return jnp.asarray(self.base_dist.entropy()).sum(axes)
 
@@ -1110,15 +1118,15 @@ class MaskedDistribution(Distribution):
             value = jnp.where(mask, value, default_value)
         return jnp.where(self._mask, self.base_dist.log_prob(value), 0.0)
 
-    def enumerate_support(self, expand: bool = True) -> ArrayLike:
+    def enumerate_support(self, expand: bool = True) -> Array:
         return self.base_dist.enumerate_support(expand=expand)
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         return self.base_dist.mean
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return self.base_dist.variance
 
     def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
@@ -1302,14 +1310,14 @@ class TransformedDistribution(Distribution):
         return log_prob
 
     @property
-    def mean(self) -> ArrayLike:
+    def mean(self) -> Array:
         raise NotImplementedError
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         raise NotImplementedError
 
-    def cdf(self, value: ArrayLike) -> ArrayLike:
+    def cdf(self, value: ArrayLike) -> Array:
         sign: Any = 1
         for transform in reversed(self.transforms):
             sign = sign * transform.sign
@@ -1317,7 +1325,7 @@ class TransformedDistribution(Distribution):
         q = self.base_dist.cdf(value)
         return jnp.where(sign < 0, 1 - q, q)
 
-    def icdf(self, q: ArrayLike) -> ArrayLike:
+    def icdf(self, q: ArrayLike) -> Array:
         sign: Any = 1
         for transform in self.transforms:
             sign = sign * transform.sign
@@ -1325,7 +1333,7 @@ class TransformedDistribution(Distribution):
         value = self.base_dist.icdf(q)
         for transform in self.transforms:
             value = transform(value)
-        return value
+        return jnp.asarray(value)
 
 
 class FoldedDistribution(TransformedDistribution):
@@ -1402,14 +1410,14 @@ class Delta(Distribution):
         return log_prob + self.log_density
 
     @property
-    def mean(self) -> ArrayLike:
-        return self.v
+    def mean(self) -> Array:
+        return jnp.asarray(self.v)
 
     @property
-    def variance(self) -> ArrayLike:
+    def variance(self) -> Array:
         return jnp.zeros(self.batch_shape + self.event_shape)
 
-    def entropy(self) -> ArrayLike:
+    def entropy(self) -> Array:
         return -jnp.broadcast_to(self.log_density, self.batch_shape)
 
 
