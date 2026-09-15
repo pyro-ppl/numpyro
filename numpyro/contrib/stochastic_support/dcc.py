@@ -153,11 +153,13 @@ class StochasticSupportInference(ABC):
 class DCC(StochasticSupportInference):
     """
     Implements the Divide, Conquer, and Combine (DCC) algorithm for models with
-    stochastic support from [1].
+    stochastic support from [`1 <dcc-ref-1_>`__].
 
     **References:**
 
-    1. *Divide, Conquer, and Combine: a New Inference Strategy for Probabilistic Programs with Stochastic Support*,
+    1. .. _dcc-ref-1:
+
+       *Divide, Conquer, and Combine: a New Inference Strategy for Probabilistic Programs with Stochastic Support*,
        Yuan Zhou, Hongseok Yang, Yee Whye Teh, Tom Rainforth
 
     **Example:**
