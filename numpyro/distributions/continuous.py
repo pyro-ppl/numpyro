@@ -3620,9 +3620,9 @@ class StudentT(Distribution):
     ) -> Array:
         r"""Draw samples via the location-scale representation
         :math:`X = \mu + \sigma T` where
-        :math:`T = Z / \sqrt{V / \nu}`,
-        :math:`Z \sim \mathrm{Normal}(0, 1)` independent of
-        :math:`V \sim \chi^{2}(\nu)`.
+        :math:`T = Z\sqrt{\nu / V}`,
+        :math:`Z \sim \mathrm{Normal}(0, 1)` is drawn using :func:`~jax.random.normal`,
+        and independent of :math:`V \sim \chi^{2}(\nu)`.
 
         :param key: A JAX PRNG key.
         :param sample_shape: Sample dimensions to prepend to the batch shape.
@@ -3642,13 +3642,13 @@ class StudentT(Distribution):
 
         .. math::
             \ln f(x ; \nu, \mu, \sigma) =
-            \ln\Gamma\bigl(\tfrac{\nu+1}{2}\bigr)
-            - \ln\Gamma\bigl(\tfrac{\nu}{2}\bigr)
-            - \tfrac{1}{2}\ln(\nu\pi)
+            \ln\Gamma\left(\frac{\nu+1}{2}\right)
+            - \ln\Gamma\left(\frac{\nu}{2}\right)
+            - \frac{1}{2}\ln(\nu\pi)
             - \ln\sigma
-            - \tfrac{\nu+1}{2}
+            - \frac{\nu+1}{2}
               \ln\!\left(
-                  1 + \tfrac{1}{\nu}\left(\tfrac{x-\mu}{\sigma}\right)^{2}
+                  1 + \frac{1}{\nu}\left(\frac{x-\mu}{\sigma}\right)^{2}
               \right)
 
         :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
@@ -3672,11 +3672,11 @@ class StudentT(Distribution):
             \mathbb{E}[X] =
             \begin{cases}
                 \mu & \nu > 1 \\
-                \text{undefined} & \nu \le 1
+                \infty & \nu \le 1
             \end{cases}
 
         This implementation returns ``inf`` when the mean is undefined,
-        matching SciPy.
+        matching the implementation of scipy's :obj:`~scipy.stats.t`.
         """
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
@@ -3713,13 +3713,14 @@ class StudentT(Distribution):
 
         .. math::
             F(x ; \nu, \mu, \sigma) =
-            \tfrac{1}{2}
-            + \tfrac{1}{2}\,\operatorname{sign}(Z)
-            \bigl(1 - I_{u}(\tfrac{\nu}{2}, \tfrac{1}{2})\bigr)
+            \frac{1}{2}
+            + \frac{1}{2}\,\operatorname{sign}(Z)
+            \left(1 - I_{u}\left(\frac{\nu}{2}, \frac{1}{2}\right)\right)
 
         where :math:`I_{u}` is the regularized incomplete beta function.
         Equivalently, :math:`Z^{2}` follows an
-        :math:`F(1, \nu)` distribution.
+        :math:`F(1, \nu)` distribution, where :math:`F(\cdot, \cdot)`
+        is the `Fisher–Snedecor distribution <https://en.wikipedia.org/wiki/F-distribution>`_.
 
         :param value: Real-valued point :math:`x` at which to evaluate the CDF.
         :return: CDF values in :math:`[0, 1]`.
@@ -3746,8 +3747,8 @@ class StudentT(Distribution):
 
         .. math::
             F^{-1}(q ; \nu, \mu, \sigma) =
-            \mu + \sigma\,\operatorname{sign}(q - \tfrac{1}{2})
-            \sqrt{\nu\,(1/u - 1)},
+            \mu + \sigma\,\operatorname{sign}\left(q - \frac{1}{2}\right)
+            \sqrt{\nu\,\left(\frac{1}{u} - 1\right)},
             \quad q \in [0, 1]
 
         :param q: Quantile values in :math:`[0, 1]`.
