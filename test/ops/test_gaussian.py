@@ -426,6 +426,12 @@ def test_sequential_gaussian_tensordot_matches_fold(num_steps, state_dim):
     assert_close_gaussian(actual, expected, rtol=1e-3, atol=1e-3)
 
 
+def test_sequential_gaussian_tensordot_rejects_empty_time_axis():
+    g = random_gaussian(random.key(0), (2, 3), 4)[..., :0]
+    with pytest.raises(ValueError, match="empty time axis"):
+        sequential_gaussian_tensordot(g)
+
+
 def test_sequential_gaussian_tensordot_float32_long_horizon():
     T, s = 100_000, 2
     matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], jnp.float32)
@@ -607,3 +613,15 @@ def test_filter_sample_moments():
     mean = jnp.einsum("...ij,...j->...i", cov, joint.info_vec)
     assert_allclose(z[..., 0].mean(0), mean, atol=0.05)
     assert_allclose(jnp.cov(z[..., 0].T), cov, atol=0.1)
+
+
+def test_affine_normal_batch_shape_broadcasts_all_fields():
+    matrix = jnp.ones((2, 3))
+    loc = jnp.zeros((4, 2))
+    scale = jnp.ones((2,))
+    affine = AffineNormal(matrix, loc, scale)
+    assert affine.batch_shape == (4,)
+    assert affine.condition(jnp.zeros((4, 2))).batch_shape == (4,)
+    assert affine.marginalize(right=2).batch_shape == (4,)
+    assert affine.marginalize(right=2).log_normalizer.shape == (4,)
+    assert affine.expand((5, 4)).batch_shape == (5, 4)
