@@ -25,7 +25,7 @@ from numpyro.ops.gaussian import (
     sequential_gaussian_tensordot,
 )
 
-__all__ = ["GaussianHMM", "HiddenMarkovModel"]
+__all__ = ["GaussianHMM", "HiddenMarkovModel", "IndependentHMM"]
 
 Factor = Union[Gaussian, AffineNormal]
 
@@ -438,3 +438,77 @@ class GaussianHMM(HiddenMarkovModel):
         z = draw(keys, value)
         sample_axes = tuple(range(extra, extra + len(sample_shape)))
         return jnp.moveaxis(z, sample_axes, tuple(range(len(sample_shape))))
+
+
+class IndependentHMM(Distribution):
+    """
+    Wrap a batch of independent single-observation HMMs into one distribution
+    over vector observations.
+
+    The base distribution has ``event_shape == (num_steps, 1)`` and batch shape
+    ``shape + (obs_dim,)``; the result has ``batch_shape == shape`` and
+    ``event_shape == (num_steps, obs_dim)``.
+
+    Parameters
+    ----------
+    base_dist : GaussianHMM
+        Batched model with a trailing batch dimension of size ``obs_dim`` and a
+        unit observation dimension.
+    """
+
+    arg_constraints = {}
+    pytree_data_fields = ("base_dist",)
+
+    def __init__(
+        self, base_dist: GaussianHMM, *, validate_args: Optional[bool] = None
+    ) -> None:
+        if not base_dist.batch_shape or tuple(base_dist.event_shape)[-1:] != (1,):
+            raise ValueError(
+                "base_dist must be batched and have a unit observation dimension"
+            )
+        self.base_dist = base_dist
+        if validate_args is not None:
+            self._validate_args = validate_args
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        return self.base_dist.batch_shape[:-1]
+
+    @property
+    def event_shape(self) -> tuple[int, ...]:
+        return tuple(self.base_dist.event_shape)[:-1] + self.base_dist.batch_shape[-1:]
+
+    @constraints.dependent_property(event_dim=2)
+    def support(self) -> constraints.Constraint:
+        return self.base_dist.support
+
+    @property
+    def has_rsample(self) -> bool:
+        return self.base_dist.has_rsample
+
+    @property
+    def num_steps(self) -> int:
+        return self.base_dist.num_steps
+
+    def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        return jnp.swapaxes(self.base_dist.sample(key, sample_shape)[..., 0], -1, -2)
+
+    @validate_sample
+    def log_prob(self, value: Array) -> Array:
+        return self.base_dist.log_prob(jnp.swapaxes(value, -1, -2)[..., None]).sum(-1)
+
+    def expand(self, batch_shape: Sequence[int]) -> IndependentHMM:
+        obs = self.base_dist.batch_shape[-1:]
+        return IndependentHMM(self.base_dist.expand(tuple(batch_shape) + obs))
+
+    def reshape_batch(self, batch_shape: Sequence[int]) -> IndependentHMM:
+        obs = self.base_dist.batch_shape[-1:]
+        return IndependentHMM(self.base_dist.reshape_batch(tuple(batch_shape) + obs))
+
+    def prefix_condition(self, data: Array) -> IndependentHMM:
+        """
+        Condition on a prefix of observations (see
+        :meth:`GaussianHMM.prefix_condition`).
+        """
+        prefix = jnp.swapaxes(data, -1, -2)[..., None]
+        return IndependentHMM(self.base_dist.prefix_condition(prefix))

@@ -9,7 +9,7 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro.distributions as dist
-from numpyro.distributions.hmm import GaussianHMM
+from numpyro.distributions.hmm import GaussianHMM, IndependentHMM
 
 
 def _spd(key, n, scale=1.0):
@@ -343,3 +343,26 @@ def test_gaussian_hmm_reshape_batch():
     x = hmm.sample(random.key(1))
     assert_allclose(reshaped.log_prob(x[:, None]), hmm.log_prob(x)[:, None], rtol=1e-5)
     assert isinstance(reshaped.prefix_condition(x[:, None, :2]), GaussianHMM)
+
+
+def test_independent_hmm():
+    T, n, m = 5, 2, 3
+    base = _hmm(random.key(0), T, n, 1, batch=(4, m))
+    hmm = IndependentHMM(base)
+    assert hmm.batch_shape == (4,)
+    assert hmm.event_shape == (T, m)
+    assert hmm.num_steps == T
+    assert hmm.has_rsample
+    x = hmm.sample(random.key(1), (2,))
+    assert x.shape == (2, 4, T, m)
+    assert hmm.log_prob(x).shape == (2, 4)
+    assert_allclose(
+        hmm.log_prob(x),
+        base.log_prob(jnp.swapaxes(x, -1, -2)[..., None]).sum(-1),
+        rtol=1e-5,
+    )
+    assert hmm.expand((6, 4)).batch_shape == (6, 4)
+    tail = hmm.prefix_condition(x[0, :, :2])
+    assert tail.batch_shape == (4,) and tail.event_shape == (T - 2, m)
+    assert hmm.reshape_batch((4, 1)).batch_shape == (4, 1)
+    assert hmm.support(x).shape == (2, 4)
