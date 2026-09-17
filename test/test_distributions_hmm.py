@@ -145,6 +145,60 @@ def test_gaussian_hmm_log_prob_and_filter_match_dense(T, n, m):
     assert_allclose(posterior.covariance_matrix, post_cov, rtol=1e-3, atol=1e-3)
 
 
+@pytest.mark.parametrize("homogeneous", [False, True])
+def test_gaussian_hmm_diag_matches_full_covariance(homogeneous):
+    T, n, m = 6, 2, 2
+    ks = random.split(random.key(21), 6)
+    tshape = () if homogeneous else (T,)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], tshape + (n, n))
+    H = random.normal(ks[1], tshape + (m, n))
+    init_loc = random.normal(ks[2], (n,))
+    init_scale = 0.5 + random.uniform(ks[3], (n,))
+    trans_scale = 0.3 + random.uniform(ks[4], tshape + (n,))
+    obs_scale = 0.2 + random.uniform(ks[5], tshape + (m,))
+    diag = GaussianHMM(
+        dist.Normal(init_loc, init_scale).to_event(1),
+        A,
+        dist.Normal(jnp.zeros(tshape + (n,)), trans_scale).to_event(1),
+        H,
+        dist.Normal(jnp.zeros(tshape + (m,)), obs_scale).to_event(1),
+        num_steps=T,
+    )
+    full = GaussianHMM(
+        dist.MultivariateNormal(init_loc, covariance_matrix=jnp.diag(init_scale**2)),
+        A,
+        dist.MultivariateNormal(
+            jnp.zeros(tshape + (n,)),
+            covariance_matrix=jnp.eye(n) * (trans_scale**2)[..., None, :],
+        ),
+        H,
+        dist.MultivariateNormal(
+            jnp.zeros(tshape + (m,)),
+            covariance_matrix=jnp.eye(m) * (obs_scale**2)[..., None, :],
+        ),
+        num_steps=T,
+    )
+    x = full.sample(random.key(22), (3,))
+    assert_allclose(diag.log_prob(x), full.log_prob(x), rtol=1e-4, atol=1e-4)
+    assert_allclose(diag.filter(x).mean, full.filter(x).mean, rtol=1e-3, atol=1e-3)
+    assert_allclose(
+        diag.filter(x).covariance_matrix,
+        full.filter(x).covariance_matrix,
+        rtol=1e-3,
+        atol=1e-3,
+    )
+
+
+def test_gaussian_hmm_rejects_wrong_time_axis():
+    T, n, m = 5, 2, 1
+    hmm = _hmm(random.key(0), T, n, m)
+    x = random.normal(random.key(1), (T, m))
+    with pytest.raises(ValueError, match="trailing shape"):
+        hmm.log_prob(x[..., :1, :])
+    with pytest.raises(ValueError, match="trailing shape"):
+        hmm.filter(x[..., :1, :])
+
+
 def test_gaussian_hmm_jit_vmap_scan_and_treedef():
     T, n, m = 4, 2, 1
     hmm = _hmm(random.key(0), T, n, m, homogeneous=True)
@@ -203,6 +257,8 @@ def test_gaussian_hmm_invalid_arguments():
             obs,
             num_steps=T,
         )
+    with pytest.raises(ValueError, match="positive"):
+        GaussianHMM(init, jnp.eye(n), trans, jnp.ones((m, n)), obs, num_steps=0)
 
 
 @pytest.mark.parametrize("diag", [False, True])

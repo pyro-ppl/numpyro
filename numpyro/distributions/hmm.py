@@ -89,13 +89,17 @@ def _resolve_num_steps(time: int, num_steps: Optional[int]) -> int:
             raise ValueError(
                 "num_steps is required when all parameters are time-homogeneous"
             )
-        return int(num_steps)
-    if num_steps is not None and num_steps != time:
+        num_steps = int(num_steps)
+    elif num_steps is not None and num_steps != time:
         raise ValueError(
             f"num_steps={num_steps} conflicts with the parameters' time axis "
             f"of size {time}"
         )
-    return time
+    else:
+        num_steps = time
+    if num_steps < 1:
+        raise ValueError("num_steps must be a positive integer")
+    return num_steps
 
 
 class HiddenMarkovModel(Distribution):
@@ -181,6 +185,11 @@ class HiddenMarkovModel(Distribution):
         return factor.expand(factor.batch_shape[:-1] + (self.num_steps,))
 
     def _lead_and_extra(self, value: Array) -> tuple[Array, int]:
+        if value.shape[-2:] != self.event_shape:
+            raise ValueError(
+                f"value must have trailing shape {self.event_shape}, "
+                f"got {value.shape[-2:]}"
+            )
         lead = lax.broadcast_shapes(value.shape[: value.ndim - 2], self.batch_shape)
         extra = len(lead) - len(self.batch_shape)
         return jnp.broadcast_to(value, lead + value.shape[-2:]), extra
@@ -254,7 +263,7 @@ class GaussianHMM(HiddenMarkovModel):
                     f"{name} must have event_shape {expected}, "
                     f"got {tuple(d.event_shape)}"
                 )
-        batch_shape, time = _time_shape(
+        _, time = _time_shape(
             tuple(initial_dist.batch_shape) + (1,),
             transition_matrix.shape[:-2],
             tuple(transition_dist.batch_shape),
@@ -349,7 +358,8 @@ class GaussianHMM(HiddenMarkovModel):
         -------
         GaussianHMM
             Model over ``num_steps - t`` steps whose initial distribution is
-            the filtered posterior.
+            the filtered posterior. Leading dimensions of ``data`` beyond
+            ``batch_shape`` become batch dimensions of the returned model.
         """
         t = data.shape[-2]
         if not 0 < t < self.num_steps:
@@ -509,7 +519,10 @@ class IndependentHMM(Distribution):
 
     def expand(self, batch_shape: Sequence[int]) -> IndependentHMM:
         obs = self.base_dist.batch_shape[-1:]
-        return IndependentHMM(self.base_dist.expand(tuple(batch_shape) + obs))
+        return IndependentHMM(
+            self.base_dist.expand(tuple(batch_shape) + obs),
+            validate_args=self.__dict__.get("_validate_args"),
+        )
 
     def reshape_batch(self, batch_shape: Sequence[int]) -> IndependentHMM:
         base = self.base_dist
@@ -518,7 +531,10 @@ class IndependentHMM(Distribution):
                 "reshape_batch requires a HiddenMarkovModel base distribution"
             )
         obs = base.batch_shape[-1:]
-        return IndependentHMM(base.reshape_batch(tuple(batch_shape) + obs))
+        return IndependentHMM(
+            base.reshape_batch(tuple(batch_shape) + obs),
+            validate_args=self.__dict__.get("_validate_args"),
+        )
 
     def prefix_condition(self, data: Array) -> IndependentHMM:
         """
@@ -529,4 +545,7 @@ class IndependentHMM(Distribution):
         if not isinstance(base, GaussianHMM):
             raise TypeError("prefix_condition requires a GaussianHMM base distribution")
         prefix = jnp.swapaxes(data, -1, -2)[..., None]
-        return IndependentHMM(base.prefix_condition(prefix))
+        return IndependentHMM(
+            base.prefix_condition(prefix),
+            validate_args=self.__dict__.get("_validate_args"),
+        )

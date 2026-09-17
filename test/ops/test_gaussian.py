@@ -171,6 +171,9 @@ def test_sample_moments_and_noise():
         lambda: dist.Normal(random.normal(random.key(0), (3, 2)), 0.7).to_event(1),
         lambda: dist.Normal(jnp.zeros(2), 1.0).to_event(1),
         lambda: dist.Normal(0.0, 1.0).expand((3, 2)).to_event(1),
+        lambda: dist.ExpandedDistribution(
+            dist.Normal(jnp.zeros(2), 0.7).to_event(1), (3,)
+        ),
     ],
 )
 def test_mvn_to_gaussian_matches_log_prob(make):
@@ -282,15 +285,14 @@ def test_sequential_gaussian_tensordot_float32_long_horizon():
     noise = dist.MultivariateNormal(
         jnp.zeros(s, jnp.float32), covariance_matrix=0.1 * jnp.eye(s, dtype=jnp.float32)
     )
-    trans = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
 
     def value(matrix):
         g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
+        assert g.batch_shape == (T,)
         return sequential_gaussian_tensordot(g).event_logsumexp()
 
     result, grad = jax.jit(jax.value_and_grad(value))(matrix)
     assert jnp.isfinite(result) and jnp.isfinite(grad).all()
-    assert trans.batch_shape == (T,)
 
 
 def test_loc_and_scale_tril():
@@ -337,11 +339,12 @@ def test_filter_sample_shape_mean_and_grads(num_steps, sample_shape):
     )
     assert_allclose(mean, _posterior_marginals(init, trans), rtol=1e-3, atol=1e-3)
     grad = jax.grad(
-        lambda ln: sequential_gaussian_filter_sample(
-            random.key(2), Gaussian(ln, init.info_vec, init.precision), trans
+        lambda info: sequential_gaussian_filter_sample(
+            random.key(2), Gaussian(init.log_normalizer, info, init.precision), trans
         ).sum()
-    )(init.log_normalizer)
+    )(init.info_vec)
     assert jnp.isfinite(grad).all()
+    assert jnp.any(grad != 0)
 
 
 def test_filter_sample_antithetic():

@@ -131,7 +131,11 @@ class Gaussian:
         return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
 
     def reshape(self, batch_shape: Sequence[int]) -> Gaussian:
-        """Reshape the batch dimensions of every field to ``batch_shape``."""
+        """
+        Reshape the batch dimensions of every field to ``batch_shape``.
+
+        All fields must share one batch shape (the module invariant).
+        """
         return self._map(
             lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
         )
@@ -142,7 +146,12 @@ class Gaussian:
 
     @staticmethod
     def cat(parts: Sequence[Gaussian], axis: int = 0) -> Gaussian:
-        """Concatenate factors along a batch axis."""
+        """
+        Concatenate factors along a batch axis.
+
+        All fields of every part must share one batch shape (the module
+        invariant).
+        """
         axis = axis % len(parts[0].batch_shape)
         return Gaussian(
             jnp.concatenate([p.log_normalizer for p in parts], axis),
@@ -322,13 +331,15 @@ class Gaussian:
 
 def _diag_normal_params(d: Distribution) -> Optional[tuple[Array, Array]]:
     """Return ``(loc, scale)`` of an ``Independent(Normal, 1)``, else ``None``."""
+    shape = d.batch_shape + d.event_shape
+    if isinstance(d, ExpandedDistribution):
+        d = d.base_dist
     if not isinstance(d, Independent) or d.reinterpreted_batch_ndims != 1:
         return None
     base = d.base_dist
     base = base.base_dist if isinstance(base, ExpandedDistribution) else base
     if not isinstance(base, Normal):
         return None
-    shape = d.batch_shape + d.event_shape
     return jnp.broadcast_to(base.loc, shape), jnp.broadcast_to(base.scale, shape)
 
 
