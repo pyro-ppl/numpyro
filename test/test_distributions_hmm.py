@@ -1506,6 +1506,11 @@ def test_linear_hmm_vmap_reports_mapped_batch():
     assert hmm.batch_shape == (2,) and hmm.event_shape == (T, m)
     assert hmm.sample(random.key(0)).shape == (2, T, m)
     assert hmm.sample(random.key(0), (3,)).shape == (3, 2, T, m)
+    # a vmap-built instance must draw independent initial states per batch element
+    x = hmm.sample(random.key(1), (2000,))
+    assert x.shape == (2000, 2, T, m)
+    z = x[..., 0, :]
+    assert abs(jnp.corrcoef(z[:, 0, 0], z[:, 1, 0])[0, 1]) < 0.1
 
 
 def test_linear_hmm_rejects_shape_changing_observation_transform():

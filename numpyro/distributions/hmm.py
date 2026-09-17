@@ -1508,13 +1508,14 @@ class LinearHMM(Distribution):
         return self.observation_matrix.shape[-2]
 
     @constraints.dependent_property(event_dim=2)
-    def support(self) -> constraints.Constraint:
+    def support(self) -> Optional[constraints.Constraint]:
         support = (
             self.transforms[-1].codomain
             if self.transforms
             else self.observation_dist.support
         )
-        assert support is not None
+        if support is None:
+            return None
         if support.event_dim > 2:
             raise ValueError(
                 f"observation support must have event_dim <= 2, got {support.event_dim}"
@@ -1540,7 +1541,7 @@ class LinearHMM(Distribution):
             return _vmap_leading(self.sample, len(sample_shape))(keys)
         key_init, key_trans, key_obs = random.split(key, 3)
         time_shape = self.batch_shape + (self.num_steps,)
-        z0 = jnp.asarray(self.initial_dist.sample(key_init))
+        z0 = jnp.asarray(self.initial_dist.expand(self.batch_shape).sample(key_init))
         eps = jnp.asarray(self.transition_dist.expand(time_shape).sample(key_trans))
         nu = jnp.asarray(self.observation_dist.expand(time_shape).sample(key_obs))
         A = jnp.moveaxis(

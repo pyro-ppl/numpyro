@@ -51,7 +51,7 @@ __all__ = [
 
 
 @jax.tree_util.register_dataclass
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class GammaFactor:
     """
     Unnormalized Gamma log-density
@@ -60,11 +60,24 @@ class GammaFactor:
     :param Array log_normalizer: shape ``batch_shape``.
     :param Array concentration: shape ``batch_shape``.
     :param Array rate: shape ``batch_shape``.
+    :raises ValueError: if the field shapes do not broadcast against each other.
     """
 
     log_normalizer: Array
     concentration: Array
     rate: Array
+
+    def __post_init__(self) -> None:
+        fields = (self.log_normalizer, self.concentration, self.rate)
+        if not all(hasattr(x, "shape") for x in fields):
+            return
+        shapes = tuple(x.shape for x in fields)
+        try:
+            jnp.broadcast_shapes(*shapes)
+        except ValueError as e:
+            raise ValueError(
+                f"GammaFactor fields must broadcast, got shapes {shapes}"
+            ) from e
 
     def log_density(self, s: Array) -> Array:
         """Evaluate the factor at scale ``s``."""
@@ -82,7 +95,7 @@ class GammaFactor:
 
 
 @jax.tree_util.register_dataclass
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class GammaGaussian(_FactorShapeOps):
     """
     Factor ``log_normalizer + alpha log s + s (x . info_vec - 0.5 x^T precision x - beta)``
@@ -102,6 +115,8 @@ class GammaGaussian(_FactorShapeOps):
     :param Array precision: shape ``batch_shape + (dim, dim)``.
     :param Array alpha: shape ``batch_shape``.
     :param Array beta: shape ``batch_shape``.
+    :raises ValueError: if the trailing shapes of ``info_vec`` and
+        ``precision`` disagree.
     """
 
     log_normalizer: Array
@@ -111,6 +126,18 @@ class GammaGaussian(_FactorShapeOps):
     beta: Array
 
     event_ndims: ClassVar[tuple[int, ...]] = (0, 1, 2, 0, 0)
+
+    def __post_init__(self) -> None:
+        if not (hasattr(self.info_vec, "shape") and hasattr(self.precision, "shape")):
+            return
+        if len(self.info_vec.shape) < 1 or len(self.precision.shape) < 2:
+            raise ValueError("info_vec must have rank >= 1 and precision rank >= 2")
+        dim = self.info_vec.shape[-1]
+        if self.precision.shape[-2:] != (dim, dim):
+            raise ValueError(
+                f"precision must have trailing shape {(dim, dim)}, "
+                f"got {self.precision.shape[-2:]}"
+            )
 
     @property
     def dim(self) -> int:

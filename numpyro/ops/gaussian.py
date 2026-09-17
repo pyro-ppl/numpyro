@@ -62,6 +62,7 @@ __all__ = [
     "AffineNormal",
     "Gaussian",
     "gaussian_tensordot",
+    "is_gaussian_noise",
     "loc_and_scale_tril",
     "matrix_and_gaussian_to_gaussian",
     "matrix_and_mvn_to_gaussian",

@@ -99,6 +99,23 @@ def test_shape_ops():
     assert_close_gamma_gaussian(gg.event_permute(perm).event_permute(perm), gg)
 
 
+def test_construction_rejects_mismatched_shapes():
+    zero = jnp.zeros(())
+    with pytest.raises(ValueError, match="precision"):
+        GammaGaussian(zero, jnp.zeros(2), jnp.eye(3), zero, zero)
+    with pytest.raises(ValueError, match="rank"):
+        GammaGaussian(zero, zero, jnp.eye(2), zero, zero)
+    with pytest.raises(ValueError, match="broadcast"):
+        GammaFactor(zero, jnp.ones(2), jnp.ones(3))
+
+
+def test_factors_hash_by_identity():
+    gg = random_gamma_gaussian(random.key(0), (3,), 2)
+    factor = gg.event_logsumexp()
+    assert hash(gg) == hash(gg) and hash(factor) == hash(factor)
+    assert gg != random_gamma_gaussian(random.key(0), (3,), 2)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (2, 3)], ids=str)
 def test_shape_ops_and_log_density_across_batch_ranks(batch_shape):
     gg = random_gamma_gaussian(random.key(0), batch_shape, 2)
