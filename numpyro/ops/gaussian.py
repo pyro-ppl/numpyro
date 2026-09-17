@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import ClassVar, Optional, Sequence, Union
+from typing import Callable, ClassVar, Optional, Sequence, Union
 
 import jax
 from jax import Array, lax, random
@@ -74,6 +74,19 @@ def _with_batch(x: Array, event_ndim: int, batch_shape: tuple[int, ...]) -> Arra
     return jnp.broadcast_to(x, batch_shape + x.shape[x.ndim - event_ndim :])
 
 
+def _noise(
+    noise: Optional[Array],
+    key: Optional[Array],
+    shape: tuple[int, ...],
+    dtype: jnp.dtype,
+) -> Array:
+    if noise is None:
+        if key is None:
+            raise ValueError("either key or noise is required")
+        noise = random.normal(key, shape, dtype)
+    return noise.reshape(shape)
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Gaussian:
@@ -109,7 +122,7 @@ class Gaussian:
             self.precision.shape[:-2],
         )
 
-    def _map(self, fn) -> Gaussian:
+    def _map(self, fn: Callable[[Array, int], Array]) -> Gaussian:
         fields = (self.log_normalizer, self.info_vec, self.precision)
         return Gaussian(*(fn(x, k) for x, k in zip(fields, self.event_ndims)))
 
@@ -292,9 +305,7 @@ class Gaussian:
             Shape ``sample_shape + batch_shape + (dim,)``.
         """
         shape = tuple(sample_shape) + self.batch_shape + (self.dim,)
-        if noise is None:
-            noise = random.normal(key, shape, self.precision.dtype)
-        noise = noise.reshape(shape)
+        noise = _noise(noise, key, shape, self.precision.dtype)
         chol = safe_cholesky(self.precision)
         loc = cho_solve((chol, True), self.info_vec[..., None])[..., 0]
 
@@ -309,19 +320,14 @@ class Gaussian:
         return draw(noise)
 
 
-def _is_diag_normal(d: Distribution) -> bool:
+def _diag_normal_params(d: Distribution) -> Optional[tuple[Array, Array]]:
+    """Return ``(loc, scale)`` of an ``Independent(Normal, 1)``, else ``None``."""
     if not isinstance(d, Independent) or d.reinterpreted_batch_ndims != 1:
-        return False
+        return None
     base = d.base_dist
     base = base.base_dist if isinstance(base, ExpandedDistribution) else base
-    return isinstance(base, Normal)
-
-
-def _diag_normal_params(d: Distribution) -> tuple[Array, Array]:
-    if not _is_diag_normal(d):
-        raise TypeError(f"expected Independent(Normal, 1), got {type(d).__name__}")
-    base = d.base_dist
-    base = base.base_dist if isinstance(base, ExpandedDistribution) else base
+    if not isinstance(base, Normal):
+        return None
     shape = d.batch_shape + d.event_shape
     return jnp.broadcast_to(base.loc, shape), jnp.broadcast_to(base.scale, shape)
 
@@ -371,8 +377,9 @@ def mvn_to_gaussian(d: Distribution) -> Gaussian:
         Factor with ``batch_shape == d.batch_shape`` whose ``log_density``
         equals ``d.log_prob``.
     """
-    if _is_diag_normal(d):
-        loc, scale = _diag_normal_params(d)
+    diag = _diag_normal_params(d)
+    if diag is not None:
+        loc, scale = diag
         scale_tril = jnp.eye(scale.shape[-1], dtype=scale.dtype) * scale[..., None]
     else:
         loc, scale_tril = _mvn_params(d)
@@ -434,8 +441,9 @@ def matrix_and_mvn_to_gaussian(
         )
     batch_shape = lax.broadcast_shapes(matrix.shape[:-2], d.batch_shape)
     matrix = jnp.broadcast_to(matrix, batch_shape + (y_dim, x_dim))
-    if _is_diag_normal(d):
-        loc, scale = _diag_normal_params(d)
+    diag = _diag_normal_params(d)
+    if diag is not None:
+        loc, scale = diag
         return AffineNormal(
             matrix,
             jnp.broadcast_to(loc, batch_shape + (y_dim,)),
@@ -591,9 +599,7 @@ def sequential_gaussian_filter_sample(
     final = gaussian[..., 0] + init.expand(batch_shape).event_pad(right=state_dim)
 
     shape = tuple(sample_shape) + batch_shape + (num_steps + 1, state_dim)
-    if noise is None:
-        noise = random.normal(key, shape, init.precision.dtype)
-    noise = noise.reshape(shape)
+    noise = _noise(noise, key, shape, init.precision.dtype)
 
     def backward(eps: Array) -> Array:
         result = final.sample(
@@ -670,7 +676,7 @@ class AffineNormal:
     def batch_shape(self) -> tuple[int, ...]:
         return self.matrix.shape[:-2]
 
-    def _map(self, fn) -> AffineNormal:
+    def _map(self, fn: Callable[[Array, int], Array]) -> AffineNormal:
         return AffineNormal(fn(self.matrix, 2), fn(self.loc, 1), fn(self.scale, 1))
 
     def expand(self, batch_shape: Sequence[int]) -> AffineNormal:
@@ -743,9 +749,7 @@ class AffineNormal:
                 "AffineNormal.sample requires all inputs to be conditioned"
             )
         shape = tuple(sample_shape) + self.loc.shape
-        if noise is None:
-            noise = random.normal(key, shape, self.loc.dtype)
-        return self.loc + noise.reshape(shape) * self.scale
+        return self.loc + _noise(noise, key, shape, self.loc.dtype) * self.scale
 
     def marginalize(self, left: int = 0, right: int = 0) -> Gaussian:
         """

@@ -87,6 +87,7 @@ jobs:
       - name: Test x64
         run: |
           JAX_ENABLE_X64=1 uv run pytest -vs test/test_distributions.py -k "powerLaw or Dagum"
+          JAX_ENABLE_X64=1 uv run pytest -vs test/ops/test_gaussian.py test/test_distributions_hmm.py -k x64
       - name: Test tracer leak
         if: matrix.python-version == '3.14'
         env:

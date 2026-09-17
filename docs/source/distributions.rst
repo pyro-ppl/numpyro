@@ -468,6 +468,25 @@ ZeroSumNormal
     :show-inheritance:
     :member-order: bysource
 
+Hidden Markov Models
+--------------------
+
+GaussianHMM
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.hmm.GaussianHMM
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+IndependentHMM
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.hmm.IndependentHMM
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Discrete Distributions
 ----------------------
 

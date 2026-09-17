@@ -8,6 +8,7 @@ import jax
 from jax import lax, random
 import jax.numpy as jnp
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.hmm import GaussianHMM, IndependentHMM
 
@@ -373,3 +374,61 @@ def test_independent_hmm():
         plain.reshape_batch((4, 1))
     with pytest.raises(ValueError):
         IndependentHMM(dist.Normal(jnp.zeros((4, 3, T, 1)), 1.0).to_event(1))
+
+
+def test_gaussian_hmm_marginalizes_local_level_in_nuts():
+    from numpyro.infer import MCMC, NUTS
+
+    T = 60
+    key = random.key(0)
+    level = jnp.cumsum(0.3 * random.normal(key, (T,)))
+    data = (level + 0.5 * random.normal(random.fold_in(key, 1), (T,)))[:, None]
+
+    def model(data):
+        drift_scale = numpyro.sample("drift_scale", dist.LogNormal(-1.0, 1.0))
+        noise_scale = numpyro.sample("noise_scale", dist.LogNormal(-1.0, 1.0))
+        hmm = GaussianHMM(
+            dist.Normal(jnp.zeros(1), 5.0).to_event(1),
+            jnp.eye(1),
+            dist.Normal(jnp.zeros(1), drift_scale).to_event(1),
+            jnp.eye(1),
+            dist.Normal(jnp.zeros(1), noise_scale).to_event(1),
+            num_steps=T,
+        )
+        numpyro.sample("obs", hmm, obs=data)
+
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(1), data)
+    samples = mcmc.get_samples()
+    assert jnp.isfinite(samples["drift_scale"]).all()
+    assert 0.1 < jnp.median(samples["drift_scale"]) < 0.9
+    assert 0.2 < jnp.median(samples["noise_scale"]) < 1.0
+
+
+def test_gaussian_hmm_x64_extreme_scales():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("extreme noise scales are tested with x64 only")
+    T = 500
+    A = jnp.array([[1.0, 1.0], [0.0, 1.0]])
+    hmm = GaussianHMM(
+        dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2)),
+        A,
+        dist.MultivariateNormal(jnp.zeros(2), 1e-6 * jnp.eye(2)),
+        jnp.array([[1.0, 0.0]]),
+        dist.MultivariateNormal(jnp.zeros(1), jnp.eye(1)),
+        num_steps=T,
+    )
+    x = hmm.sample(random.key(0))
+
+    def log_prob_of(transition_matrix):
+        return GaussianHMM(
+            dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2)),
+            transition_matrix,
+            dist.MultivariateNormal(jnp.zeros(2), 1e-6 * jnp.eye(2)),
+            jnp.array([[1.0, 0.0]]),
+            dist.MultivariateNormal(jnp.zeros(1), jnp.eye(1)),
+            num_steps=T,
+        ).log_prob(x)
+
+    lp, grad = jax.value_and_grad(log_prob_of)(A)
+    assert jnp.isfinite(lp) and jnp.isfinite(grad).all()
