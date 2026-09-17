@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
+from numpyro.distributions.hmm import GaussianHMM, IndependentHMM, LinearHMM
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
@@ -22,6 +23,7 @@ from numpyro.infer.reparam import (
     DiscreteCosineReparam,
     ExplicitReparam,
     HaarReparam,
+    LinearHMMReparam,
     LocScaleReparam,
     NeuTraReparam,
     ProjectedNormalReparam,
@@ -627,3 +629,97 @@ def test_studentt_reparam_observed_site():
         with handlers.trace() as tr:
             handlers.seed(model, 0)(jnp.array(0.5))
     assert tr["x"]["is_observed"] and isinstance(tr["x"]["fn"], dist.Normal)
+
+
+def _components(T, n, m, key, noise="normal"):
+    ks = random.split(key, 2)
+    A = jnp.broadcast_to(0.8 * jnp.eye(n), (T, n, n))
+    H = random.normal(ks[0], (T, m, n))
+    init = dist.Normal(jnp.zeros(n), 1.0).to_event(1)
+    if noise == "normal":
+        trans = dist.Normal(jnp.zeros((T, n)), 0.5).to_event(1)
+    else:
+        trans = dist.StudentT(4.0, jnp.zeros((T, n)), 0.5).to_event(1)
+    obs = dist.Normal(jnp.zeros((T, m)), 0.3).to_event(1)
+    return init, A, trans, H, obs
+
+
+def test_linear_hmm_reparam_gaussian_components_match_gaussian_hmm():
+    T, n, m = 5, 2, 1
+    init, A, trans, H, obs = _components(T, n, m, random.key(0))
+    data = GaussianHMM(init, A, trans, H, obs).sample(random.key(1))
+
+    def model(data):
+        numpyro.sample("x", LinearHMM(init, A, trans, H, obs), obs=data)
+
+    with handlers.reparam(config={"x": LinearHMMReparam()}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)(data)
+    assert isinstance(tr["x"]["fn"], GaussianHMM)
+    assert_allclose(
+        tr["x"]["fn"].log_prob(data),
+        GaussianHMM(init, A, trans, H, obs).log_prob(data),
+        rtol=1e-5,
+    )
+
+
+def test_linear_hmm_reparam_requires_distribution_from_sub_reparam():
+    T, n, m = 3, 1, 1
+    init, A, trans, H, obs = _components(T, n, m, random.key(0))
+
+    def model():
+        numpyro.sample("x", LinearHMM(init, A, trans, H, obs))
+
+    with pytest.raises(ValueError, match="distribution"):
+        with handlers.reparam(
+            config={"x": LinearHMMReparam(trans=LocScaleReparam(0.0))}
+        ):
+            handlers.seed(model, 0)()
+
+
+def test_linear_hmm_reparam_student_t_nuts_smoke():
+    T, n, m = 20, 1, 1
+    init, A, trans, H, obs = _components(T, n, m, random.key(0), noise="student")
+    data = LinearHMM(init, A, trans, H, obs).sample(random.key(1))
+
+    def model(data):
+        scale = numpyro.sample("scale", dist.LogNormal(0.0, 0.5))
+        trans_dist = dist.StudentT(4.0, jnp.zeros((T, n)), scale).to_event(1)
+        numpyro.sample("x", LinearHMM(init, A, trans_dist, H, obs), obs=data)
+
+    reparam_model = handlers.reparam(
+        model, config={"x": LinearHMMReparam(trans=StudentTReparam())}
+    )
+    mcmc = MCMC(
+        NUTS(reparam_model), num_warmup=100, num_samples=100, progress_bar=False
+    )
+    mcmc.run(random.key(2), data)
+    samples = mcmc.get_samples()
+    assert samples["x_trans_gamma"].shape == (100, T, n)
+    assert jnp.isfinite(samples["scale"]).all()
+
+
+def test_linear_hmm_reparam_transforms_and_independent():
+    T, n, m = 4, 1, 3
+    A = jnp.broadcast_to(jnp.eye(n), (m, T, n, n))
+    H = jnp.ones((m, T, 1, n))
+    init = dist.Normal(jnp.zeros((m, n)), 1.0).to_event(1)
+    trans = dist.StudentT(4.0, jnp.zeros((m, T, n)), 0.5).to_event(1)
+    obs = dist.LogNormal(jnp.zeros((m, T, 1)), 0.3).to_event(1)
+    base = LinearHMM(init, A, trans, H, obs)
+    hmm = IndependentHMM(base)
+    assert hmm.event_shape == (T, m)
+    data = hmm.sample(random.key(0))
+
+    def model(data):
+        numpyro.sample("x", hmm, obs=data)
+
+    with handlers.reparam(config={"x": LinearHMMReparam(trans=StudentTReparam())}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)(data)
+    fn = tr["x"]["fn"]
+    assert isinstance(fn, IndependentHMM)
+    assert isinstance(fn.base_dist, dist.TransformedDistribution)
+    assert isinstance(fn.base_dist.base_dist, GaussianHMM)
+    assert jnp.isfinite(fn.log_prob(data))
+    assert tr["x_trans_gamma"]["value"].shape == (m, T, n)

@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
+from numpyro.distributions.hmm import _peel_event
 from numpyro.distributions.transforms import (
     ComposeTransform,
     DiscreteCosineTransform,
@@ -534,3 +535,84 @@ class StudentTReparam(Reparam):
         )
         scale = fn.scale * jax.lax.rsqrt(gamma)
         return self._wrap(dist.Normal(fn.loc, scale), expand_shape, event_dim), obs
+
+
+class LinearHMMReparam(Reparam):
+    """
+    Reparameterizer for :class:`~numpyro.distributions.LinearHMM` sites,
+    optionally wrapped in :class:`~numpyro.distributions.IndependentHMM`.
+
+    Each of ``init``, ``trans`` and ``obs`` is an optional sub-reparameterizer
+    applied to the corresponding noise distribution at an auxiliary site
+    ``{name}_init``, ``{name}_trans`` or ``{name}_obs``. Sub-reparameterizers
+    must return a Gaussian distribution (for example :class:`StudentTReparam`);
+    the site is then replaced by a :class:`~numpyro.distributions.GaussianHMM`
+    with the hidden states marginalized out, wrapped in a
+    :class:`~numpyro.distributions.TransformedDistribution` when the
+    ``LinearHMM`` has observation transforms.
+
+    Parameters
+    ----------
+    init, trans, obs : Reparam, optional
+        Sub-reparameterizers for the initial, transition and observation noise.
+    """
+
+    def __init__(self, init=None, trans=None, obs=None):
+        self.init = init
+        self.trans = trans
+        self.obs = obs
+
+    def _apply(self, reparam, name, fn):
+        if reparam is None:
+            return fn
+        new_fn, _ = reparam(name, fn, None)
+        if not isinstance(new_fn, dist.Distribution):
+            raise ValueError(
+                f"sub-reparameterizer for {name} must return a distribution"
+            )
+        return new_fn
+
+    def __call__(self, name, fn, obs):
+        fn, expand_shape, event_dim = self._unwrap(fn)
+        if isinstance(fn, dist.IndependentHMM):
+            base_obs = None if obs is None else jnp.swapaxes(obs, -1, -2)[..., None]
+            base_fn, _ = self(name, fn.base_dist, base_obs)
+            return self._wrap(
+                dist.IndependentHMM(base_fn), expand_shape, event_dim
+            ), obs
+        if not isinstance(fn, dist.LinearHMM):
+            raise ValueError(
+                "LinearHMMReparam expects a LinearHMM or IndependentHMM, "
+                f"got {type(fn).__name__}"
+            )
+        # Fold time into the event so enclosing plates broadcast against batch
+        # dimensions only, then restore the per-step noise distribution.
+        time_shape = fn.batch_shape + (fn.num_steps,)
+        init_dist = self._apply(self.init, f"{name}_init", fn.initial_dist)
+        trans_dist = _peel_event(
+            self._apply(
+                self.trans,
+                f"{name}_trans",
+                fn.transition_dist.expand(time_shape).to_event(1),
+            ),
+            1,
+        )
+        obs_dist = _peel_event(
+            self._apply(
+                self.obs,
+                f"{name}_obs",
+                fn.observation_dist.expand(time_shape).to_event(1),
+            ),
+            1,
+        )
+        hmm = dist.GaussianHMM(
+            init_dist,
+            fn.transition_matrix,
+            trans_dist,
+            fn.observation_matrix,
+            obs_dist,
+            num_steps=fn.num_steps,
+        )
+        if fn.transforms:
+            hmm = dist.TransformedDistribution(hmm, fn.transforms)
+        return self._wrap(hmm, expand_shape, event_dim), obs
