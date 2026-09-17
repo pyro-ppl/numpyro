@@ -43,7 +43,7 @@ def random_gamma_gaussian(key, batch_shape, dim):
     g = random_gaussian(k1, batch_shape, dim)
     loc = random.normal(k2, batch_shape + (dim,))
     info_vec = jnp.einsum("...ij,...j->...i", g.precision, loc)
-    alpha = jnp.exp(random.normal(k3, batch_shape)) + 0.5 * dim - 1
+    alpha = 1.0 + jnp.exp(random.normal(k3, batch_shape)) + 0.5 * dim - 1
     beta = jnp.exp(random.normal(random.fold_in(k3, 1), batch_shape)) + 0.5 * (
         info_vec * loc
     ).sum(-1)

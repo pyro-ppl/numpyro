@@ -575,8 +575,7 @@ class LinearHMMReparam(Reparam):
     def __call__(self, name, fn, obs):
         fn, expand_shape, event_dim = self._unwrap(fn)
         if isinstance(fn, dist.IndependentHMM):
-            base_obs = None if obs is None else jnp.swapaxes(obs, -1, -2)[..., None]
-            base_fn, _ = self(name, fn.base_dist, base_obs)
+            base_fn, _ = self(name, fn.base_dist, None)
             return self._wrap(
                 dist.IndependentHMM(base_fn), expand_shape, event_dim
             ), obs

@@ -1180,6 +1180,42 @@ def test_gamma_gaussian_hmm_log_prob_matches_student_t(T, n, m):
     assert_allclose(hmm.log_prob(x), expected, rtol=1e-4, atol=1e-4)
 
 
+def test_gamma_gaussian_hmm_filter_matches_closed_form():
+    T, n, m = 4, 2, 2
+    ks = random.split(random.key(T), 6)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (T, n, n))
+    H = random.normal(ks[1], (T, m, n))
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans_base = dist.MultivariateNormal(
+        0.3 * random.normal(ks[4], (n,)), covariance_matrix=_spd(ks[5], n, 0.5)
+    )
+    trans = trans_base.expand((T,))
+    obs = dist.MultivariateNormal(
+        0.3 * random.normal(ks[0], (T, m)), covariance_matrix=_spd(ks[1], m, 0.3)
+    )
+    concentration, rate = 4.0, 3.0
+    hmm = GammaGaussianHMM(
+        dist.Gamma(concentration, rate), init, A, trans, H, obs, num_steps=T
+    )
+    x = random.normal(random.key(1), (T, m))
+    gamma, mvn = hmm.filter(x)
+
+    mean, cov = dense_reference(init, A, trans_base, H, obs, T)
+    nz = (T + 1) * n
+    cov_x = cov[nz:, nz:]
+    d = x.ravel() - mean[nz:]
+    assert_allclose(gamma.concentration, concentration + T * m / 2, rtol=1e-4)
+    assert_allclose(gamma.rate, rate + 0.5 * d @ jnp.linalg.solve(cov_x, d), rtol=1e-4)
+
+    reference = GaussianHMM(init, A, trans, H, obs, num_steps=T).filter(x)
+    assert_allclose(mvn.mean, reference.mean, rtol=1e-3, atol=1e-3)
+    assert_allclose(
+        mvn.covariance_matrix, reference.covariance_matrix, rtol=1e-3, atol=1e-3
+    )
+
+
 def _linear_hmm(key, T, n, m, *, batch=(), obs_kind="student"):
     ks = random.split(key, 4)
     A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], batch + (T, n, n))

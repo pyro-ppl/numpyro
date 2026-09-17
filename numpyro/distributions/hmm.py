@@ -1148,7 +1148,7 @@ class GaussianMRF(HiddenMarkovModel):
     ``transition_dist`` is a joint Gaussian over ``(z_{t-1}, z_t)`` and
     ``observation_dist`` a joint Gaussian over ``(z_t, x_t)``;
     ``initial_dist`` is over ``z_0``. ``log_prob`` is
-    ``log p(x) = log \int p(z, x) dz`` with the factors renormalized over ``z``.
+    ``log p(x) = log \int f(z, x) dz - log \int\int f(z, x) dz dx``.
 
     Parameters
     ----------
@@ -1487,9 +1487,11 @@ class LinearHMM(Distribution):
 
     @constraints.dependent_property(event_dim=2)
     def support(self) -> constraints.Constraint:
-        support = self.observation_dist.support
-        for transform in self.transforms:
-            support = transform.codomain
+        support = (
+            self.transforms[-1].codomain
+            if self.transforms
+            else self.observation_dist.support
+        )
         assert support is not None
         if support.event_dim > 2:
             raise ValueError(
