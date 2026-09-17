@@ -1140,7 +1140,7 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
         )
 
 
-class GaussianMRF(HiddenMarkovModel):
+class GaussianMRF(HiddenMarkovModel[Gaussian]):
     r"""
     Temporal Markov random field with Gaussian pairwise factors, marginalizing
     the hidden chain.
@@ -1163,9 +1163,10 @@ class GaussianMRF(HiddenMarkovModel):
         Required when both per-step distributions are time-homogeneous.
     """
 
-    _init: Gaussian
     _trans: Gaussian
     _obs: Gaussian
+    _sequential = staticmethod(sequential_gaussian_tensordot)
+    _tensordot = staticmethod(gaussian_tensordot)
 
     def __init__(
         self,
@@ -1209,20 +1210,18 @@ class GaussianMRF(HiddenMarkovModel):
         return False
 
     def _log_prob_core(self, value: Array) -> Array:
-        hidden, obs = self.hidden_dim, self.obs_dim
-        conditioned = self._trans + self._obs.condition(value).event_pad(left=hidden)
-        marginal = self._trans + self._obs.marginalize(right=obs).event_pad(left=hidden)
         batch_shape = self.batch_shape + (self.num_steps,)
         stacked = Gaussian.cat(
             [
-                conditioned.expand(batch_shape).reshape((1,) + batch_shape),
-                marginal.expand(batch_shape).reshape((1,) + batch_shape),
+                z.expand(batch_shape).reshape((1,) + batch_shape)
+                for z in (
+                    self._obs.condition(value),
+                    self._obs.marginalize(right=self.obs_dim),
+                )
             ],
             axis=0,
         )
-        logp = gaussian_tensordot(
-            self._init, sequential_gaussian_tensordot(stacked), hidden
-        ).event_logsumexp()
+        logp = self._reduce(stacked).event_logsumexp()
         return logp[0] - logp[1]
 
     @validate_sample
@@ -1540,7 +1539,7 @@ class LinearHMM(Distribution):
         )
 
     def expand(self, batch_shape: Sequence[int]) -> LinearHMM:
-        batch_shape = lax.broadcast_shapes(self.batch_shape, tuple(batch_shape))
+        batch_shape = _check_expand(self.batch_shape, batch_shape)
         time_shape = batch_shape + (self.transition_dist.batch_shape[-1],)
         new = copy.copy(self)
         new.initial_dist = self.initial_dist.expand(batch_shape)
