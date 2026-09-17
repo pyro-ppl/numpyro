@@ -1,11 +1,15 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import math
+
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import random
 import jax.numpy as jnp
+from jax.scipy.special import digamma
 
 import numpyro.distributions as dist
 from numpyro.ops.gamma_gaussian import (
@@ -41,9 +45,9 @@ def random_mvn(key, batch_shape, dim):
     )
 
 
-def random_gamma_gaussian(key, batch_shape, dim):
+def random_gamma_gaussian(key, batch_shape, dim, rank=None):
     k1, k2, k3 = random.split(key, 3)
-    g = random_gaussian(k1, batch_shape, dim)
+    g = random_gaussian(k1, batch_shape, dim, rank)
     loc = random.normal(k2, batch_shape + (dim,))
     info_vec = jnp.einsum("...ij,...j->...i", g.precision, loc)
     alpha = 1.0 + jnp.exp(random.normal(k3, batch_shape)) + 0.5 * dim - 1
@@ -93,6 +97,58 @@ def test_shape_ops():
     assert gg.event_pad(left=1, right=1).dim == 4
     perm = jnp.array([1, 0])
     assert_close_gamma_gaussian(gg.event_permute(perm).event_permute(perm), gg)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (2, 3)], ids=str)
+def test_shape_ops_and_log_density_across_batch_ranks(batch_shape):
+    gg = random_gamma_gaussian(random.key(0), batch_shape, 2)
+    assert gg.batch_shape == batch_shape
+    expanded = gg.expand((4,) + batch_shape)
+    assert expanded.batch_shape == (4,) + batch_shape
+    assert_close_gamma_gaussian(expanded[1], gg)
+    flat = gg.reshape((math.prod(batch_shape),))
+    assert flat.batch_shape == (math.prod(batch_shape),)
+    assert_close_gamma_gaussian(flat.reshape(batch_shape), gg)
+    x = random.normal(random.key(1), batch_shape + (2,))
+    s = jnp.exp(random.normal(random.key(2), batch_shape))
+    assert gg.log_density(x, s).shape == batch_shape
+    assert_allclose(gg.log_density(x, s), gaussian_at(gg, s).log_density(x), rtol=1e-4)
+    assert_allclose(
+        gg.marginalize(left=1).log_density(x[..., 1:], s),
+        gaussian_at(gg, s).marginalize(left=1).log_density(x[..., 1:]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+    assert gg.condition(x[..., 1:]).batch_shape == batch_shape
+    assert gg.event_logsumexp().log_density(s).shape == batch_shape
+
+
+def test_cat_along_middle_axis():
+    gg = random_gamma_gaussian(random.key(0), (2, 3), 2)
+    assert_close_gamma_gaussian(
+        GammaGaussian.cat([gg[:, :1], gg[:, 1:]], axis=1), gg, rtol=0, atol=0
+    )
+    assert_close_gamma_gaussian(
+        GammaGaussian.cat([gg[:1], gg[1:]], axis=0), gg, rtol=0, atol=0
+    )
+
+
+def test_event_pad_content():
+    gg = random_gamma_gaussian(random.key(0), (3,), 2)
+    padded = gg.event_pad(left=1, right=2)
+    assert padded.dim == 5 and padded.batch_shape == (3,)
+    assert_allclose(padded.info_vec[..., 1:3], gg.info_vec)
+    assert_allclose(padded.precision[..., 1:3, 1:3], gg.precision)
+    assert_allclose(padded.info_vec[..., [0, 3, 4]], jnp.zeros((3, 3)))
+    assert_allclose(padded.precision[..., [0, 3, 4], :], jnp.zeros((3, 3, 5)))
+    assert_allclose(padded.precision[..., :, [0, 3, 4]], jnp.zeros((3, 5, 3)))
+    for name in ("log_normalizer", "alpha", "beta"):
+        assert_allclose(getattr(padded, name), getattr(gg, name))
+    x = random.normal(random.key(1), (3, 2))
+    s = jnp.exp(random.normal(random.key(2), (3,)))
+    pad = random.normal(random.key(3), (3, 3))
+    value = jnp.concatenate([pad[:, :1], x, pad[:, 1:]], -1)
+    assert_allclose(padded.log_density(value, s), gg.log_density(x, s), rtol=1e-5)
 
 
 def test_log_density_matches_fixed_scale_gaussian():
@@ -150,6 +206,57 @@ def test_marginalize_and_condition(left, right):
             rtol=1e-4,
             atol=1e-4,
         )
+
+
+def test_marginalize_and_condition_rank_deficient_with_sample_dims():
+    # Precision of rank 1 in dimension 4: the marginal over the remaining
+    # coordinates has zero precision, and the conditioned 1x1 block is the
+    # only factor that must be inverted or Cholesky-factored.
+    gg = random_gamma_gaussian(random.key(0), (3,), 4, rank=1)
+    assert jnp.all(jnp.linalg.matrix_rank(gg.precision) == 1)
+    s = jnp.exp(random.normal(random.key(2), (3,)))
+    value = random.normal(random.key(1), (7, 3, 3))
+    marginal = gg.marginalize(left=1)
+    actual = marginal.log_density(value, s)
+    assert actual.shape == (7, 3)
+    assert_allclose(
+        actual,
+        gaussian_at(gg, s).marginalize(left=1).log_density(value),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+    conditioned = gg.condition(value)
+    assert conditioned.batch_shape == (7, 3) and conditioned.dim == 1
+    assert_allclose(
+        actual, conditioned.event_logsumexp().log_density(s), rtol=1e-4, atol=1e-4
+    )
+    a = random.normal(random.key(3), (7, 3, 1))
+    assert_allclose(
+        conditioned.log_density(a, s),
+        gg.log_density(jnp.concatenate([a, value], -1), s),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+
+def test_event_logsumexp_jit_and_grad():
+    gg = random_gamma_gaussian(random.key(0), (3,), 2)
+
+    def total(gg):
+        return gg.event_logsumexp().logsumexp()
+
+    expected = total(gg)
+    assert_allclose(jax.jit(total)(gg), expected, rtol=1e-5)
+    grads = jax.grad(lambda gg: total(gg).sum())(gg)
+    assert isinstance(grads, GammaGaussian)
+    factor = gg.event_logsumexp()
+    assert_allclose(grads.log_normalizer, jnp.ones(3))
+    assert_allclose(
+        grads.alpha, digamma(factor.concentration) - jnp.log(factor.rate), rtol=1e-5
+    )
+    assert_allclose(grads.beta, -factor.concentration / factor.rate, rtol=1e-5)
+    for name in ("info_vec", "precision"):
+        assert jnp.all(jnp.isfinite(getattr(grads, name)))
 
 
 def test_event_logsumexp_and_compound():
@@ -223,13 +330,16 @@ def test_matrix_and_mvn_to_gamma_gaussian():
         )
 
 
-@pytest.mark.parametrize("na,nb,nc", [(1, 1, 1), (2, 1, 0), (0, 2, 1), (2, 2, 2)])
+@pytest.mark.parametrize(
+    "na,nb,nc", [(1, 1, 1), (2, 1, 0), (0, 2, 1), (2, 2, 2), (0, 2, 0)]
+)
 def test_gamma_gaussian_tensordot_matches_fixed_scale(na, nb, nc):
     x = random_gamma_gaussian(random.key(0), (3,), na + nb)
     y = random_gamma_gaussian(random.key(1), (3,), nb + nc)
     s = jnp.exp(random.normal(random.key(2), (3,)))
     z = random.normal(random.key(3), (3, na + nc))
     actual = gamma_gaussian_tensordot(x, y, nb)
+    assert actual.dim == na + nc and actual.batch_shape == (3,)
     expected = gaussian_tensordot(gaussian_at(x, s), gaussian_at(y, s), nb)
     assert_allclose(
         actual.log_density(z, s), expected.log_density(z), rtol=1e-4, atol=1e-4

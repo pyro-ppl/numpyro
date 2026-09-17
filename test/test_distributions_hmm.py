@@ -1132,11 +1132,8 @@ def test_gamma_gaussian_hmm_x64_extreme_scales():
     assert jnp.isfinite(lp) and jnp.isfinite(grad).all()
 
 
-@pytest.mark.parametrize("batch", [(), (3,)])
-@pytest.mark.parametrize("homogeneous", [False, True])
-def test_gamma_gaussian_hmm_shapes(batch, homogeneous):
-    T, n, m = 5, 2, 2
-    ks = random.split(random.key(0), 6)
+def _gamma_hmm_components(key, T, n, m, *, batch=(), homogeneous=False):
+    ks = random.split(key, 6)
     tshape = ((1,) if batch else ()) if homogeneous else (T,)
     scale_dist = dist.Gamma(jnp.full(batch, 3.0), 2.0)
     init = dist.MultivariateNormal(
@@ -1150,6 +1147,17 @@ def test_gamma_gaussian_hmm_shapes(batch, homogeneous):
     )
     A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], batch + tshape + (n, n))
     H = random.normal(ks[1], batch + tshape + (m, n))
+    return scale_dist, init, A, trans, H, obs
+
+
+@pytest.mark.parametrize("batch", [(), (3,)])
+@pytest.mark.parametrize("homogeneous", [False, True])
+def test_gamma_gaussian_hmm_shapes(batch, homogeneous):
+    T, n, m = 5, 2, 2
+    scale_dist, init, A, trans, H, obs = _gamma_hmm_components(
+        random.key(0), T, n, m, batch=batch, homogeneous=homogeneous
+    )
+    tshape = ((1,) if batch else ()) if homogeneous else (T,)
     hmm = GammaGaussianHMM(
         scale_dist, init, A, trans, H, obs, num_steps=T if homogeneous else None
     )
@@ -1171,6 +1179,42 @@ def test_gamma_gaussian_hmm_shapes(batch, homogeneous):
             obs,
             num_steps=T,
         )
+
+
+@pytest.mark.parametrize("batch", [(), (3,)])
+@pytest.mark.parametrize("homogeneous", [False, True])
+def test_gamma_gaussian_hmm_expand_matches_broadcast_log_prob(batch, homogeneous):
+    T, n, m = 4, 2, 1
+    components = _gamma_hmm_components(
+        random.key(5), T, n, m, batch=batch, homogeneous=homogeneous
+    )
+    hmm = GammaGaussianHMM(*components, num_steps=T if homogeneous else None)
+    expanded = hmm.expand((2,) + batch)
+    assert expanded.batch_shape == (2,) + batch
+    x = random.normal(random.key(1), (2,) + batch + (T, m))
+    assert_allclose(expanded.log_prob(x), hmm.log_prob(x), rtol=1e-5)
+    assert_allclose(
+        expanded.log_prob(x[0]),
+        jnp.broadcast_to(hmm.log_prob(x[0]), (2,) + batch),
+        rtol=1e-5,
+    )
+
+
+def test_independent_hmm_gamma_gaussian_hmm_log_prob_matches_base():
+    T, n, m, B = 4, 2, 3, 2
+    scale_dist, init, A, trans, H, obs = _gamma_hmm_components(
+        random.key(1), T, n, 1, batch=(B, m)
+    )
+    base = GammaGaussianHMM(scale_dist, init, A, trans, H, obs)
+    hmm = IndependentHMM(base)
+    assert hmm.batch_shape == (B,) and hmm.event_shape == (T, m)
+    assert not hmm.has_rsample
+    x = random.normal(random.key(3), (5, B, T, m))
+    actual = hmm.log_prob(x)
+    assert actual.shape == (5, B)
+    expected = base.log_prob(jnp.swapaxes(x, -1, -2)[..., None]).sum(-1)
+    assert_allclose(actual, expected, rtol=1e-6)
+    assert hmm.expand((4, B)).log_prob(x[0]).shape == (4, B)
 
 
 def test_gamma_gaussian_hmm_diag_matches_full_covariance():
@@ -1376,6 +1420,55 @@ def test_linear_hmm_with_normal_components_matches_gaussian_hmm_moments():
     b = gaussian.sample(random.key(1), (N,))
     assert_allclose(a.mean(0), b.mean(0), atol=0.05)
     assert_allclose(a.var(0), b.var(0), rtol=0.1)
+
+
+def test_linear_hmm_single_step_marginal_matches_student_t():
+    # With T = 1 and A = 0 the observation is H eps_1 + nu_1; with H = 1 and
+    # negligible observation noise it follows the transition noise exactly.
+    df, loc, scale = 3.0, 0.4, 0.7
+    hmm = LinearHMM(
+        dist.Normal(jnp.zeros(1), 1.0).to_event(1),
+        jnp.zeros((1, 1, 1)),
+        dist.StudentT(df, jnp.full((1, 1), loc), scale).to_event(1),
+        jnp.ones((1, 1, 1)),
+        dist.Normal(jnp.zeros((1, 1)), 1e-6).to_event(1),
+        num_steps=1,
+    )
+    assert hmm.event_shape == (1, 1)
+    x = hmm.sample(random.key(2), (50000,))
+    q = jnp.array([0.1, 0.25, 0.5, 0.75, 0.9])
+    assert_allclose(
+        jnp.quantile(x[:, 0, 0], q), dist.StudentT(df, loc, scale).icdf(q), atol=0.03
+    )
+
+
+def test_linear_hmm_mvn_noise_with_lognormal_observation():
+    T, n, m = 5, 2, 2
+    ks = random.split(random.key(0), 6)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (T, n, n))
+    H = random.normal(ks[1], (T, m, n))
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans = dist.MultivariateNormal(
+        jnp.zeros((T, n)), covariance_matrix=_spd(ks[4], n, 0.5)
+    )
+    obs = dist.TransformedDistribution(
+        dist.MultivariateNormal(
+            jnp.zeros((T, m)), covariance_matrix=_spd(ks[5], m, 0.3)
+        ),
+        transforms.ExpTransform(),
+    )
+    hmm = LinearHMM(init, A, trans, H, obs)
+    assert hmm.batch_shape == () and hmm.event_shape == (T, m)
+    assert isinstance(hmm.observation_dist, dist.MultivariateNormal)
+    assert len(hmm.transforms) == 1
+    assert isinstance(hmm.transforms[0], transforms.ExpTransform)
+    x = hmm.sample(random.key(1), (4,))
+    assert x.shape == (4, T, m) and jnp.all(x > 0)
+    assert hmm.support.event_dim == 2
+    assert jnp.all(hmm.support(x)) and not jnp.any(hmm.support(-x))
+    assert hmm.expand((3,)).sample(random.key(2)).shape == (3, T, m)
 
 
 def test_linear_hmm_homogeneous_keeps_time_axis():
