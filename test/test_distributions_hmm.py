@@ -202,3 +202,70 @@ def test_gaussian_hmm_invalid_arguments():
             obs,
             num_steps=T,
         )
+
+
+@pytest.mark.parametrize("diag", [False, True])
+def test_gaussian_hmm_sample_shapes(diag):
+    hmm = _hmm(random.key(0), 5, 3, 2, batch=(3,), diag=diag)
+    x = hmm.sample(random.key(1), (4,))
+    assert x.shape == (4, 3, 5, 2)
+    assert hmm.sample_posterior(random.key(2), x, (6,)).shape == (6, 4, 3, 5, 3)
+    assert hmm.has_rsample
+
+
+def test_gaussian_hmm_sample_moments_match_dense():
+    T, n, m = 4, 2, 1
+    ks = random.split(random.key(0), 6)
+    A = jnp.broadcast_to(0.7 * jnp.eye(n), (T, n, n))
+    H = random.normal(ks[1], (T, m, n))
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans = dist.MultivariateNormal(
+        jnp.zeros((T, n)), covariance_matrix=_spd(ks[4], n, 0.5)
+    )
+    obs = dist.MultivariateNormal(
+        jnp.zeros((T, m)), covariance_matrix=_spd(ks[5], m, 0.3)
+    )
+    hmm = GaussianHMM(init, A, trans, H, obs)
+    mean, cov = dense_reference(init, A, trans, H, obs, T)
+    nz = (T + 1) * n
+    N = 20000
+    x = hmm.sample(random.key(1), (N,)).reshape(N, -1)
+    se = jnp.sqrt(jnp.diag(cov[nz:, nz:]) / N)
+    assert (jnp.abs(x.mean(0) - mean[nz:]) < 5 * se).all()
+    assert_allclose(jnp.cov(x.T), cov[nz:, nz:], atol=0.15 * jnp.abs(cov).max())
+
+    x_obs = random.normal(random.key(2), (T, m))
+    z = hmm.sample_posterior(random.key(3), x_obs, (N,)).reshape(N, -1)
+    Szz, Sxx, Szx = cov[:nz, :nz], cov[nz:, nz:], cov[:nz, nz:]
+    K = jnp.linalg.solve(Sxx, Szx.T).T
+    post_mean = (mean[:nz] + K @ (x_obs.ravel() - mean[nz:]))[n:]
+    post_cov = (Szz - K @ Szx.T)[n:, n:]
+    se = jnp.sqrt(jnp.diag(post_cov) / N)
+    assert (jnp.abs(z.mean(0) - post_mean) < 5 * se).all()
+    assert_allclose(jnp.cov(z.T), post_cov, atol=0.1 * jnp.abs(post_cov).max())
+
+
+def test_gaussian_hmm_matches_gaussian_state_space_moments():
+    T, n = 6, 2
+    A = jnp.array([[0.9, 0.1], [0.0, 0.8]])
+    Q = _spd(random.key(10), n, 0.4)
+    z0 = jnp.array([1.0, -0.5])
+    S0 = 0.3 * jnp.eye(n)
+    R = 0.2 * jnp.eye(n)
+    ssm = dist.GaussianStateSpace(T, A, covariance_matrix=Q, initial_value=z0)
+    hmm = GaussianHMM(
+        dist.MultivariateNormal(z0, covariance_matrix=S0),
+        A,
+        dist.MultivariateNormal(jnp.zeros(n), covariance_matrix=Q),
+        jnp.eye(n),
+        dist.MultivariateNormal(jnp.zeros(n), covariance_matrix=R),
+        num_steps=T,
+    )
+    N = 40000
+    x = hmm.sample(random.key(11), (N,))
+    powers = [jnp.linalg.matrix_power(A, t) for t in range(1, T + 1)]
+    extra = jnp.stack([jnp.diag(P @ S0 @ P.T) for P in powers]) + jnp.diag(R)
+    assert_allclose(x.mean(0), ssm.mean, atol=0.05)
+    assert_allclose(x.var(0), ssm.variance + extra, rtol=0.05, atol=0.02)

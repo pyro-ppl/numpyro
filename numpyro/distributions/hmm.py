@@ -7,7 +7,7 @@ import copy
 from typing import Callable, Optional, Sequence, Union, overload
 
 import jax
-from jax import Array, lax
+from jax import Array, lax, random
 import jax.numpy as jnp
 
 from numpyro.distributions import constraints
@@ -21,6 +21,7 @@ from numpyro.ops.gaussian import (
     loc_and_scale_tril,
     matrix_and_mvn_to_gaussian,
     mvn_to_gaussian,
+    sequential_gaussian_filter_sample,
     sequential_gaussian_tensordot,
 )
 
@@ -301,3 +302,52 @@ class GaussianHMM(HiddenMarkovModel):
         return MultivariateNormal(
             loc, scale_tril=scale_tril, validate_args=self._validate_args
         )
+
+    def _sample_states(
+        self, key: Array, obs_factor: Gaussian, sample_shape: tuple[int, ...]
+    ) -> Array:
+        trans = self._time_expanded(
+            self._trans + obs_factor.event_pad(left=self.hidden_dim)
+        )
+        return sequential_gaussian_filter_sample(key, self._init, trans, sample_shape)[
+            ..., 1:, :
+        ]
+
+    def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        assert key is not None
+        key_z, key_x = random.split(key)
+        z = self._sample_states(
+            key_z, self._obs.marginalize(right=self.obs_dim), sample_shape
+        )
+        return self._obs.left_condition(z).sample(key_x)
+
+    def sample_posterior(
+        self, key: Array, value: Array, sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        """
+        Sample latent paths ``z_{1:T}`` given observations.
+
+        Parameters
+        ----------
+        key : Array
+            PRNG key.
+        value : Array
+            Observations of shape ``lead + (num_steps, obs_dim)``.
+        sample_shape : tuple[int, ...]
+            Leading sample dimensions.
+
+        Returns
+        -------
+        Array
+            Shape ``sample_shape + lead + (num_steps, hidden_dim)`` where
+            ``lead`` broadcasts ``value`` against ``batch_shape``.
+        """
+        value, extra = self._lead_and_extra(value)
+        keys = random.split(key, value.shape[:extra]) if extra else key
+        draw = _vmap_leading(
+            lambda k, v: self._sample_states(k, self._obs.condition(v), sample_shape),
+            extra,
+        )
+        z = draw(keys, value)
+        sample_axes = tuple(range(extra, extra + len(sample_shape)))
+        return jnp.moveaxis(z, sample_axes, tuple(range(len(sample_shape))))
