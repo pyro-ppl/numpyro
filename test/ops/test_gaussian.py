@@ -8,7 +8,14 @@ import jax
 from jax import random
 import jax.numpy as jnp
 
-from numpyro.ops.gaussian import Gaussian, _mv
+import numpyro.distributions as dist
+from numpyro.ops.gaussian import (
+    AffineNormal,
+    Gaussian,
+    _mv,
+    matrix_and_mvn_to_gaussian,
+    mvn_to_gaussian,
+)
 
 
 def random_gaussian(key, batch_shape, dim, rank=None):
@@ -18,6 +25,15 @@ def random_gaussian(key, batch_shape, dim, rank=None):
     info_vec = random.normal(k2, batch_shape + (dim,))
     factor = random.normal(k3, batch_shape + (dim, rank))
     return Gaussian(log_normalizer, info_vec, factor @ jnp.swapaxes(factor, -1, -2))
+
+
+def random_mvn(key, batch_shape, dim):
+    k1, k2 = random.split(key)
+    factor = random.normal(k2, batch_shape + (dim, dim))
+    return dist.MultivariateNormal(
+        random.normal(k1, batch_shape + (dim,)),
+        covariance_matrix=factor @ jnp.swapaxes(factor, -1, -2) + jnp.eye(dim),
+    )
 
 
 def assert_close_gaussian(actual, expected, rtol=1e-4, atol=1e-4):
@@ -139,3 +155,51 @@ def test_sample_moments_and_noise():
         g.sample(random.key(9), (4,), noise=noise),
     )
     assert_allclose(g.sample(noise=jnp.zeros((2, 3))), mean, rtol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: random_mvn(random.key(0), (3,), 2),
+        lambda: random_mvn(random.key(0), (), 2).expand((3,)),
+        lambda: dist.Normal(random.normal(random.key(0), (3, 2)), 0.7).to_event(1),
+        lambda: dist.Normal(jnp.zeros(2), 1.0).to_event(1),
+        lambda: dist.Normal(0.0, 1.0).expand((3, 2)).to_event(1),
+    ],
+)
+def test_mvn_to_gaussian_matches_log_prob(make):
+    d = make()
+    value = random.normal(random.key(1), (3, 2))
+    g = mvn_to_gaussian(d)
+    assert g.batch_shape == d.batch_shape
+    assert g.precision.shape == d.batch_shape + (2, 2)
+    assert_allclose(g.log_density(value), d.log_prob(value), rtol=1e-4)
+
+
+def test_mvn_to_gaussian_rejects_other_types():
+    with pytest.raises(TypeError):
+        mvn_to_gaussian(dist.StudentT(3.0, jnp.zeros(2), 1.0).to_event(1))
+
+
+@pytest.mark.parametrize("diag", [False, True])
+def test_matrix_and_mvn_to_gaussian_density(diag):
+    x_dim, y_dim = 3, 2
+    matrix = random.normal(random.key(0), (4, y_dim, x_dim))
+    noise = (
+        dist.Normal(random.normal(random.key(1), (4, y_dim)), 0.5).to_event(1)
+        if diag
+        else random_mvn(random.key(1), (4,), y_dim)
+    )
+    x = random.normal(random.key(2), (4, x_dim))
+    y = random.normal(random.key(3), (4, y_dim))
+    g = matrix_and_mvn_to_gaussian(matrix, noise)
+    assert isinstance(g, AffineNormal if diag else type(mvn_to_gaussian(noise)))
+    assert g.dim == x_dim + y_dim
+    expected = noise.log_prob(y - jnp.einsum("...ij,...j->...i", matrix, x))
+    assert_allclose(g.log_density(jnp.concatenate([x, y], -1)), expected, rtol=1e-4)
+    if diag:
+        full = g.to_gaussian()
+        assert_close_gaussian(g.condition(y), full.condition(y))
+        assert isinstance(g.left_condition(x), AffineNormal)
+        assert_allclose(g.left_condition(x).log_density(y), expected, rtol=1e-4)
+        assert_allclose(g.marginalize(right=y_dim).precision, 0.0)

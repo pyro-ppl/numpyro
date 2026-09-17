@@ -31,9 +31,21 @@ from jax import Array, lax, random
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_solve, solve_triangular
 
+from numpyro.distributions.continuous import MultivariateNormal, Normal
+from numpyro.distributions.distribution import (
+    Distribution,
+    ExpandedDistribution,
+    Independent,
+)
 from numpyro.distributions.util import safe_cholesky
 
-__all__ = ["Gaussian"]
+__all__ = [
+    "AffineNormal",
+    "Gaussian",
+    "matrix_and_gaussian_to_gaussian",
+    "matrix_and_mvn_to_gaussian",
+    "mvn_to_gaussian",
+]
 
 _LOG_2PI = math.log(2 * math.pi)
 
@@ -136,8 +148,8 @@ class Gaussian:
     def _broadcast(self) -> Gaussian:
         return self.expand(self.batch_shape)
 
-    def __add__(self, other: Union[Gaussian, Array, float]) -> Gaussian:
-        if type(other).__name__ == "AffineNormal":
+    def __add__(self, other: Union[Gaussian, AffineNormal, Array, float]) -> Gaussian:
+        if isinstance(other, AffineNormal):
             other = other.to_gaussian()
         if isinstance(other, Gaussian):
             return Gaussian(
@@ -287,3 +299,278 @@ class Gaussian:
         for _ in sample_shape:
             draw = jax.vmap(draw)
         return draw(noise)
+
+
+def _is_diag_normal(d: Distribution) -> bool:
+    if not isinstance(d, Independent) or d.reinterpreted_batch_ndims != 1:
+        return False
+    base = d.base_dist
+    base = base.base_dist if isinstance(base, ExpandedDistribution) else base
+    return isinstance(base, Normal)
+
+
+def _diag_normal_params(d: Distribution) -> tuple[Array, Array]:
+    if not _is_diag_normal(d):
+        raise TypeError(f"expected Independent(Normal, 1), got {type(d).__name__}")
+    base = d.base_dist
+    base = base.base_dist if isinstance(base, ExpandedDistribution) else base
+    shape = d.batch_shape + d.event_shape
+    return jnp.broadcast_to(base.loc, shape), jnp.broadcast_to(base.scale, shape)
+
+
+def _mvn_params(d: Distribution) -> tuple[Array, Array]:
+    base = d.base_dist if isinstance(d, ExpandedDistribution) else d
+    if not isinstance(base, MultivariateNormal):
+        raise TypeError(
+            "expected MultivariateNormal or Independent(Normal, 1), "
+            f"got {type(d).__name__}"
+        )
+    shape = d.batch_shape + d.event_shape
+    return (
+        jnp.broadcast_to(base.loc, shape),
+        jnp.broadcast_to(base.scale_tril, shape + shape[-1:]),
+    )
+
+
+def _sqrt_form(scale_tril: Array, loc: Array, matrix: Array) -> Gaussian:
+    """
+    Factor with ``precision = R^T R``, ``R = L^-1 matrix``, from noise
+    ``N(loc, L L^T)`` with ``L = scale_tril``.
+    """
+    R = solve_triangular(scale_tril, matrix, lower=True)
+    v = solve_triangular(scale_tril, loc[..., None], lower=True)[..., 0]
+    log_normalizer = (
+        -0.5 * loc.shape[-1] * _LOG_2PI
+        - 0.5 * (v * v).sum(-1)
+        - jnp.log(jnp.diagonal(scale_tril, axis1=-2, axis2=-1)).sum(-1)
+    )
+    return Gaussian(log_normalizer, _mv(_mt(R), v), _mt(R) @ R)
+
+
+def mvn_to_gaussian(d: Distribution) -> Gaussian:
+    """
+    Convert a Gaussian distribution to a normalized :class:`Gaussian` factor.
+
+    Parameters
+    ----------
+    d : Distribution
+        ``MultivariateNormal`` or ``Independent(Normal, 1)``, possibly wrapped
+        in ``ExpandedDistribution``.
+
+    Returns
+    -------
+    Gaussian
+        Factor with ``batch_shape == d.batch_shape`` whose ``log_density``
+        equals ``d.log_prob``.
+    """
+    if _is_diag_normal(d):
+        loc, scale = _diag_normal_params(d)
+        scale_tril = jnp.eye(scale.shape[-1], dtype=scale.dtype) * scale[..., None]
+    else:
+        loc, scale_tril = _mvn_params(d)
+    eye = jnp.broadcast_to(jnp.eye(loc.shape[-1], dtype=loc.dtype), scale_tril.shape)
+    return _sqrt_form(scale_tril, loc, eye)
+
+
+def matrix_and_gaussian_to_gaussian(matrix: Array, y_gaussian: Gaussian) -> Gaussian:
+    """
+    Joint factor over ``(x, y)`` for ``y - matrix @ x ~ y_gaussian``.
+
+    Parameters
+    ----------
+    matrix : Array
+        Shape ``(..., y_dim, x_dim)``.
+    y_gaussian : Gaussian
+        Factor over ``y`` with ``dim == y_dim``.
+    """
+    P_yy = y_gaussian.precision
+    P_xy = -_mt(matrix) @ P_yy
+    P_xx = -P_xy @ matrix
+    precision = jnp.concatenate(
+        [jnp.concatenate([P_xx, P_xy], -1), jnp.concatenate([_mt(P_xy), P_yy], -1)],
+        -2,
+    )
+    info_vec = jnp.concatenate(
+        [-_mv(_mt(matrix), y_gaussian.info_vec), y_gaussian.info_vec], -1
+    )
+    return Gaussian(y_gaussian.log_normalizer, info_vec, precision)._broadcast()
+
+
+def matrix_and_mvn_to_gaussian(
+    matrix: Array, d: Distribution
+) -> Union[Gaussian, AffineNormal]:
+    """
+    Factor over ``(x, y)`` for ``y = matrix @ x + noise`` with ``noise ~ d``.
+
+    Parameters
+    ----------
+    matrix : Array
+        Shape ``(..., y_dim, x_dim)``.
+    d : Distribution
+        Noise distribution with ``event_shape == (y_dim,)``;
+        ``MultivariateNormal`` or ``Independent(Normal, 1)``.
+
+    Returns
+    -------
+    Gaussian or AffineNormal
+        :class:`AffineNormal` for diagonal-normal noise, otherwise a
+        :class:`Gaussian` in square-root form.
+    """
+    y_dim, x_dim = matrix.shape[-2:]
+    if d.event_shape != (y_dim,):
+        raise ValueError(
+            f"noise event_shape {d.event_shape} does not match matrix rows {y_dim}"
+        )
+    batch_shape = lax.broadcast_shapes(matrix.shape[:-2], d.batch_shape)
+    matrix = jnp.broadcast_to(matrix, batch_shape + (y_dim, x_dim))
+    if _is_diag_normal(d):
+        loc, scale = _diag_normal_params(d)
+        return AffineNormal(
+            matrix,
+            jnp.broadcast_to(loc, batch_shape + (y_dim,)),
+            jnp.broadcast_to(scale, batch_shape + (y_dim,)),
+        )
+    loc, scale_tril = _mvn_params(d)
+    eye = jnp.broadcast_to(
+        jnp.eye(y_dim, dtype=matrix.dtype), batch_shape + (y_dim, y_dim)
+    )
+    return _sqrt_form(
+        jnp.broadcast_to(scale_tril, batch_shape + (y_dim, y_dim)),
+        jnp.broadcast_to(loc, batch_shape + (y_dim,)),
+        jnp.concatenate([-matrix, eye], -1),
+    )
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class AffineNormal:
+    """
+    Conditional ``y | x ~ Normal(matrix @ x + loc, scale)`` standing in for a
+    joint factor over ``(x, y)``.
+
+    Parameters
+    ----------
+    matrix : Array
+        Shape ``batch_shape + (y_dim, x_dim)``.
+    loc, scale : Array
+        Shape ``batch_shape + (y_dim,)``.
+    """
+
+    matrix: Array
+    loc: Array
+    scale: Array
+
+    @property
+    def dim(self) -> int:
+        return self.matrix.shape[-1] + self.matrix.shape[-2]
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        return self.matrix.shape[:-2]
+
+    def _map(self, fn) -> AffineNormal:
+        return AffineNormal(fn(self.matrix, 2), fn(self.loc, 1), fn(self.scale, 1))
+
+    def expand(self, batch_shape: Sequence[int]) -> AffineNormal:
+        """Broadcast every field to ``batch_shape``."""
+        return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
+
+    def reshape(self, batch_shape: Sequence[int]) -> AffineNormal:
+        """Reshape the batch dimensions of every field to ``batch_shape``."""
+        return self._map(
+            lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
+        )
+
+    def __getitem__(self, index: Union[int, slice, tuple]) -> AffineNormal:
+        index = index if isinstance(index, tuple) else (index,)
+        return self._map(lambda x, k: x[index + (slice(None),) * k])
+
+    def to_gaussian(self) -> Gaussian:
+        """Promote to a full :class:`Gaussian` over ``(x, y)``."""
+        noise = Independent(Normal(self.loc, self.scale), 1)
+        return matrix_and_gaussian_to_gaussian(self.matrix, mvn_to_gaussian(noise))
+
+    def condition(self, value: Array) -> Gaussian:
+        """
+        Condition on ``y`` (``value.shape[-1] == y_dim``) without a Cholesky
+        factorization; other block sizes go through :meth:`to_gaussian`.
+        """
+        if value.shape[-1] != self.matrix.shape[-2]:
+            return self.to_gaussian().condition(value)
+        W = self.matrix / self.scale[..., :, None]
+        delta = (value - self.loc) / self.scale
+        log_normalizer = (
+            -0.5 * value.shape[-1] * _LOG_2PI
+            - 0.5 * (delta * delta).sum(-1)
+            - jnp.log(self.scale).sum(-1)
+        )
+        return Gaussian(log_normalizer, _mv(_mt(W), delta), _mt(W) @ W)._broadcast()
+
+    def left_condition(self, value: Array) -> Union[AffineNormal, Gaussian]:
+        """
+        Condition on ``x`` (``value.shape[-1] == x_dim``); returns an
+        :class:`AffineNormal` with no remaining inputs.
+        """
+        if value.shape[-1] != self.matrix.shape[-1]:
+            return self.to_gaussian().left_condition(value)
+        loc = _mv(self.matrix, value) + self.loc
+        batch_shape = loc.shape[:-1]
+        empty = jnp.zeros(batch_shape + (loc.shape[-1], 0), self.matrix.dtype)
+        return AffineNormal(empty, loc, jnp.broadcast_to(self.scale, loc.shape))
+
+    def sample(
+        self,
+        key: Optional[Array] = None,
+        sample_shape: tuple[int, ...] = (),
+        noise: Optional[Array] = None,
+    ) -> Array:
+        """
+        Draw ``y`` once all inputs are conditioned away (``x_dim == 0``).
+
+        Parameters
+        ----------
+        key : Array, optional
+            PRNG key; required when ``noise`` is ``None``.
+        sample_shape : tuple[int, ...]
+            Leading sample dimensions.
+        noise : Array, optional
+            Standard normal draws of shape ``sample_shape + batch_shape + (y_dim,)``.
+        """
+        if self.matrix.shape[-1] != 0:
+            raise NotImplementedError(
+                "AffineNormal.sample requires all inputs to be conditioned"
+            )
+        shape = tuple(sample_shape) + self.loc.shape
+        if noise is None:
+            noise = random.normal(key, shape, self.loc.dtype)
+        return self.loc + noise.reshape(shape) * self.scale
+
+    def marginalize(self, left: int = 0, right: int = 0) -> Gaussian:
+        """
+        Integrate out coordinates; integrating out all of ``y`` yields an exact
+        zero factor over ``x``.
+        """
+        x_dim = self.matrix.shape[-1]
+        if left == 0 and right == self.matrix.shape[-2]:
+            batch_shape = self.batch_shape
+            return Gaussian(
+                jnp.zeros(batch_shape, self.loc.dtype),
+                jnp.zeros(batch_shape + (x_dim,), self.loc.dtype),
+                jnp.zeros(batch_shape + (x_dim, x_dim), self.loc.dtype),
+            )
+        return self.to_gaussian().marginalize(left, right)
+
+    def event_pad(self, left: int = 0, right: int = 0) -> Gaussian:
+        """Embed the factor into a larger event space with zero coupling."""
+        return self.to_gaussian().event_pad(left, right)
+
+    def event_permute(self, perm: Array) -> Gaussian:
+        """Permute event coordinates."""
+        return self.to_gaussian().event_permute(perm)
+
+    def log_density(self, value: Array) -> Array:
+        """Evaluate the factor at ``value`` of shape ``(..., x_dim + y_dim)``."""
+        return self.to_gaussian().log_density(value)
+
+    def __add__(self, other: Union[Gaussian, AffineNormal, Array, float]) -> Gaussian:
+        return self.to_gaussian() + other
