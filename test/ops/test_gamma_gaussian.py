@@ -9,8 +9,15 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro.distributions as dist
-from numpyro.ops.gamma_gaussian import GammaFactor, GammaGaussian
-from numpyro.ops.gaussian import Gaussian
+from numpyro.ops.gamma_gaussian import (
+    GammaFactor,
+    GammaGaussian,
+    gamma_and_mvn_to_gamma_gaussian,
+    gamma_gaussian_tensordot,
+    matrix_and_mvn_to_gamma_gaussian,
+    sequential_gamma_gaussian_tensordot,
+)
+from numpyro.ops.gaussian import Gaussian, gaussian_tensordot
 
 
 def random_gaussian(key, batch_shape, dim, rank=None):
@@ -125,4 +132,61 @@ def test_event_logsumexp_and_compound():
             lambda f: jax.scipy.special.logsumexp(f.log_density(grid)) + log_dgrid
         )(factor),
         atol=2e-2,
+    )
+
+
+def test_gamma_and_mvn_to_gamma_gaussian():
+    gamma = dist.Gamma(jnp.array([2.0, 3.0]), jnp.array([1.5, 0.5]))
+    mvn = random_mvn(random.key(0), (2,), 3)
+    gg = gamma_and_mvn_to_gamma_gaussian(gamma, mvn)
+    x = random.normal(random.key(1), (2, 3))
+    s = jnp.array([0.7, 2.5])
+    expected = gamma.log_prob(s) + dist.MultivariateNormal(
+        mvn.mean, precision_matrix=s[:, None, None] * mvn.precision_matrix
+    ).log_prob(x)
+    assert_allclose(gg.log_density(x, s), expected, rtol=1e-4)
+    assert gg.batch_shape == (2,)
+
+
+def test_matrix_and_mvn_to_gamma_gaussian():
+    x_dim, y_dim = 2, 3
+    matrix = random.normal(random.key(0), (4, y_dim, x_dim))
+    mvn = random_mvn(random.key(1), (4,), y_dim)
+    x = random.normal(random.key(2), (4, x_dim))
+    y = random.normal(random.key(3), (4, y_dim))
+    s = jnp.exp(random.normal(random.key(4), (4,)))
+    gg = matrix_and_mvn_to_gamma_gaussian(matrix, mvn)
+    expected = dist.MultivariateNormal(
+        jnp.einsum("...ij,...j->...i", matrix, x) + mvn.mean,
+        precision_matrix=s[:, None, None] * mvn.precision_matrix,
+    ).log_prob(y)
+    assert_allclose(gg.log_density(jnp.concatenate([x, y], -1), s), expected, rtol=1e-4)
+    with pytest.raises(TypeError):
+        matrix_and_mvn_to_gamma_gaussian(
+            matrix, dist.Normal(jnp.zeros((4, y_dim)), 1.0).to_event(1)
+        )
+
+
+@pytest.mark.parametrize("na,nb,nc", [(1, 1, 1), (2, 1, 0), (0, 2, 1), (2, 2, 2)])
+def test_gamma_gaussian_tensordot_matches_fixed_scale(na, nb, nc):
+    x = random_gamma_gaussian(random.key(0), (3,), na + nb)
+    y = random_gamma_gaussian(random.key(1), (3,), nb + nc)
+    s = jnp.exp(random.normal(random.key(2), (3,)))
+    z = random.normal(random.key(3), (3, na + nc))
+    actual = gamma_gaussian_tensordot(x, y, nb)
+    expected = gaussian_tensordot(gaussian_at(x, s), gaussian_at(y, s), nb)
+    assert_allclose(
+        actual.log_density(z, s), expected.log_density(z), rtol=1e-4, atol=1e-4
+    )
+
+
+@pytest.mark.parametrize("num_steps", list(range(1, 20)))
+@pytest.mark.parametrize("state_dim", [1, 2])
+def test_sequential_gamma_gaussian_tensordot_matches_fold(num_steps, state_dim):
+    g = random_gamma_gaussian(random.key(num_steps), (2, num_steps), 2 * state_dim)
+    expected = g[..., 0]
+    for t in range(1, num_steps):
+        expected = gamma_gaussian_tensordot(expected, g[..., t], state_dim)
+    assert_close_gamma_gaussian(
+        sequential_gamma_gaussian_tensordot(g), expected, rtol=1e-3, atol=1e-3
     )

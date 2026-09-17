@@ -23,20 +23,28 @@ import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln
 
-from numpyro.distributions.continuous import MultivariateStudentT
+from numpyro.distributions.continuous import Gamma, MultivariateStudentT
+from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import safe_cholesky
 from numpyro.ops.gaussian import (
     _LOG_2PI,
+    Gaussian,
     _mt,
     _mv,
     _pad_event,
     _with_batch,
     loc_and_scale_tril,
+    matrix_and_mvn_to_gaussian,
+    mvn_to_gaussian,
 )
 
 __all__ = [
     "GammaFactor",
     "GammaGaussian",
+    "gamma_and_mvn_to_gamma_gaussian",
+    "gamma_gaussian_tensordot",
+    "matrix_and_mvn_to_gamma_gaussian",
+    "sequential_gamma_gaussian_tensordot",
 ]
 
 
@@ -303,3 +311,143 @@ class GammaGaussian:
         return MultivariateStudentT(
             2 * concentration, loc, scale_tril * scale[..., None, None]
         )
+
+
+def gamma_and_mvn_to_gamma_gaussian(gamma: Gamma, mvn: Distribution) -> GammaGaussian:
+    """
+    Joint factor over ``(x, s)`` for ``s ~ gamma`` and
+    ``x | s ~ MultivariateNormal(loc, precision = s * P)``.
+
+    Parameters
+    ----------
+    gamma : Gamma
+        Prior over the scale ``s``.
+    mvn : Distribution
+        ``MultivariateNormal`` or ``Independent(Normal, 1)`` with precision
+        ``P`` and mean ``loc``, possibly wrapped in ``ExpandedDistribution``.
+
+    Returns
+    -------
+    GammaGaussian
+        Normalized factor whose ``log_density(x, s)`` equals
+        ``gamma.log_prob(s) + MultivariateNormal(loc, precision=s * P).log_prob(x)``.
+    """
+    g = mvn_to_gaussian(mvn)
+    loc = jnp.broadcast_to(mvn.mean, g.info_vec.shape)
+    batch_shape = lax.broadcast_shapes(gamma.batch_shape, g.batch_shape)
+    concentration = jnp.broadcast_to(gamma.concentration, batch_shape)
+    rate = jnp.broadcast_to(gamma.rate, batch_shape)
+    half_quadratic = 0.5 * (g.info_vec * loc).sum(-1)
+    gaussian_logsumexp = -g.log_normalizer - half_quadratic
+    log_normalizer = -GammaFactor(gaussian_logsumexp, concentration, rate).logsumexp()
+    return GammaGaussian(
+        log_normalizer,
+        g.info_vec,
+        g.precision,
+        concentration + 0.5 * g.dim - 1,
+        rate + half_quadratic,
+    )._broadcast()
+
+
+def matrix_and_mvn_to_gamma_gaussian(matrix: Array, mvn: Distribution) -> GammaGaussian:
+    """
+    Factor over ``(x, y, s)`` for ``y = matrix @ x + noise`` with
+    ``noise ~ MultivariateNormal(loc, precision = s * P)``.
+
+    Parameters
+    ----------
+    matrix : Array
+        Shape ``(..., y_dim, x_dim)``.
+    mvn : Distribution
+        ``MultivariateNormal`` noise with ``event_shape == (y_dim,)``.
+
+    Returns
+    -------
+    GammaGaussian
+        Factor over ``concat([x, y])`` with ``alpha == y_dim / 2`` and the
+        quadratic ``0.5 loc^T P loc`` tracked in ``beta``.
+
+    Raises
+    ------
+    TypeError
+        If ``mvn`` is a diagonal normal, for which
+        :func:`~numpyro.ops.gaussian.matrix_and_mvn_to_gaussian` returns an
+        :class:`~numpyro.ops.gaussian.AffineNormal`.
+    """
+    g = matrix_and_mvn_to_gaussian(matrix, mvn)
+    if not isinstance(g, Gaussian):
+        raise TypeError(
+            "matrix_and_mvn_to_gamma_gaussian requires a MultivariateNormal noise "
+            "distribution"
+        )
+    y_dim, x_dim = matrix.shape[-2:]
+    loc = jnp.broadcast_to(mvn.mean, g.info_vec.shape[:-1] + (y_dim,))
+    half_quadratic = 0.5 * (g.info_vec[..., x_dim:] * loc).sum(-1)
+    alpha = jnp.full(g.batch_shape, 0.5 * y_dim, g.log_normalizer.dtype)
+    return GammaGaussian(
+        g.log_normalizer + half_quadratic,
+        g.info_vec,
+        g.precision,
+        alpha,
+        half_quadratic,
+    )
+
+
+def gamma_gaussian_tensordot(
+    x: GammaGaussian, y: GammaGaussian, dims: int = 0
+) -> GammaGaussian:
+    """
+    Contract two factors over ``dims`` shared coordinates:
+    ``(x @ y)(a, c, s) = log int exp(x(a, b, s) + y(b, c, s)) db``.
+
+    Parameters
+    ----------
+    x : GammaGaussian
+        Factor over ``(a, b)`` with ``b`` the trailing ``dims`` coordinates.
+    y : GammaGaussian
+        Factor over ``(b, c)`` with ``b`` the leading ``dims`` coordinates.
+    dims : int
+        Number of shared coordinates.
+
+    Returns
+    -------
+    GammaGaussian
+        Factor over ``(a, c)`` with the broadcast batch shape of ``x`` and ``y``.
+    """
+    na, nb, nc = x.dim - dims, dims, y.dim - dims
+    if na < 0 or nc < 0:
+        raise ValueError("dims exceeds the event dimension of a factor")
+    perm = jnp.concatenate(
+        [jnp.arange(na), jnp.arange(x.dim, x.dim + nc), jnp.arange(na, x.dim)]
+    )
+    joint = x.event_pad(right=nc) + y.event_pad(left=na)
+    return joint.event_permute(perm).marginalize(right=nb)
+
+
+def sequential_gamma_gaussian_tensordot(gaussian: GammaGaussian) -> GammaGaussian:
+    """
+    Reduce pairwise factors over time to one factor over ``(z_0, z_T, s)``.
+
+    Parameters
+    ----------
+    gaussian : GammaGaussian
+        Batched factor whose trailing batch dimension indexes time and whose
+        event dimension is ``2 * state_dim``.
+
+    Returns
+    -------
+    GammaGaussian
+        The contraction ``g[..., 0] @ g[..., 1] @ ... @ g[..., T - 1]`` over
+        each intermediate state, computed in ``log2(T)`` batched steps.
+    """
+    state_dim = gaussian.dim // 2
+    while gaussian.batch_shape[-1] > 1:
+        num_steps = gaussian.batch_shape[-1]
+        even = num_steps // 2 * 2
+        contracted = gamma_gaussian_tensordot(
+            gaussian[..., 0:even:2], gaussian[..., 1:even:2], state_dim
+        )
+        if num_steps > even:
+            contracted = GammaGaussian.cat([contracted, gaussian[..., -1:]], axis=-1)
+        gaussian = contracted
+    return gaussian[..., 0]
