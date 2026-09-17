@@ -1232,3 +1232,20 @@ def test_linear_hmm_with_normal_components_matches_gaussian_hmm_moments():
     b = gaussian.sample(random.key(1), (N,))
     assert_allclose(a.mean(0), b.mean(0), atol=0.05)
     assert_allclose(a.var(0), b.var(0), rtol=0.1)
+
+
+def test_linear_hmm_homogeneous_keeps_time_axis():
+    T, n, m = 6, 2, 3
+    ks = random.split(random.key(0), 2)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (n, n))
+    H = random.normal(ks[1], (m, n))
+    init = dist.StudentT(4.0, jnp.zeros(n), 1.0).to_event(1)
+    trans = dist.StudentT(5.0, jnp.zeros(n), 0.5).to_event(1)
+    obs = dist.StudentT(6.0, jnp.zeros(m), 0.3).to_event(1)
+    hmm = LinearHMM(init, A, trans, H, obs, num_steps=T)
+    assert hmm.batch_shape == () and hmm.event_shape == (T, m)
+    assert hmm.sample(random.key(1), (2,)).shape == (2, T, m)
+    expanded = hmm.expand((5,))
+    assert expanded.transition_dist.batch_shape == (5, 1)
+    assert expanded.transition_matrix.shape == (5, 1, n, n)
+    assert expanded.sample(random.key(2)).shape == (5, T, m)

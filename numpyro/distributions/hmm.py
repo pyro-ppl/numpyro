@@ -1447,7 +1447,7 @@ class LinearHMM(Distribution):
 
     def expand(self, batch_shape: Sequence[int]) -> LinearHMM:
         batch_shape = lax.broadcast_shapes(self.batch_shape, tuple(batch_shape))
-        time_shape = batch_shape + (self.num_steps,)
+        time_shape = batch_shape + (self.transition_dist.batch_shape[-1],)
         new = copy.copy(self)
         new.initial_dist = self.initial_dist.expand(batch_shape)
         new.transition_matrix = jnp.broadcast_to(
