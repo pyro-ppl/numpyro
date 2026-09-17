@@ -402,18 +402,18 @@ class GaussianHMM(HiddenMarkovModel):
         model needs ``num_steps``, and ``log_prob`` raises ``ValueError``
         unless ``value`` has the exact trailing shape ``(num_steps, obs_dim)``.
 
-    Precision: the information form loses accuracy when the noise precisions
-    within a step differ by orders of magnitude. Measured on a local linear
-    trend with ``T = 2000`` in float32, ``log_prob`` is biased by about 9
-    nats at process variance ``1e-2`` and about 380 nats at ``1e-6`` (unit
-    observation variance). Call :func:`numpyro.enable_x64` when the noise
-    variances differ by more than a few orders of magnitude. Every Cholesky
-    factorization of a block larger than 1x1 adds a gradient-free jitter of
+    Precision: in float32 the information form loses accuracy when observation
+    magnitudes are large relative to the noise scales or when the noise
+    variances differ by several orders of magnitude, and the error grows with
+    the series length. Center and scale the data, and call
+    :func:`numpyro.enable_x64` for long or large-magnitude series. Every
+    Cholesky factorization adds a gradient-free jitter of
     ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)`` to the precision
     diagonal (see :func:`~numpyro.distributions.util.relative_jitter`), which
-    is at rounding level for well-posed problems; 1x1 blocks are clamped at
-    the smallest positive float instead (see
-    :func:`~numpyro.distributions.util.safe_cholesky`).
+    is at rounding level for well-posed problems; the factorizations inside
+    the reductions go through :func:`~numpyro.distributions.util.safe_cholesky`,
+    which clamps 1x1 blocks at the smallest positive float instead of
+    jittering them.
 
     :param Distribution initial_dist: ``MultivariateNormal`` or
         ``Independent(Normal, 1)`` over ``z_0`` with
@@ -480,10 +480,11 @@ class GaussianHMM(HiddenMarkovModel):
         """
         Marginal log density of an observation sequence.
 
-        :param Array value: observations of shape ``lead + (num_steps, obs_dim)``
-            where ``lead`` broadcasts against ``batch_shape``; extra leading
-            dimensions are mapped with :func:`jax.vmap`.
-        :return: log density of shape ``lead``.
+        :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
+            the result has shape equal to the broadcast of the leading
+            dimensions with ``batch_shape``; dimensions beyond ``batch_shape``
+            are mapped with :func:`jax.vmap`.
+        :return: log density with the broadcast shape.
         :rtype: Array
         :raises ValueError: if ``value`` does not have trailing shape
             ``(num_steps, obs_dim)``.
@@ -497,10 +498,11 @@ class GaussianHMM(HiddenMarkovModel):
         """
         Posterior over the final state ``z_T`` given the full observation sequence.
 
-        :param Array value: observations of shape ``lead + (num_steps, obs_dim)``
-            where ``lead`` broadcasts against ``batch_shape``; extra leading
-            dimensions are mapped with :func:`jax.vmap`.
-        :return: posterior with batch shape ``lead``; usable as
+        :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
+            the result has batch shape equal to the broadcast of the leading
+            dimensions with ``batch_shape``; dimensions beyond ``batch_shape``
+            are mapped with :func:`jax.vmap`.
+        :return: posterior with the broadcast batch shape; usable as
             ``initial_dist`` of a follow-on model.
         :rtype: MultivariateNormal
         :raises ValueError: if ``value`` does not have trailing shape
@@ -595,8 +597,8 @@ class GaussianHMM(HiddenMarkovModel):
         Sample observation sequences ``x_{1:T}`` with the latent states integrated out.
 
         :param Optional[Array] key: PRNG key. The annotation follows
-            :meth:`Distribution.sample`, but a key is required; ``None`` is
-            rejected.
+            :meth:`Distribution.sample`, but a key is required; ``None`` fails
+            an assertion.
         :param tuple sample_shape: leading sample dimensions.
         :return: draws of shape
             ``sample_shape + batch_shape + (num_steps, obs_dim)``.
@@ -619,12 +621,13 @@ class GaussianHMM(HiddenMarkovModel):
         Sample latent paths ``z_{1:T}`` given observations.
 
         :param Array key: PRNG key.
-        :param Array value: observations of shape
-            ``lead + (num_steps, obs_dim)`` where ``lead`` broadcasts against
-            ``batch_shape``.
+        :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
+            dimensions beyond ``batch_shape`` are mapped with :func:`jax.vmap`.
         :param tuple sample_shape: leading sample dimensions.
         :return: latent paths of shape
-            ``sample_shape + lead + (num_steps, hidden_dim)``.
+            ``sample_shape + lead + (num_steps, hidden_dim)`` where ``lead`` is
+            the broadcast of the leading dimensions of ``value`` with
+            ``batch_shape``.
         :rtype: Array
         :raises ValueError: if ``value`` does not have trailing shape
             ``(num_steps, obs_dim)``.
