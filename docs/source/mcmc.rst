@@ -196,3 +196,42 @@ MCMC Utilities
 .. autofunction:: numpyro.infer.hmc_util.parametric
 
 .. autofunction:: numpyro.infer.hmc_util.parametric_draws
+
+
+Gibbs Utilities
+^^^^^^^^^^^^^^^
+
+Helpers from :mod:`numpyro.infer.gibbs` shared by :class:`~numpyro.infer.gibbs.Gibbs`, its block kernels and the HMC-within-Gibbs kernels: conditioning a model on the sites a block does not own, selecting sites from a prototype trace, and the discrete proposals.
+
+.. autodata:: numpyro.infer.gibbs.GIBBS_SITES_KWARG
+
+.. autofunction:: numpyro.infer.gibbs.conditioned
+
+.. autofunction:: numpyro.infer.gibbs.with_conditioning
+
+.. autodata:: numpyro.infer.gibbs.ModelWrapper
+
+.. autodata:: numpyro.infer.gibbs.SiteSelector
+
+.. autodata:: numpyro.infer.gibbs.SitesSpec
+
+.. autoclass:: numpyro.infer.gibbs.GibbsUpdateFn
+    :members: __call__
+
+.. autofunction:: numpyro.infer.gibbs.prototype_trace
+
+.. autofunction:: numpyro.infer.gibbs.latent_sample_sites
+
+.. autofunction:: numpyro.infer.gibbs.discrete_latent_sites
+
+.. autofunction:: numpyro.infer.gibbs.discrete_support_sizes
+
+.. autofunction:: numpyro.infer.gibbs.subsample_plate_sizes
+
+.. autofunction:: numpyro.infer.gibbs.any_changed
+
+.. autodata:: numpyro.infer.gibbs.ProposalFn
+
+.. autofunction:: numpyro.infer.gibbs.select_discrete_proposal
+
+.. autofunction:: numpyro.infer.gibbs.discrete_gibbs_sweep

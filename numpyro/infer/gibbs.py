@@ -52,8 +52,20 @@ __all__ = [
     "GIBBS_SITES_KWARG",
     "Gibbs",
     "GibbsState",
+    "GibbsUpdateFn",
+    "ModelWrapper",
+    "ProposalFn",
+    "SiteSelector",
+    "SitesSpec",
+    "any_changed",
     "conditioned",
+    "discrete_gibbs_sweep",
     "discrete_latent_sites",
+    "discrete_support_sizes",
+    "latent_sample_sites",
+    "prototype_trace",
+    "select_discrete_proposal",
+    "subsample_plate_sizes",
     "with_conditioning",
 ]
 
@@ -156,7 +168,12 @@ def prototype_trace(
 
 
 def latent_sample_sites(model_trace: TraceT) -> tuple[str, ...]:
-    """Names of unobserved `sample` sites in trace order."""
+    """
+    Names of unobserved `sample` sites in trace order.
+
+    :param model_trace: a model trace, see :func:`prototype_trace`.
+    :return: the site names.
+    """
     return tuple(
         name
         for name, site in model_trace.items()
@@ -168,6 +185,9 @@ def discrete_latent_sites(model_trace: TraceT) -> tuple[str, ...]:
     """
     Unobserved sample sites whose distribution has enumerate support and which are not
     marked `infer={"enumerate": "parallel"}`. Usable as a :data:`SitesSpec` selector.
+
+    :param model_trace: a model trace, see :func:`prototype_trace`.
+    :return: the site names.
     """
     return tuple(
         name
@@ -182,7 +202,13 @@ def discrete_latent_sites(model_trace: TraceT) -> tuple[str, ...]:
 def discrete_support_sizes(
     model_trace: TraceT, sites: Sequence[str]
 ) -> dict[str, np.ndarray]:
-    """Per-site support sizes broadcast to the site's shape, as static `numpy` arrays."""
+    """
+    Per-site support sizes broadcast to the site's shape, as static `numpy` arrays.
+
+    :param model_trace: a model trace, see :func:`prototype_trace`.
+    :param sites: names of discrete sites in `model_trace`.
+    :return: `{site_name: support_sizes}`.
+    """
     return {
         name: np.broadcast_to(
             model_trace[name]["fn"].enumerate_support(False).shape[0],
@@ -203,7 +229,12 @@ def _flat_support_sizes(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray
 
 
 def subsample_plate_sizes(model_trace: TraceT) -> dict[str, tuple[int, int]]:
-    """`{plate_name: (size, subsample_size)}` for plates with `size > subsample_size`."""
+    """
+    Subsample plates of a trace.
+
+    :param model_trace: a model trace, see :func:`prototype_trace`.
+    :return: `{plate_name: (size, subsample_size)}` for plates with `size > subsample_size`.
+    """
     return {
         name: site["args"]
         for name, site in model_trace.items()
@@ -214,7 +245,13 @@ def subsample_plate_sizes(model_trace: TraceT) -> dict[str, tuple[int, int]]:
 
 
 def any_changed(old: PyTree, new: PyTree) -> jax.Array:
-    """Scalar boolean: whether any leaf of two pytrees with the same structure differs."""
+    """
+    Whether any leaf of two pytrees with the same structure differs.
+
+    :param old: a pytree.
+    :param new: a pytree with the same structure as `old`.
+    :return: a scalar boolean array.
+    """
     flags = [
         jnp.any(a != b)
         for a, b in zip(jax.tree.leaves(old), jax.tree.leaves(new), strict=True)
