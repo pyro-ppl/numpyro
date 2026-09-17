@@ -791,7 +791,7 @@ class CategoricalProbs(Distribution):
         :return: The entropy of the Categorical distribution.
         """
         probs = jnp.asarray(self.probs)
-        return -(probs * jnp.log(probs)).sum(axis=-1)
+        return -xlogy(probs, probs).sum(axis=-1)
 
 
 class CategoricalLogits(Distribution):

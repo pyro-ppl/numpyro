@@ -1877,6 +1877,18 @@ def test_entropy_categorical():
         assert_allclose(jax_dist.entropy(), sp_dist.entropy(), rtol=1e-6, atol=1e-6)
 
 
+def test_entropy_categorical_zero_probability():
+    # A zero-probability category contributes nothing to the entropy because
+    # 0 * log(0) = 0 by convention, as scipy.stats.entropy implements it.
+    probs = jnp.array([0.25, 0.0, 0.75])
+    assert_allclose(
+        dist.CategoricalProbs(probs).entropy(),
+        osp.entropy(probs),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+
 def test_mixture_log_prob():
     gmm = dist.MixtureSameFamily(
         dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
