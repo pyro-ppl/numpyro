@@ -118,6 +118,10 @@ def test_construction_rejects_mismatched_event_dims():
         AffineNormal(jnp.zeros((2, 3)), jnp.zeros(2), jnp.ones(5))
     with pytest.raises(ValueError, match="loc and scale"):
         AffineNormal(jnp.zeros((2, 3)), jnp.zeros(5), jnp.ones(2))
+    with pytest.raises(ValueError, match="rank"):
+        Gaussian(jnp.zeros(()), jnp.zeros(()), jnp.eye(2))
+    with pytest.raises(ValueError, match="rank"):
+        AffineNormal(jnp.zeros((2, 3)), jnp.zeros(()), jnp.ones(2))
 
 
 def test_unbroadcast_fields_round_trip_shape_ops():

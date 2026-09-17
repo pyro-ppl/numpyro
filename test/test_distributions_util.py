@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numbers import Number
+import warnings
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_almost_equal, assert_array_equal
@@ -20,6 +21,7 @@ from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
+    cholesky_of_inverse,
     cholesky_update,
     log1mexp,
     logdiffexp,
@@ -423,13 +425,19 @@ def test_safe_cholesky_accepts_numpy_input():
     assert_allclose(relative_jitter(P), P, rtol=1e-5)
 
 
+def test_cholesky_of_inverse_numpy_input_is_warning_free():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        actual = cholesky_of_inverse(np.eye(2))
+    assert actual.dtype == jnp.result_type(float)
+    assert_allclose(actual, jnp.eye(2))
+
+
 def test_safe_cholesky_grads_ignore_jitter():
     A = random.normal(random.key(0), (3, 2, 2))
     P = A @ jnp.swapaxes(A, -1, -2) + jnp.eye(2)
     check_grads(safe_cholesky, (P,), order=2, modes=["fwd", "rev"], rtol=1e-2)
-    assert_allclose(
-        jax.jacobian(safe_cholesky)(P),
-        jax.jacobian(jnp.linalg.cholesky)(P),
-        rtol=1e-4,
-        atol=1e-4,
-    )
+    grad = jax.grad(
+        lambda P: jnp.diagonal(relative_jitter(P), axis1=-2, axis2=-1).sum()
+    )(P)
+    assert_allclose(grad, jnp.broadcast_to(jnp.eye(2), P.shape), rtol=0, atol=0)

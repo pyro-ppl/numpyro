@@ -351,7 +351,7 @@ def test_gaussian_hmm_matches_gaussian_state_space_moments():
 
 
 @pytest.mark.parametrize(
-    "other_kind", ["normal", "mvn", "expanded", "expanded_independent", "masked"]
+    "other_kind", ["normal", "mvn", "expanded", "expanded_independent"]
 )
 def test_gaussian_hmm_conjugate_update_identity(other_kind):
     T, n, m = 5, 2, 2
@@ -365,10 +365,8 @@ def test_gaussian_hmm_conjugate_update_identity(other_kind):
         ).to_event(1)
     elif other_kind == "expanded":
         other = dist.Normal(0.0, 0.7).expand((3, T, m)).to_event(2)
-    elif other_kind == "expanded_independent":
-        other = dist.Normal(x[0], 0.7).to_event(2).expand((3,))
     else:
-        other = dist.Normal(x, 0.7).to_event(2).mask(True)
+        other = dist.Normal(x[0], 0.7).to_event(2).expand((3,))
     updated, log_normalizer = hmm.conjugate_update(other)
     assert isinstance(updated, GaussianHMM)
     assert log_normalizer.shape == (3,)

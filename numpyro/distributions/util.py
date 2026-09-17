@@ -305,6 +305,7 @@ def cholesky_of_inverse(matrix):
     # which is more numerically stable.
     # Refer to:
     # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
+    matrix = jnp.asarray(matrix)
     tril_inv = jnp.swapaxes(
         jnp.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1
     )

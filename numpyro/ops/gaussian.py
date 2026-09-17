@@ -126,9 +126,10 @@ class Gaussian:
     event_ndims: ClassVar[tuple[int, int, int]] = (0, 1, 2)
 
     def __post_init__(self) -> None:
-        fields = (self.log_normalizer, self.info_vec, self.precision)
-        if not all(hasattr(x, "shape") for x in fields):
+        if not (hasattr(self.info_vec, "shape") and hasattr(self.precision, "shape")):
             return
+        if len(self.info_vec.shape) < 1 or len(self.precision.shape) < 2:
+            raise ValueError("info_vec must have rank >= 1 and precision rank >= 2")
         dim = self.info_vec.shape[-1]
         if self.precision.shape[-2:] != (dim, dim):
             raise ValueError(
@@ -710,6 +711,11 @@ class AffineNormal:
         fields = (self.matrix, self.loc, self.scale)
         if not all(hasattr(x, "shape") for x in fields):
             return
+        if (
+            len(self.matrix.shape) < 2
+            or min(len(self.loc.shape), len(self.scale.shape)) < 1
+        ):
+            raise ValueError("matrix must have rank >= 2 and loc and scale rank >= 1")
         y_dim = self.matrix.shape[-2]
         if self.loc.shape[-1] != y_dim or self.scale.shape[-1] != y_dim:
             raise ValueError(
