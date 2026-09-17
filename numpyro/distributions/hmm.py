@@ -447,20 +447,23 @@ class IndependentHMM(Distribution):
 
     The base distribution has ``event_shape == (num_steps, 1)`` and batch shape
     ``shape + (obs_dim,)``; the result has ``batch_shape == shape`` and
-    ``event_shape == (num_steps, obs_dim)``.
+    ``event_shape == (num_steps, obs_dim)``. :meth:`reshape_batch` requires a
+    :class:`HiddenMarkovModel` base and :meth:`prefix_condition` a
+    :class:`GaussianHMM` base.
 
     Parameters
     ----------
-    base_dist : GaussianHMM
-        Batched model with a trailing batch dimension of size ``obs_dim`` and a
-        unit observation dimension.
+    base_dist : Distribution
+        Batched distribution with a trailing batch dimension of size
+        ``obs_dim`` and a unit observation dimension.
     """
 
     arg_constraints = {}
     pytree_data_fields = ("base_dist",)
+    base_dist: Distribution
 
     def __init__(
-        self, base_dist: GaussianHMM, *, validate_args: Optional[bool] = None
+        self, base_dist: Distribution, *, validate_args: Optional[bool] = None
     ) -> None:
         if not base_dist.batch_shape or tuple(base_dist.event_shape)[-1:] != (1,):
             raise ValueError(
@@ -480,6 +483,7 @@ class IndependentHMM(Distribution):
 
     @constraints.dependent_property(event_dim=2)
     def support(self) -> constraints.Constraint:
+        assert self.base_dist.support is not None
         return self.base_dist.support
 
     @property
@@ -488,27 +492,37 @@ class IndependentHMM(Distribution):
 
     @property
     def num_steps(self) -> int:
-        return self.base_dist.num_steps
+        return self.base_dist.event_shape[0]
 
     def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
-        return jnp.swapaxes(self.base_dist.sample(key, sample_shape)[..., 0], -1, -2)
+        x = jnp.asarray(self.base_dist.sample(key, sample_shape))
+        return jnp.swapaxes(x[..., 0], -1, -2)
 
     @validate_sample
     def log_prob(self, value: Array) -> Array:
-        return self.base_dist.log_prob(jnp.swapaxes(value, -1, -2)[..., None]).sum(-1)
+        value = jnp.swapaxes(value, -1, -2)[..., None]
+        return jnp.asarray(self.base_dist.log_prob(value)).sum(-1)
 
     def expand(self, batch_shape: Sequence[int]) -> IndependentHMM:
         obs = self.base_dist.batch_shape[-1:]
         return IndependentHMM(self.base_dist.expand(tuple(batch_shape) + obs))
 
     def reshape_batch(self, batch_shape: Sequence[int]) -> IndependentHMM:
-        obs = self.base_dist.batch_shape[-1:]
-        return IndependentHMM(self.base_dist.reshape_batch(tuple(batch_shape) + obs))
+        base = self.base_dist
+        if not isinstance(base, HiddenMarkovModel):
+            raise TypeError(
+                "reshape_batch requires a HiddenMarkovModel base distribution"
+            )
+        obs = base.batch_shape[-1:]
+        return IndependentHMM(base.reshape_batch(tuple(batch_shape) + obs))
 
     def prefix_condition(self, data: Array) -> IndependentHMM:
         """
         Condition on a prefix of observations (see
         :meth:`GaussianHMM.prefix_condition`).
         """
+        base = self.base_dist
+        if not isinstance(base, GaussianHMM):
+            raise TypeError("prefix_condition requires a GaussianHMM base distribution")
         prefix = jnp.swapaxes(data, -1, -2)[..., None]
-        return IndependentHMM(self.base_dist.prefix_condition(prefix))
+        return IndependentHMM(base.prefix_condition(prefix))

@@ -366,3 +366,8 @@ def test_independent_hmm():
     assert tail.batch_shape == (4,) and tail.event_shape == (T - 2, m)
     assert hmm.reshape_batch((4, 1)).batch_shape == (4, 1)
     assert hmm.support(x).shape == (2, 4)
+    plain = IndependentHMM(dist.Normal(jnp.zeros((4, 3, T, 1)), 1.0).to_event(2))
+    with pytest.raises(TypeError):
+        plain.prefix_condition(x[0, :, :2])
+    with pytest.raises(TypeError):
+        plain.reshape_batch((4, 1))
