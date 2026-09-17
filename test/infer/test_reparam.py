@@ -6,6 +6,7 @@ from functools import partial
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
+from scipy.stats import t as student_t
 
 from jax import jacobian, lax, random
 import jax.numpy as jnp
@@ -602,8 +603,9 @@ def test_studentt_reparam_moments(batch_shape, event_shape):
     df = 5.0
     shape = batch_shape + event_shape
     event_dim = len(event_shape)
-    loc = np.random.uniform(-1.0, 1.0, shape)
-    scale = np.random.uniform(0.5, 1.5, shape)
+    size = int(np.prod(shape))
+    loc = np.linspace(-1.0, 1.0, size).reshape(shape)
+    scale = np.linspace(0.5, 1.5, size).reshape(shape)
 
     def model():
         with numpyro.plate_stack("plates", batch_shape):
@@ -619,6 +621,26 @@ def test_studentt_reparam_moments(batch_shape, event_shape):
     expected = dist.StudentT(df, loc, scale)
     assert_allclose(value.mean(0), expected.mean, atol=0.05)
     assert_allclose(value.var(0), expected.variance, rtol=0.1)
+
+
+@pytest.mark.parametrize("df", [0.5, 1.5, 3.0])
+def test_studentt_reparam_quantiles(df):
+    # Moments do not exist for df <= 2, so compare the median and the
+    # interquartile range against the exact quantile function.
+    loc = np.linspace(-1.0, 1.0, 4)
+    scale = np.linspace(0.5, 1.5, 4)
+
+    def model():
+        with numpyro.plate("particles", 20000):
+            numpyro.sample("x", dist.StudentT(df, loc, scale).to_event(1))
+
+    with handlers.reparam(config={"x": StudentTReparam()}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)()
+    q = jnp.quantile(tr["x"]["value"], jnp.array([0.25, 0.5, 0.75]), axis=0)
+    expected = student_t.ppf([[0.25], [0.5], [0.75]], df, loc, scale)
+    assert_allclose(q[1], expected[1], atol=0.05)
+    assert_allclose(q[2] - q[0], expected[2] - expected[0], rtol=0.1)
 
 
 def test_studentt_reparam_observed_site():
@@ -723,3 +745,31 @@ def test_linear_hmm_reparam_transforms_and_independent():
     assert isinstance(fn.base_dist.base_dist, GaussianHMM)
     assert jnp.isfinite(fn.log_prob(data))
     assert tr["x_trans_gamma"]["value"].shape == (m, T, n)
+
+
+@pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
+def test_linear_hmm_reparam_independent_hmm_shape(shape):
+    T, n, m = 5, 1, 3
+    A = jnp.broadcast_to(jnp.eye(n), shape + (m, T, n, n))
+    H = jnp.ones(shape + (m, T, 1, n))
+    init = dist.StudentT(4.0, jnp.zeros(shape + (m, n)), 1.0).to_event(1)
+    trans = dist.StudentT(4.0, jnp.zeros(shape + (m, T, n)), 0.5).to_event(1)
+    obs = dist.Normal(jnp.zeros(shape + (m, T, 1)), 0.3).to_event(1)
+    hmm = IndependentHMM(LinearHMM(init, A, trans, H, obs))
+    assert hmm.batch_shape == shape and hmm.event_shape == (T, m)
+
+    def model():
+        with numpyro.plate_stack("plates", shape):
+            numpyro.sample("x", hmm)
+
+    reparam = LinearHMMReparam(init=StudentTReparam(), trans=StudentTReparam())
+    with handlers.reparam(config={"x": reparam}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)()
+    assert tr["x_init_gamma"]["value"].shape == shape + (m, n)
+    assert tr["x_trans_gamma"]["value"].shape == shape + (m, T, n)
+    fn = tr["x"]["fn"]
+    assert isinstance(fn, IndependentHMM)
+    assert isinstance(fn.base_dist, GaussianHMM)
+    assert fn.batch_shape == shape and fn.event_shape == (T, m)
+    assert fn.log_prob(tr["x"]["value"]).shape == shape

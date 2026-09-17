@@ -1180,6 +1180,49 @@ def test_gamma_gaussian_hmm_log_prob_matches_student_t(T, n, m):
     assert_allclose(hmm.log_prob(x), expected, rtol=1e-4, atol=1e-4)
 
 
+def test_gamma_gaussian_hmm_expanded_gamma_prior_matches_student_t():
+    T, n, m, B = 3, 2, 1, 4
+    ks = random.split(random.key(7), 6)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (T, n, n))
+    H = random.normal(ks[1], (T, m, n))
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans = dist.MultivariateNormal(
+        0.3 * random.normal(ks[4], (T, n)), covariance_matrix=_spd(ks[5], n, 0.5)
+    )
+    obs = dist.MultivariateNormal(
+        0.3 * random.normal(ks[0], (T, m)), covariance_matrix=_spd(ks[1], m, 0.3)
+    )
+    concentration, rate = 4.0, 3.0
+    scale_dist = dist.Gamma(concentration, rate).expand((B,))
+    assert isinstance(scale_dist, dist.ExpandedDistribution)
+    hmm = GammaGaussianHMM(
+        scale_dist,
+        init.expand((B,)),
+        A,
+        trans.expand((B, T)),
+        H,
+        obs.expand((B, T)),
+        num_steps=T,
+    )
+    assert hmm.batch_shape == (B,)
+    x = random.normal(random.key(1), (B, T, m))
+    mean, cov = dense_reference(init, A, trans, H, obs, T)
+    nz = (T + 1) * n
+    student = dist.MultivariateStudentT(
+        2 * concentration,
+        mean[nz:],
+        jnp.linalg.cholesky(cov[nz:, nz:] * rate / concentration),
+    )
+    expected = jnp.stack([student.log_prob(x[b].ravel()) for b in range(B)])
+    assert_allclose(hmm.log_prob(x), expected, rtol=1e-4, atol=1e-4)
+    with pytest.raises(TypeError, match="Gamma"):
+        GammaGaussianHMM(
+            dist.LogNormal(0.0, 1.0).expand((B,)), init, A, trans, H, obs, num_steps=T
+        )
+
+
 def test_gamma_gaussian_hmm_filter_matches_closed_form():
     T, n, m = 4, 2, 2
     ks = random.split(random.key(T), 6)

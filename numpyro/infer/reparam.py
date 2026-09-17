@@ -575,34 +575,45 @@ class LinearHMMReparam(Reparam):
     def __call__(self, name, fn, obs):
         fn, expand_shape, event_dim = self._unwrap(fn)
         if isinstance(fn, dist.IndependentHMM):
-            base_fn, _ = self(name, fn.base_dist, None)
-            return self._wrap(
-                dist.IndependentHMM(base_fn), expand_shape, event_dim
-            ), obs
+            # The base carries obs_dim as its trailing batch dim; treat it as
+            # an extra event dim so enclosing plates only see the outer batch.
+            hmm = dist.IndependentHMM(
+                self._reparam_linear(name, fn.base_dist, event_dim + 1)
+            )
+        else:
+            hmm = self._reparam_linear(name, fn, event_dim)
+        return self._wrap(hmm, expand_shape, event_dim), obs
+
+    def _reparam_linear(self, name, fn, event_dim):
         if not isinstance(fn, dist.LinearHMM):
             raise ValueError(
                 "LinearHMMReparam expects a LinearHMM or IndependentHMM, "
                 f"got {type(fn).__name__}"
             )
-        # Fold time into the event so enclosing plates broadcast against batch
-        # dimensions only, then restore the per-step noise distribution.
+        # Fold time and any reinterpreted batch dims into the event so that
+        # enclosing plates broadcast against batch dims only, then restore the
+        # per-step noise distributions.
+        extra = event_dim - 2
         time_shape = fn.batch_shape + (fn.num_steps,)
-        init_dist = self._apply(self.init, f"{name}_init", fn.initial_dist)
+        init_dist = _peel_event(
+            self._apply(self.init, f"{name}_init", fn.initial_dist.to_event(extra)),
+            extra,
+        )
         trans_dist = _peel_event(
             self._apply(
                 self.trans,
                 f"{name}_trans",
-                fn.transition_dist.expand(time_shape).to_event(1),
+                fn.transition_dist.expand(time_shape).to_event(1 + extra),
             ),
-            1,
+            1 + extra,
         )
         obs_dist = _peel_event(
             self._apply(
                 self.obs,
                 f"{name}_obs",
-                fn.observation_dist.expand(time_shape).to_event(1),
+                fn.observation_dist.expand(time_shape).to_event(1 + extra),
             ),
-            1,
+            1 + extra,
         )
         hmm = dist.GaussianHMM(
             init_dist,
@@ -614,4 +625,4 @@ class LinearHMMReparam(Reparam):
         )
         if fn.transforms:
             hmm = dist.TransformedDistribution(hmm, fn.transforms)
-        return self._wrap(hmm, expand_shape, event_dim), obs
+        return hmm

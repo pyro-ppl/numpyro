@@ -1039,17 +1039,20 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
     where ``scale(mvn, s)`` multiplies the precision by ``s``. Only
     ``log_prob`` and :meth:`filter` are provided.
 
-    Parameters
-    ----------
-    scale_dist : Gamma
-        Prior over the shared precision scale.
-    initial_dist, transition_dist, observation_dist : MultivariateNormal
-        Noise distributions with event shapes ``(hidden_dim,)``,
-        ``(hidden_dim,)`` and ``(obs_dim,)``.
-    transition_matrix, observation_matrix : Array
-        As in :class:`GaussianHMM`.
-    num_steps : int, optional
-        Required when every per-step parameter is time-homogeneous.
+    :param Distribution scale_dist: ``Gamma`` prior over the shared precision
+        scale, possibly wrapped in ``ExpandedDistribution``.
+    :param Distribution initial_dist: ``MultivariateNormal`` with event shape
+        ``(hidden_dim,)``.
+    :param Array transition_matrix: as in :class:`GaussianHMM`.
+    :param Distribution transition_dist: ``MultivariateNormal`` with event
+        shape ``(hidden_dim,)``.
+    :param Array observation_matrix: as in :class:`GaussianHMM`.
+    :param Distribution observation_dist: ``MultivariateNormal`` with event
+        shape ``(obs_dim,)``.
+    :param Optional[int] num_steps: required when every per-step parameter is
+        time-homogeneous.
+    :raises TypeError: if ``scale_dist`` is not a ``Gamma`` or a noise
+        distribution is not a ``MultivariateNormal``.
     """
 
     _trans: GammaGaussian
@@ -1059,7 +1062,7 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
 
     def __init__(
         self,
-        scale_dist: Gamma,
+        scale_dist: Distribution,
         initial_dist: Distribution,
         transition_matrix: Array,
         transition_dist: Distribution,
@@ -1069,7 +1072,12 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
         num_steps: Optional[int] = None,
         validate_args: Optional[bool] = None,
     ) -> None:
-        if not isinstance(scale_dist, Gamma):
+        base_scale = (
+            scale_dist.base_dist
+            if isinstance(scale_dist, ExpandedDistribution)
+            else scale_dist
+        )
+        if not isinstance(base_scale, Gamma):
             raise TypeError(
                 f"scale_dist must be a Gamma, got {type(scale_dist).__name__}"
             )

@@ -24,7 +24,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln
 
 from numpyro.distributions.continuous import Gamma, MultivariateStudentT
-from numpyro.distributions.distribution import Distribution
+from numpyro.distributions.distribution import Distribution, ExpandedDistribution
 from numpyro.distributions.util import safe_cholesky
 from numpyro.ops.gaussian import (
     _LOG_2PI,
@@ -313,30 +313,31 @@ class GammaGaussian:
         )
 
 
-def gamma_and_mvn_to_gamma_gaussian(gamma: Gamma, mvn: Distribution) -> GammaGaussian:
+def gamma_and_mvn_to_gamma_gaussian(
+    gamma: Distribution, mvn: Distribution
+) -> GammaGaussian:
     """
     Joint factor over ``(x, s)`` for ``s ~ gamma`` and
     ``x | s ~ MultivariateNormal(loc, precision = s * P)``.
 
-    Parameters
-    ----------
-    gamma : Gamma
-        Prior over the scale ``s``.
-    mvn : Distribution
-        ``MultivariateNormal`` or ``Independent(Normal, 1)`` with precision
-        ``P`` and mean ``loc``, possibly wrapped in ``ExpandedDistribution``.
-
-    Returns
-    -------
-    GammaGaussian
-        Normalized factor whose ``log_density(x, s)`` equals
+    :param Distribution gamma: ``Gamma`` prior over the scale ``s``, possibly
+        wrapped in ``ExpandedDistribution``.
+    :param Distribution mvn: ``MultivariateNormal`` or ``Independent(Normal, 1)``
+        with precision ``P`` and mean ``loc``, possibly wrapped in
+        ``ExpandedDistribution``.
+    :return: normalized factor whose ``log_density(x, s)`` equals
         ``gamma.log_prob(s) + MultivariateNormal(loc, precision=s * P).log_prob(x)``.
+    :rtype: GammaGaussian
+    :raises TypeError: if ``gamma`` is not a ``Gamma``.
     """
+    base = gamma.base_dist if isinstance(gamma, ExpandedDistribution) else gamma
+    if not isinstance(base, Gamma):
+        raise TypeError(f"gamma must be a Gamma, got {type(gamma).__name__}")
     g = mvn_to_gaussian(mvn)
     loc = jnp.broadcast_to(mvn.mean, g.info_vec.shape)
     batch_shape = lax.broadcast_shapes(gamma.batch_shape, g.batch_shape)
-    concentration = jnp.broadcast_to(gamma.concentration, batch_shape)
-    rate = jnp.broadcast_to(gamma.rate, batch_shape)
+    concentration = jnp.broadcast_to(base.concentration, batch_shape)
+    rate = jnp.broadcast_to(base.rate, batch_shape)
     half_quadratic = 0.5 * (g.info_vec * loc).sum(-1)
     gaussian_logsumexp = -g.log_normalizer - half_quadratic
     log_normalizer = -GammaFactor(gaussian_logsumexp, concentration, rate).logsumexp()
