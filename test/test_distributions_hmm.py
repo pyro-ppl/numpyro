@@ -15,6 +15,7 @@ from numpyro.distributions.hmm import (
     GaussianHMM,
     HiddenMarkovModel,
     IndependentHMM,
+    LinearHMM,
 )
 from numpyro.ops.gaussian import mvn_to_gaussian
 
@@ -1176,3 +1177,58 @@ def test_gamma_gaussian_hmm_log_prob_matches_student_t(T, n, m):
         2 * concentration, mean[nz:], jnp.linalg.cholesky(cov_x)
     ).log_prob(x.ravel())
     assert_allclose(hmm.log_prob(x), expected, rtol=1e-4, atol=1e-4)
+
+
+def _linear_hmm(key, T, n, m, *, batch=(), obs_kind="student"):
+    ks = random.split(key, 4)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], batch + (T, n, n))
+    H = random.normal(ks[1], batch + (T, m, n))
+    init = dist.StudentT(4.0, jnp.zeros(batch + (n,)), 1.0).to_event(1)
+    trans = dist.StudentT(5.0, jnp.zeros(batch + (T, n)), 0.5).to_event(1)
+    if obs_kind == "student":
+        obs = dist.StudentT(6.0, jnp.zeros(batch + (T, m)), 0.3).to_event(1)
+    elif obs_kind == "lognormal":
+        obs = dist.LogNormal(jnp.zeros(batch + (T, m)), 0.3).to_event(1)
+    else:
+        obs = dist.LogNormal(0.0, 0.3).expand(batch + (T, m)).to_event(1)
+    return LinearHMM(init, A, trans, H, obs)
+
+
+@pytest.mark.parametrize("batch", [(), (3,)])
+@pytest.mark.parametrize("obs_kind", ["student", "lognormal", "expanded_lognormal"])
+def test_linear_hmm_shapes(batch, obs_kind):
+    T, n, m = 5, 2, 3
+    hmm = _linear_hmm(random.key(0), T, n, m, batch=batch, obs_kind=obs_kind)
+    assert hmm.batch_shape == batch and hmm.event_shape == (T, m)
+    assert hmm.has_rsample
+    x = hmm.sample(random.key(1), (4,))
+    assert x.shape == (4,) + batch + (T, m)
+    assert jnp.all(hmm.support(x))
+    if obs_kind != "student":
+        assert len(hmm.transforms) == 1 and jnp.all(x > 0)
+    assert hmm.expand((2,) + batch).sample(random.key(2)).shape == (2,) + batch + (
+        T,
+        m,
+    )
+    assert jax.jit(lambda h, k: h.sample(k))(hmm, random.key(3)).shape == batch + (
+        T,
+        m,
+    )
+    with pytest.raises(NotImplementedError):
+        hmm.log_prob(x)
+
+
+def test_linear_hmm_with_normal_components_matches_gaussian_hmm_moments():
+    T, n, m = 4, 2, 1
+    A = jnp.broadcast_to(0.7 * jnp.eye(n), (T, n, n))
+    H = jnp.broadcast_to(jnp.ones((m, n)), (T, m, n))
+    init = dist.Normal(jnp.zeros(n), 1.0).to_event(1)
+    trans = dist.Normal(jnp.zeros((T, n)), 0.5).to_event(1)
+    obs = dist.Normal(jnp.zeros((T, m)), 0.3).to_event(1)
+    linear = LinearHMM(init, A, trans, H, obs)
+    gaussian = GaussianHMM(init, A, trans, H, obs)
+    N = 20000
+    a = linear.sample(random.key(0), (N,))
+    b = gaussian.sample(random.key(1), (N,))
+    assert_allclose(a.mean(0), b.mean(0), atol=0.05)
+    assert_allclose(a.var(0), b.var(0), rtol=0.1)

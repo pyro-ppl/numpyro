@@ -32,7 +32,9 @@ from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
     Independent,
+    TransformedDistribution,
 )
+from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import validate_sample
 from numpyro.ops.gamma_gaussian import (
     GammaGaussian,
@@ -53,7 +55,13 @@ from numpyro.ops.gaussian import (
     sequential_gaussian_tensordot,
 )
 
-__all__ = ["GammaGaussianHMM", "GaussianHMM", "HiddenMarkovModel", "IndependentHMM"]
+__all__ = [
+    "GammaGaussianHMM",
+    "GaussianHMM",
+    "HiddenMarkovModel",
+    "IndependentHMM",
+    "LinearHMM",
+]
 
 Factor = Union[Gaussian, AffineNormal]
 
@@ -403,6 +411,27 @@ def _require_mvn(d: Distribution, name: str) -> None:
     base = d.base_dist if isinstance(d, ExpandedDistribution) else d
     if not isinstance(base, MultivariateNormal):
         raise TypeError(f"{name} must be a MultivariateNormal, got {type(d).__name__}")
+
+
+def _peel_observation(d: Distribution) -> tuple[Distribution, list[Transform]]:
+    """
+    Strip ``Independent``, ``ExpandedDistribution`` and ``TransformedDistribution``
+    wrappers, returning the base noise with ``event_dim == 1`` and the transforms.
+    """
+    shape = tuple(d.batch_shape) + tuple(d.event_shape)
+    transforms: list[Transform] = []
+    while True:
+        if isinstance(d, (Independent, ExpandedDistribution)):
+            d = d.base_dist
+        elif isinstance(d, TransformedDistribution):
+            transforms = list(d.transforms) + transforms
+            d = d.base_dist
+        else:
+            break
+    d = d.expand(shape[: len(shape) - d.event_dim])
+    if d.event_dim == 0:
+        d = d.to_event(1)
+    return d, transforms
 
 
 class HiddenMarkovModel(Distribution, Generic[Z]):
@@ -1262,3 +1291,171 @@ class IndependentHMM(Distribution):
             raise TypeError("prefix_condition requires a GaussianHMM base distribution")
         prefix = jnp.swapaxes(data, -1, -2)[..., None]
         return self._rewrap(base.prefix_condition(prefix))
+
+
+class LinearHMM(Distribution):
+    r"""
+    Hidden Markov model with linear dynamics and arbitrary reparameterized
+    noise, supporting sampling only.
+
+    Generative model::
+
+        z_0 ~ initial_dist
+        z_t = transition_matrix[t] @ z_{t-1} + transition_dist[t].sample()
+        x_t = observation_matrix[t] @ z_t + observation_dist[t].sample()
+
+    Components may be any distributions with ``has_rsample`` and
+    ``event_dim == 1`` (for example ``Independent(StudentT, 1)``);
+    ``TransformedDistribution`` observation noise such as ``LogNormal`` is
+    split into a base noise and ``transforms`` applied to the observations.
+    ``log_prob`` is not available; use
+    :class:`~numpyro.infer.reparam.LinearHMMReparam` for inference.
+
+    Parameters
+    ----------
+    initial_dist, transition_dist, observation_dist : Distribution
+        Reparameterized distributions with event shapes ``(hidden_dim,)``,
+        ``(hidden_dim,)`` and ``(obs_dim,)``.
+    transition_matrix, observation_matrix : Array
+        As in :class:`GaussianHMM`.
+    num_steps : int, optional
+        Required when every per-step parameter is time-homogeneous.
+    """
+
+    arg_constraints = {}
+    pytree_data_fields = (
+        "initial_dist",
+        "transition_matrix",
+        "transition_dist",
+        "observation_matrix",
+        "observation_dist",
+        "transforms",
+    )
+    pytree_aux_fields = ("num_steps",)
+
+    def __init__(
+        self,
+        initial_dist: Distribution,
+        transition_matrix: Array,
+        transition_dist: Distribution,
+        observation_matrix: Array,
+        observation_dist: Distribution,
+        *,
+        num_steps: Optional[int] = None,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        transition_matrix = jnp.asarray(transition_matrix)
+        observation_matrix = jnp.asarray(observation_matrix)
+        for name, d in (
+            ("initial_dist", initial_dist),
+            ("transition_dist", transition_dist),
+            ("observation_dist", observation_dist),
+        ):
+            if not d.has_rsample or d.event_dim != 1:
+                raise TypeError(f"{name} must be reparameterized with event_dim == 1")
+        batch_shape, time, num_steps = _resolve_layout(
+            initial_dist,
+            transition_matrix,
+            transition_dist,
+            observation_matrix,
+            observation_dist,
+            num_steps,
+        )
+        obs_dim, hidden_dim = observation_matrix.shape[-2:]
+        observation_dist, transforms = _peel_observation(observation_dist)
+        self.initial_dist = initial_dist.expand(batch_shape)
+        self.transition_matrix = jnp.broadcast_to(
+            transition_matrix, batch_shape + (time, hidden_dim, hidden_dim)
+        )
+        self.transition_dist = transition_dist.expand(batch_shape + (time,))
+        self.observation_matrix = jnp.broadcast_to(
+            observation_matrix, batch_shape + (time, obs_dim, hidden_dim)
+        )
+        self.observation_dist = observation_dist.expand(batch_shape + (time,))
+        self.transforms = transforms
+        self.num_steps = num_steps
+        if validate_args is not None:
+            self._validate_args = validate_args
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        return tuple(self.initial_dist.batch_shape)
+
+    @property
+    def event_shape(self) -> tuple[int, ...]:
+        return (self.num_steps, self.observation_matrix.shape[-2])
+
+    @property
+    def hidden_dim(self) -> int:
+        return self.observation_matrix.shape[-1]
+
+    @property
+    def obs_dim(self) -> int:
+        return self.observation_matrix.shape[-2]
+
+    @constraints.dependent_property(event_dim=2)
+    def support(self) -> constraints.Constraint:
+        support = self.observation_dist.support
+        for transform in self.transforms:
+            support = transform.codomain
+        assert support is not None
+        if support.event_dim > 2:
+            raise ValueError(
+                f"observation support must have event_dim <= 2, got {support.event_dim}"
+            )
+        return constraints.independent(support, 2 - support.event_dim)
+
+    def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        assert key is not None
+        key_init, key_trans, key_obs = random.split(key, 3)
+        time_shape = self.batch_shape + (self.num_steps,)
+        z0 = jnp.asarray(self.initial_dist.sample(key_init, sample_shape))
+        eps = jnp.asarray(
+            self.transition_dist.expand(time_shape).sample(key_trans, sample_shape)
+        )
+        nu = jnp.asarray(
+            self.observation_dist.expand(time_shape).sample(key_obs, sample_shape)
+        )
+        A = jnp.moveaxis(
+            jnp.broadcast_to(
+                self.transition_matrix, time_shape + self.transition_matrix.shape[-2:]
+            ),
+            -3,
+            0,
+        )
+        H = jnp.broadcast_to(
+            self.observation_matrix, time_shape + self.observation_matrix.shape[-2:]
+        )
+
+        def step(z: Array, inputs: tuple[Array, Array]) -> tuple[Array, Array]:
+            A_t, eps_t = inputs
+            z = jnp.einsum("...ij,...j->...i", A_t, z) + eps_t
+            return z, z
+
+        _, z = lax.scan(step, z0, (A, jnp.moveaxis(eps, -2, 0)))
+        x = jnp.einsum("...ij,...j->...i", H, jnp.moveaxis(z, 0, -2)) + nu
+        for transform in self.transforms:
+            x = jnp.asarray(transform(x))
+        return x
+
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> ArrayLike:
+        raise NotImplementedError(
+            "LinearHMM.log_prob is not implemented; use LinearHMMReparam"
+        )
+
+    def expand(self, batch_shape: Sequence[int]) -> LinearHMM:
+        batch_shape = lax.broadcast_shapes(self.batch_shape, tuple(batch_shape))
+        time_shape = batch_shape + (self.num_steps,)
+        new = copy.copy(self)
+        new.initial_dist = self.initial_dist.expand(batch_shape)
+        new.transition_matrix = jnp.broadcast_to(
+            self.transition_matrix, time_shape + self.transition_matrix.shape[-2:]
+        )
+        new.transition_dist = self.transition_dist.expand(time_shape)
+        new.observation_matrix = jnp.broadcast_to(
+            self.observation_matrix, time_shape + self.observation_matrix.shape[-2:]
+        )
+        new.observation_dist = self.observation_dist.expand(time_shape)
+        return new

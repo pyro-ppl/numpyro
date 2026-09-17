@@ -118,6 +118,7 @@ from numpyro.distributions.hmm import (
     GaussianHMM,
     HiddenMarkovModel,
     IndependentHMM,
+    LinearHMM,
 )
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.mixtures import Mixture, MixtureGeneral, MixtureSameFamily
@@ -209,6 +210,7 @@ __all__ = [
     "LeftTruncatedDistribution",
     "LeftTruncatedGamma",
     "Levy",
+    "LinearHMM",
     "LKJ",
     "LKJCholesky",
     "Logistic",
