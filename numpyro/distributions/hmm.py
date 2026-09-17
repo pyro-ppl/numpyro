@@ -314,12 +314,32 @@ class GaussianHMM(HiddenMarkovModel):
         ]
 
     def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        """
+        Sample observation sequences ``x_{1:T}`` with the latent states integrated out.
+
+        Parameters
+        ----------
+        key : Array
+            PRNG key.
+        sample_shape : tuple[int, ...]
+            Leading sample dimensions.
+
+        Returns
+        -------
+        Array
+            Shape ``sample_shape + batch_shape + (num_steps, obs_dim)``.
+        """
         assert key is not None
         key_z, key_x = random.split(key)
         z = self._sample_states(
             key_z, self._obs.marginalize(right=self.obs_dim), sample_shape
         )
-        return self._obs.left_condition(z).sample(key_x)
+        keys = random.split(key_x, sample_shape) if sample_shape else key_x
+        emit = _vmap_leading(
+            lambda states, k: self._obs.left_condition(states).sample(k),
+            len(sample_shape),
+        )
+        return emit(z, keys)
 
     def sample_posterior(
         self, key: Array, value: Array, sample_shape: tuple[int, ...] = ()
