@@ -15,7 +15,7 @@ Student-t. The same pairwise reduction as :mod:`numpyro.ops.gaussian` applies.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, ClassVar, Sequence, Union
+from typing import ClassVar
 
 import jax
 from jax import Array, lax
@@ -29,10 +29,12 @@ from numpyro.distributions.util import safe_cholesky
 from numpyro.ops.gaussian import (
     _LOG_2PI,
     AffineNormal,
-    _mt,
+    _FactorShapeOps,
+    _log_diag_sum,
     _mv,
     _pad_event,
-    _with_batch,
+    _schur_marginalize,
+    _sequential_tensordot,
     loc_and_scale_tril,
     matrix_and_mvn_to_gaussian,
     mvn_to_gaussian,
@@ -81,7 +83,7 @@ class GammaFactor:
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class GammaGaussian:
+class GammaGaussian(_FactorShapeOps):
     """
     Factor ``log_normalizer + alpha log s + s (x . info_vec - 0.5 x^T precision x - beta)``
     over ``(x, s)``.
@@ -114,16 +116,6 @@ class GammaGaussian:
     def dim(self) -> int:
         return self.info_vec.shape[-1]
 
-    @property
-    def batch_shape(self) -> tuple[int, ...]:
-        return lax.broadcast_shapes(
-            self.log_normalizer.shape,
-            self.info_vec.shape[:-1],
-            self.precision.shape[:-2],
-            self.alpha.shape,
-            self.beta.shape,
-        )
-
     def _fields(self) -> tuple[Array, ...]:
         return (
             self.log_normalizer,
@@ -131,45 +123,6 @@ class GammaGaussian:
             self.precision,
             self.alpha,
             self.beta,
-        )
-
-    def _map(self, fn: Callable[[Array, int], Array]) -> GammaGaussian:
-        return GammaGaussian(
-            *(fn(x, k) for x, k in zip(self._fields(), self.event_ndims))
-        )
-
-    def _broadcast(self) -> GammaGaussian:
-        return self.expand(self.batch_shape)
-
-    def expand(self, batch_shape: Sequence[int]) -> GammaGaussian:
-        """Broadcast every field to ``batch_shape``."""
-        return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
-
-    def reshape(self, batch_shape: Sequence[int]) -> GammaGaussian:
-        """
-        Reshape the batch dimensions of every field to ``batch_shape``.
-
-        All fields must share one batch shape (the module invariant).
-        """
-        return self._map(
-            lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
-        )
-
-    def __getitem__(self, index: Union[int, slice, tuple]) -> GammaGaussian:
-        index = index if isinstance(index, tuple) else (index,)
-        return self._map(lambda x, k: x[index + (slice(None),) * k])
-
-    @staticmethod
-    def cat(parts: Sequence[GammaGaussian], axis: int = 0) -> GammaGaussian:
-        """
-        Concatenate factors along a batch axis.
-
-        All fields of every part must share one batch shape (the module
-        invariant).
-        """
-        axis = axis % len(parts[0].batch_shape)
-        return GammaGaussian(
-            *(jnp.concatenate([p._fields()[i] for p in parts], axis) for i in range(5))
         )
 
     def event_pad(self, left: int = 0, right: int = 0) -> GammaGaussian:
@@ -262,27 +215,14 @@ class GammaGaussian:
         """
         if left == 0 and right == 0:
             return self
-        n = self.dim
-        keep = jnp.arange(left, n - right)
-        drop = jnp.concatenate([jnp.arange(left), jnp.arange(n - right, n)])
-        P_aa = self.precision[..., keep[:, None], keep]
-        P_ba = self.precision[..., drop[:, None], keep]
-        P_bb = self.precision[..., drop[:, None], drop]
-        chol = safe_cholesky(P_bb)
-        P_a = solve_triangular(chol, P_ba, lower=True)
-        b_tmp = solve_triangular(chol, self.info_vec[..., drop, None], lower=True)[
-            ..., 0
-        ]
-        n_b = left + right
-        log_normalizer = (
-            self.log_normalizer
-            + 0.5 * n_b * _LOG_2PI
-            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1)
+        precision, info_vec, b_tmp, log_diag = _schur_marginalize(
+            self.precision, self.info_vec, left, right
         )
+        n_b = left + right
         return GammaGaussian(
-            log_normalizer,
-            self.info_vec[..., keep] - _mv(_mt(P_a), b_tmp),
-            P_aa - _mt(P_a) @ P_a,
+            self.log_normalizer + 0.5 * n_b * _LOG_2PI - log_diag,
+            info_vec,
+            precision,
             self.alpha - 0.5 * n_b,
             self.beta - 0.5 * (b_tmp * b_tmp).sum(-1),
         )._broadcast()
@@ -297,9 +237,7 @@ class GammaGaussian:
         chol = safe_cholesky(self.precision)
         u = solve_triangular(chol, self.info_vec[..., None], lower=True)[..., 0]
         return GammaFactor(
-            self.log_normalizer
-            + 0.5 * self.dim * _LOG_2PI
-            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1),
+            self.log_normalizer + 0.5 * self.dim * _LOG_2PI - _log_diag_sum(chol),
             self.alpha - 0.5 * self.dim + 1,
             self.beta - 0.5 * (u * u).sum(-1),
         )
@@ -430,15 +368,6 @@ def sequential_gamma_gaussian_tensordot(gaussian: GammaGaussian) -> GammaGaussia
     :return: the contraction ``g[..., 0] @ g[..., 1] @ ... @ g[..., T - 1]``
         over each intermediate state, computed in ``log2(T)`` batched steps.
     :rtype: GammaGaussian
+    :raises ValueError: if the time axis is empty.
     """
-    state_dim = gaussian.dim // 2
-    while gaussian.batch_shape[-1] > 1:
-        num_steps = gaussian.batch_shape[-1]
-        even = num_steps // 2 * 2
-        contracted = gamma_gaussian_tensordot(
-            gaussian[..., 0:even:2], gaussian[..., 1:even:2], state_dim
-        )
-        if num_steps > even:
-            contracted = GammaGaussian.cat([contracted, gaussian[..., -1:]], axis=-1)
-        gaussian = contracted
-    return gaussian[..., 0]
+    return _sequential_tensordot(gaussian, gamma_gaussian_tensordot)

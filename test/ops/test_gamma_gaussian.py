@@ -4,7 +4,6 @@
 from numpy.testing import assert_allclose
 import pytest
 
-import jax
 from jax import random
 import jax.numpy as jnp
 
@@ -17,7 +16,11 @@ from numpyro.ops.gamma_gaussian import (
     matrix_and_mvn_to_gamma_gaussian,
     sequential_gamma_gaussian_tensordot,
 )
-from numpyro.ops.gaussian import Gaussian, gaussian_tensordot
+from numpyro.ops.gaussian import (
+    Gaussian,
+    gaussian_tensordot,
+    sequential_gaussian_tensordot,
+)
 
 
 def random_gaussian(key, batch_shape, dim, rank=None):
@@ -66,6 +69,20 @@ def assert_close_gamma_gaussian(actual, expected, rtol=1e-4, atol=1e-4):
         assert_allclose(
             getattr(actual, name), getattr(expected, name), rtol=rtol, atol=atol
         )
+
+
+def normalized_gamma_gaussian(key, batch_shape, dim):
+    """A normalized joint factor and the exact Student-t marginal of ``x``."""
+    k1, k2, k3 = random.split(key, 3)
+    concentration = 1.0 + jnp.exp(random.normal(k1, batch_shape))
+    rate = jnp.exp(random.normal(k2, batch_shape))
+    mvn = random_mvn(k3, batch_shape, dim)
+    gg = gamma_and_mvn_to_gamma_gaussian(dist.Gamma(concentration, rate), mvn)
+    covariance = (rate / concentration)[..., None, None] * mvn.covariance_matrix
+    student_t = dist.MultivariateStudentT(
+        2 * concentration, mvn.mean, jnp.linalg.cholesky(covariance)
+    )
+    return gg, student_t
 
 
 def test_shape_ops():
@@ -143,23 +160,24 @@ def test_event_logsumexp_and_compound():
     assert_allclose(
         factor.log_density(s), gaussian_at(gg, s).event_logsumexp(), rtol=1e-4
     )
-    x = random.normal(random.key(1), (3, 2))
-    grid = jnp.linspace(1e-3, 40.0, 20000)
-    log_dgrid = jnp.log(grid[1] - grid[0])
-    expected = jax.vmap(
-        lambda xi, ggi: (
-            jax.scipy.special.logsumexp(gaussian_at(ggi, grid).log_density(xi))
-            + log_dgrid
-        )
-    )(x, gg)
-    assert_allclose(gg.compound().log_prob(x), expected - factor.logsumexp(), atol=2e-2)
     assert_allclose(
-        factor.logsumexp(),
-        jax.vmap(
-            lambda f: jax.scipy.special.logsumexp(f.log_density(grid)) + log_dgrid
-        )(factor),
-        atol=2e-2,
+        factor.log_density(s) - factor.logsumexp(),
+        dist.Gamma(factor.concentration, factor.rate).log_prob(s),
+        rtol=1e-4,
     )
+    gg, student_t = normalized_gamma_gaussian(random.key(3), (3,), 2)
+    x = random.normal(random.key(1), (3, 2))
+    assert_allclose(gg.compound().log_prob(x), student_t.log_prob(x), rtol=1e-4)
+    assert_allclose(gg.event_logsumexp().logsumexp(), jnp.zeros(3), atol=1e-4)
+
+
+def test_compound_matches_student_t_x64():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("the exact Student-t oracle is checked tightly with x64 only")
+    gg, student_t = normalized_gamma_gaussian(random.key(3), (3,), 4)
+    x = random.normal(random.key(1), (5, 3, 4))
+    assert_allclose(gg.compound().log_prob(x), student_t.log_prob(x), rtol=1e-9)
+    assert_allclose(gg.event_logsumexp().logsumexp(), jnp.zeros(3), atol=1e-9)
 
 
 def test_gamma_and_mvn_to_gamma_gaussian():
@@ -228,3 +246,16 @@ def test_sequential_gamma_gaussian_tensordot_matches_fold(num_steps, state_dim):
     assert_close_gamma_gaussian(
         sequential_gamma_gaussian_tensordot(g), expected, rtol=1e-3, atol=1e-3
     )
+
+
+@pytest.mark.parametrize("num_steps", [3, 4])
+def test_sequential_reductions_agree_at_fixed_scale(num_steps):
+    g = random_gamma_gaussian(random.key(num_steps), (2, num_steps), 4)
+    s = jnp.array([0.7, 2.5])
+    expected = sequential_gaussian_tensordot(gaussian_at(g, s[:, None]))
+    actual = gaussian_at(sequential_gamma_gaussian_tensordot(g), s)
+    assert actual.batch_shape == expected.batch_shape == (2,)
+    for name in ("log_normalizer", "info_vec", "precision"):
+        assert_allclose(
+            getattr(actual, name), getattr(expected, name), rtol=1e-4, atol=1e-4
+        )

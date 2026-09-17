@@ -1112,6 +1112,26 @@ def test_gaussian_hmm_reports_non_broadcastable_value_batch():
         hmm.log_prob(jnp.zeros((2, 3, 1)))
 
 
+def test_gamma_gaussian_hmm_x64_extreme_scales():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("extreme noise scales are tested with x64 only")
+    T = 200
+    A = jnp.array([[1.0, 1.0], [0.0, 1.0]])
+    init = dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2))
+    trans = dist.MultivariateNormal(jnp.zeros(2), 1e-6 * jnp.eye(2))
+    H = jnp.array([[1.0, 0.0]])
+    obs = dist.MultivariateNormal(jnp.zeros(1), jnp.eye(1))
+    x = GaussianHMM(init, A, trans, H, obs, num_steps=T).sample(random.key(0))
+
+    def log_prob_of(transition_matrix):
+        return GammaGaussianHMM(
+            dist.Gamma(4.0, 3.0), init, transition_matrix, trans, H, obs, num_steps=T
+        ).log_prob(x)
+
+    lp, grad = jax.value_and_grad(log_prob_of)(A)
+    assert jnp.isfinite(lp) and jnp.isfinite(grad).all()
+
+
 @pytest.mark.parametrize("batch", [(), (3,)])
 @pytest.mark.parametrize("homogeneous", [False, True])
 def test_gamma_gaussian_hmm_shapes(batch, homogeneous):
