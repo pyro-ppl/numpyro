@@ -13,6 +13,7 @@ import numpyro.distributions as dist
 from numpyro.distributions.hmm import (
     GammaGaussianHMM,
     GaussianHMM,
+    GaussianMRF,
     HiddenMarkovModel,
     IndependentHMM,
     LinearHMM,
@@ -1249,3 +1250,88 @@ def test_linear_hmm_homogeneous_keeps_time_axis():
     assert expanded.transition_dist.batch_shape == (5, 1)
     assert expanded.transition_matrix.shape == (5, 1, n, n)
     assert expanded.sample(random.key(2)).shape == (5, T, m)
+
+
+def _mrf(key, T, n, m, *, batch=()):
+    ks = random.split(key, 6)
+    init = dist.MultivariateNormal(
+        random.normal(ks[0], batch + (n,)), covariance_matrix=_spd(ks[1], n)
+    )
+    trans = dist.MultivariateNormal(
+        random.normal(ks[2], batch + (T, 2 * n)), covariance_matrix=_spd(ks[3], 2 * n)
+    )
+    obs = dist.MultivariateNormal(
+        random.normal(ks[4], batch + (T, n + m)), covariance_matrix=_spd(ks[5], n + m)
+    )
+    return GaussianMRF(init, trans, obs, num_steps=T)
+
+
+@pytest.mark.parametrize("batch", [(), (3,)])
+def test_gaussian_mrf_shapes(batch):
+    T, n, m = 4, 2, 1
+    mrf = _mrf(random.key(0), T, n, m, batch=batch)
+    assert mrf.batch_shape == batch and mrf.event_shape == (T, m)
+    assert not mrf.has_rsample
+    x = random.normal(random.key(1), (5,) + batch + (T, m))
+    assert mrf.log_prob(x).shape == (5,) + batch
+    assert mrf.expand((2,) + batch).log_prob(x[0]).shape == (2,) + batch
+    homogeneous = (
+        dist.MultivariateNormal(jnp.zeros(n), jnp.eye(n)),
+        dist.MultivariateNormal(jnp.zeros(2 * n), jnp.eye(2 * n)),
+        dist.MultivariateNormal(jnp.zeros(n + m), jnp.eye(n + m)),
+    )
+    with pytest.raises(ValueError, match="num_steps"):
+        GaussianMRF(*homogeneous)
+    assert GaussianMRF(*homogeneous, num_steps=T).log_prob(x[0]).shape == batch
+
+
+@pytest.mark.parametrize("T,n,m", [(1, 1, 1), (2, 2, 1), (5, 2, 2)])
+def test_gaussian_mrf_log_prob_matches_unrolled(T, n, m):
+    mrf = _mrf(random.key(T), T, n, m)
+    x = random.normal(random.key(1), (T, m))
+    nz = (T + 1) * n
+    total = nz + T * m
+    joint = mrf._init.event_pad(right=total - n)
+    for t in range(T):
+        joint = joint + mrf._trans[..., t].event_pad(
+            left=t * n, right=total - (t + 2) * n
+        )
+        placed = mrf._obs[..., t].event_pad(
+            left=(t + 1) * n, right=total - (t + 2) * n - m
+        )
+        source = list(range(total))
+        block = source[(t + 2) * n : (t + 2) * n + m]
+        del source[(t + 2) * n : (t + 2) * n + m]
+        source[nz + t * m : nz + t * m] = block
+        joint = joint + placed.event_permute(jnp.array(source))
+    log_joint = joint.condition(x.ravel()).event_logsumexp()
+    log_hidden = joint.marginalize(right=T * m).event_logsumexp()
+    assert_allclose(mrf.log_prob(x), log_joint - log_hidden, rtol=1e-4, atol=1e-4)
+
+
+def test_gaussian_mrf_block_diagonal_reduces_to_independent_observations():
+    T, n, m = 4, 2, 2
+    ks = random.split(random.key(0), 6)
+    init = dist.MultivariateNormal(
+        random.normal(ks[0], (n,)), covariance_matrix=_spd(ks[1], n)
+    )
+    trans = dist.MultivariateNormal(
+        random.normal(ks[2], (T, 2 * n)), covariance_matrix=_spd(ks[3], 2 * n)
+    )
+    cov_obs = (
+        jnp.zeros((T, n + m, n + m))
+        .at[:, :n, :n]
+        .set(_spd(ks[4], n))
+        .at[:, n:, n:]
+        .set(_spd(ks[5], m))
+    )
+    obs_loc = random.normal(random.fold_in(ks[5], 1), (T, n + m))
+    obs = dist.MultivariateNormal(obs_loc, covariance_matrix=cov_obs)
+    mrf = GaussianMRF(init, trans, obs)
+    x = random.normal(random.key(1), (T, m))
+    expected = (
+        dist.MultivariateNormal(obs_loc[:, n:], covariance_matrix=cov_obs[:, n:, n:])
+        .log_prob(x)
+        .sum()
+    )
+    assert_allclose(mrf.log_prob(x), expected, rtol=1e-4, atol=1e-4)

@@ -116,6 +116,7 @@ from numpyro.distributions.distribution import (
 from numpyro.distributions.hmm import (
     GammaGaussianHMM,
     GaussianHMM,
+    GaussianMRF,
     HiddenMarkovModel,
     IndependentHMM,
     LinearHMM,
@@ -182,6 +183,7 @@ __all__ = [
     "GaussianCopula",
     "GaussianCopulaBeta",
     "GaussianHMM",
+    "GaussianMRF",
     "GaussianRandomWalk",
     "GaussianStateSpace",
     "Geometric",

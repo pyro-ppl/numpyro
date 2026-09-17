@@ -58,6 +58,7 @@ from numpyro.ops.gaussian import (
 __all__ = [
     "GammaGaussianHMM",
     "GaussianHMM",
+    "GaussianMRF",
     "HiddenMarkovModel",
     "IndependentHMM",
     "LinearHMM",
@@ -1137,6 +1138,97 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
                 loc, scale_tril=scale_tril, validate_args=self._validate_args
             ),
         )
+
+
+class GaussianMRF(HiddenMarkovModel):
+    r"""
+    Temporal Markov random field with Gaussian pairwise factors, marginalizing
+    the hidden chain.
+
+    ``transition_dist`` is a joint Gaussian over ``(z_{t-1}, z_t)`` and
+    ``observation_dist`` a joint Gaussian over ``(z_t, x_t)``;
+    ``initial_dist`` is over ``z_0``. ``log_prob`` is
+    ``log p(x) = log \int p(z, x) dz`` with the factors renormalized over ``z``.
+
+    Parameters
+    ----------
+    initial_dist : MultivariateNormal
+        Event shape ``(hidden_dim,)``.
+    transition_dist : MultivariateNormal
+        Event shape ``(2 * hidden_dim,)``; time on the rightmost batch axis.
+    observation_dist : MultivariateNormal
+        Event shape ``(hidden_dim + obs_dim,)``; time on the rightmost batch
+        axis.
+    num_steps : int, optional
+        Required when both per-step distributions are time-homogeneous.
+    """
+
+    _init: Gaussian
+    _trans: Gaussian
+    _obs: Gaussian
+
+    def __init__(
+        self,
+        initial_dist: Distribution,
+        transition_dist: Distribution,
+        observation_dist: Distribution,
+        *,
+        num_steps: Optional[int] = None,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        for name, d in (
+            ("initial_dist", initial_dist),
+            ("transition_dist", transition_dist),
+            ("observation_dist", observation_dist),
+        ):
+            _require_mvn(d, name)
+        hidden_dim = initial_dist.event_shape[0]
+        if tuple(transition_dist.event_shape) != (2 * hidden_dim,):
+            raise ValueError(
+                f"transition_dist must have event_shape {(2 * hidden_dim,)}"
+            )
+        if observation_dist.event_shape[0] <= hidden_dim:
+            raise ValueError(
+                "observation_dist must be a joint over (hidden, observed) coordinates"
+            )
+        _, time = _time_shape(
+            tuple(initial_dist.batch_shape) + (1,),
+            tuple(transition_dist.batch_shape),
+            tuple(observation_dist.batch_shape),
+        )
+        super().__init__(
+            mvn_to_gaussian(initial_dist),
+            mvn_to_gaussian(transition_dist),
+            mvn_to_gaussian(observation_dist),
+            _resolve_num_steps(time, num_steps),
+            validate_args=validate_args,
+        )
+
+    @property
+    def has_rsample(self) -> bool:
+        return False
+
+    def _log_prob_core(self, value: Array) -> Array:
+        hidden, obs = self.hidden_dim, self.obs_dim
+        conditioned = self._trans + self._obs.condition(value).event_pad(left=hidden)
+        marginal = self._trans + self._obs.marginalize(right=obs).event_pad(left=hidden)
+        batch_shape = self.batch_shape + (self.num_steps,)
+        stacked = Gaussian.cat(
+            [
+                conditioned.expand(batch_shape).reshape((1,) + batch_shape),
+                marginal.expand(batch_shape).reshape((1,) + batch_shape),
+            ],
+            axis=0,
+        )
+        logp = gaussian_tensordot(
+            self._init, sequential_gaussian_tensordot(stacked), hidden
+        ).event_logsumexp()
+        return logp[0] - logp[1]
+
+    @validate_sample
+    def log_prob(self, value: Array) -> Array:
+        value, extra = self._lead_and_extra(value)
+        return _vmap_leading(self._log_prob_core, extra)(value)
 
 
 class IndependentHMM(Distribution):
