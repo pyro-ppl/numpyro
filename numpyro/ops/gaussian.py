@@ -37,14 +37,21 @@ from numpyro.distributions.distribution import (
     ExpandedDistribution,
     Independent,
 )
-from numpyro.distributions.util import safe_cholesky
+from numpyro.distributions.util import (
+    cholesky_of_inverse,
+    relative_jitter,
+    safe_cholesky,
+)
 
 __all__ = [
     "AffineNormal",
     "Gaussian",
+    "gaussian_tensordot",
+    "loc_and_scale_tril",
     "matrix_and_gaussian_to_gaussian",
     "matrix_and_mvn_to_gaussian",
     "mvn_to_gaussian",
+    "sequential_gaussian_tensordot",
 ]
 
 _LOG_2PI = math.log(2 * math.pi)
@@ -442,6 +449,109 @@ def matrix_and_mvn_to_gaussian(
         jnp.broadcast_to(loc, batch_shape + (y_dim,)),
         jnp.concatenate([-matrix, eye], -1),
     )
+
+
+def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
+    """
+    Contract two factors over ``dims`` shared coordinates:
+    ``(x @ y)(a, c) = log int exp(x(a, b) + y(b, c)) db``.
+
+    Parameters
+    ----------
+    x : Gaussian
+        Factor over ``(a, b)`` with ``b`` the trailing ``dims`` coordinates.
+    y : Gaussian
+        Factor over ``(b, c)`` with ``b`` the leading ``dims`` coordinates.
+    dims : int
+        Number of shared coordinates.
+
+    Returns
+    -------
+    Gaussian
+        Factor over ``(a, c)`` with the broadcast batch shape of ``x`` and ``y``.
+    """
+    na, nb, nc = x.dim - dims, dims, y.dim - dims
+    if na < 0 or nc < 0:
+        raise ValueError("dims exceeds the event dimension of a factor")
+    Paa = x.precision[..., :na, :na]
+    Pba = x.precision[..., na:, :na]
+    Pbb = x.precision[..., na:, na:]
+    Qbb = y.precision[..., :nb, :nb]
+    Qbc = y.precision[..., :nb, nb:]
+    Qcc = y.precision[..., nb:, nb:]
+    xa, xb = x.info_vec[..., :na], x.info_vec[..., na:]
+    yb, yc = y.info_vec[..., :nb], y.info_vec[..., nb:]
+    precision = _pad_event(Paa, 2, 0, nc) + _pad_event(Qcc, 2, na, 0)
+    info_vec = _pad_event(xa, 1, 0, nc) + _pad_event(yc, 1, na, 0)
+    log_normalizer = x.log_normalizer + y.log_normalizer
+    if nb > 0:
+        B = jnp.pad(Pba, [(0, 0)] * (Pba.ndim - 1) + [(0, nc)]) + jnp.pad(
+            Qbc, [(0, 0)] * (Qbc.ndim - 1) + [(na, 0)]
+        )
+        b = xb + yb
+        chol = safe_cholesky(Pbb + Qbb)
+        LinvB = solve_triangular(chol, B, lower=True)
+        Linvb = solve_triangular(chol, b[..., None], lower=True)[..., 0]
+        precision = precision - _mt(LinvB) @ LinvB
+        info_vec = info_vec - _mv(_mt(LinvB), Linvb)
+        log_normalizer = (
+            log_normalizer
+            + 0.5 * nb * _LOG_2PI
+            + 0.5 * (Linvb * Linvb).sum(-1)
+            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1)
+        )
+    return Gaussian(log_normalizer, info_vec, precision)._broadcast()
+
+
+def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
+    """
+    Reduce a time series of pairwise factors to one factor over ``(z_0, z_T)``.
+
+    Parameters
+    ----------
+    gaussian : Gaussian
+        Factors over ``(z_{t-1}, z_t)`` with ``dim == 2 * state_dim`` and time
+        on the last batch axis.
+
+    Returns
+    -------
+    Gaussian
+        Factor over ``(z_0, z_T)`` with batch shape ``gaussian.batch_shape[:-1]``,
+        computed with ``log2(T)`` batched contractions.
+    """
+    state_dim = gaussian.dim // 2
+    while gaussian.batch_shape[-1] > 1:
+        num_steps = gaussian.batch_shape[-1]
+        even = num_steps // 2 * 2
+        contracted = gaussian_tensordot(
+            gaussian[..., 0:even:2], gaussian[..., 1:even:2], state_dim
+        )
+        if num_steps > even:
+            contracted = Gaussian.cat([contracted, gaussian[..., -1:]], axis=-1)
+        gaussian = contracted
+    return gaussian[..., 0]
+
+
+def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]:
+    """
+    Moments of the normalized Gaussian with the given information parameters.
+
+    Parameters
+    ----------
+    info_vec : Array
+        Shape ``(..., dim)``.
+    precision : Array
+        Shape ``(..., dim, dim)``, positive definite.
+
+    Returns
+    -------
+    tuple[Array, Array]
+        ``loc = precision^-1 info_vec`` and the lower Cholesky factor of
+        ``precision^-1``, computed with one factorization of the jittered
+        precision.
+    """
+    scale_tril = cholesky_of_inverse(relative_jitter(precision))
+    return _mv(scale_tril, _mv(_mt(scale_tril), info_vec)), scale_tril
 
 
 @jax.tree_util.register_dataclass

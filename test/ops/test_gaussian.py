@@ -12,10 +12,14 @@ import numpyro.distributions as dist
 from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
+    _mt,
     _mv,
+    gaussian_tensordot,
+    loc_and_scale_tril,
     matrix_and_gaussian_to_gaussian,
     matrix_and_mvn_to_gaussian,
     mvn_to_gaussian,
+    sequential_gaussian_tensordot,
 )
 
 
@@ -217,3 +221,80 @@ def test_matrix_and_mvn_to_gaussian_density(diag):
         assert isinstance(g.left_condition(x), AffineNormal)
         assert_allclose(g.left_condition(x).log_density(y), expected, rtol=1e-4)
         assert_allclose(g.marginalize(right=y_dim).precision, 0.0)
+
+
+def test_matrix_and_mvn_to_gaussian_with_prior():
+    x_dim, y_dim = 2, 3
+    matrix = random.normal(random.key(0), (y_dim, x_dim))
+    x_prior = random_mvn(random.key(1), (), x_dim)
+    noise = random_mvn(random.key(2), (), y_dim)
+    joint = gaussian_tensordot(
+        mvn_to_gaussian(x_prior), matrix_and_mvn_to_gaussian(matrix, noise), x_dim
+    )
+    y_dist = dist.MultivariateNormal(
+        matrix @ x_prior.mean + noise.mean,
+        covariance_matrix=matrix @ x_prior.covariance_matrix @ matrix.T
+        + noise.covariance_matrix,
+    )
+    y = random.normal(random.key(3), (5, y_dim))
+    assert_allclose(joint.log_density(y), y_dist.log_prob(y), rtol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "na,nb,nc", [(1, 1, 1), (2, 1, 0), (0, 2, 1), (2, 2, 2), (1, 0, 1)]
+)
+def test_gaussian_tensordot_against_dense(na, nb, nc):
+    x = random_gaussian(random.key(0), (3,), na + nb)
+    y = random_gaussian(random.key(1), (3,), nb + nc)
+    xy = gaussian_tensordot(x, y, nb)
+    assert xy.dim == na + nc
+    assert xy.batch_shape == (3,)
+    joint = x.event_pad(right=nc) + y.event_pad(left=na)
+    if nb == 0:
+        expected = joint
+    else:
+        perm = jnp.concatenate(
+            [
+                jnp.arange(na),
+                jnp.arange(na + nb, na + nb + nc),
+                jnp.arange(na, na + nb),
+            ]
+        )
+        expected = joint.event_permute(perm).marginalize(right=nb)
+    assert_close_gaussian(xy, expected)
+
+
+@pytest.mark.parametrize("num_steps", list(range(1, 20)))
+@pytest.mark.parametrize("state_dim", [1, 2, 3])
+def test_sequential_gaussian_tensordot_matches_fold(num_steps, state_dim):
+    g = random_gaussian(random.key(num_steps), (2, num_steps), 2 * state_dim)
+    expected = g[..., 0]
+    for t in range(1, num_steps):
+        expected = gaussian_tensordot(expected, g[..., t], state_dim)
+    actual = sequential_gaussian_tensordot(g)
+    assert_close_gaussian(actual, expected, rtol=1e-3, atol=1e-3)
+
+
+def test_sequential_gaussian_tensordot_float32_long_horizon():
+    T, s = 100_000, 2
+    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], jnp.float32)
+    noise = dist.MultivariateNormal(
+        jnp.zeros(s, jnp.float32), covariance_matrix=0.1 * jnp.eye(s, dtype=jnp.float32)
+    )
+    trans = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
+
+    def value(matrix):
+        g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
+        return sequential_gaussian_tensordot(g).event_logsumexp()
+
+    result, grad = jax.jit(jax.value_and_grad(value))(matrix)
+    assert jnp.isfinite(result) and jnp.isfinite(grad).all()
+    assert trans.batch_shape == (T,)
+
+
+def test_loc_and_scale_tril():
+    g = random_gaussian(random.key(0), (3,), 2)
+    loc, scale_tril = loc_and_scale_tril(g.info_vec, g.precision)
+    cov = jnp.linalg.inv(g.precision)
+    assert_allclose(loc, _mv(cov, g.info_vec), rtol=1e-3)
+    assert_allclose(scale_tril @ _mt(scale_tril), cov, rtol=1e-3)
