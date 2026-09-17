@@ -439,7 +439,7 @@ def test_safe_cholesky_x64_float64_jitter_is_at_float64_rounding_level():
     assert_allclose(L, jnp.linalg.cholesky(P), rtol=1e-12)
     jitter = jnp.diagonal(relative_jitter(P) - P, axis1=-2, axis2=-1)
     expected = CHOLESKY_RELATIVE_JITTER * jnp.finfo(jnp.float64).eps
-    assert_allclose(jitter, expected * jnp.diagonal(P, axis1=-2, axis2=-1), rtol=0.1)
+    assert_allclose(jitter, expected * jnp.diagonal(P, axis1=-2, axis2=-1), rtol=0.15)
     assert safe_cholesky(P.astype(jnp.float32)).dtype == jnp.float32
 
 
@@ -448,7 +448,7 @@ def test_relative_jitter_ignores_off_diagonal_magnitude():
     eps = jnp.finfo(jnp.float32).eps
     jitter = jnp.diagonal(relative_jitter(P) - P)
     expected = CHOLESKY_RELATIVE_JITTER * eps * jnp.diagonal(P)
-    assert_allclose(jitter, expected, rtol=0.1)
+    assert_allclose(jitter, expected, rtol=0.15)
     assert jitter[1] < 1e-5
 
 

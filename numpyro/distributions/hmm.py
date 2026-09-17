@@ -392,9 +392,10 @@ class GaussianHMM(HiddenMarkovModel):
         ``(hidden_dim, obs_dim)``; here ``transition_matrix @ z`` and
         ``observation_matrix @ z`` with ``observation_matrix`` of shape
         ``(obs_dim, hidden_dim)``. To port a Pyro model pass
-        ``transition_matrix.T`` and ``observation_matrix.T`` (transposing the
-        trailing two axes). A square ``transition_matrix`` passed without the
-        transpose silently defines a different model.
+        ``jnp.swapaxes(transition_matrix, -1, -2)`` and
+        ``jnp.swapaxes(observation_matrix, -1, -2)`` (transposing the trailing
+        two axes). A square ``transition_matrix`` passed without the transpose
+        silently defines a different model.
 
         The time axis is static. Pyro's ``duration=None`` mode, where
         homogeneous parameters give ``event_shape == (1, obs_dim)`` and

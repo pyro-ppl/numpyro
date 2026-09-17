@@ -859,7 +859,10 @@ def relative_jitter(matrix: ArrayLike) -> Array:
     """
     matrix = jnp.asarray(matrix)
     eye = jnp.eye(matrix.shape[-1], dtype=matrix.dtype)
-    jitter = CHOLESKY_RELATIVE_JITTER * jnp.finfo(matrix.dtype).eps * jnp.abs(matrix)
+    eps = jnp.asarray(
+        CHOLESKY_RELATIVE_JITTER * jnp.finfo(matrix.dtype).eps, matrix.dtype
+    )
+    jitter = eps * jnp.abs(matrix)
     return matrix + lax.stop_gradient(jitter * eye)
 
 
