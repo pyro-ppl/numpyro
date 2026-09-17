@@ -326,6 +326,29 @@ def test_gaussian_hmm_sample_moments_match_dense():
     assert_allclose(jnp.cov(z.T), post_cov, atol=0.1 * jnp.abs(post_cov).max())
 
 
+@pytest.mark.parametrize("diag", [False, True])
+def test_gaussian_hmm_sample_uses_prior_transition(diag, monkeypatch):
+    import numpyro.distributions.hmm as hmm_module
+
+    hmm = _hmm(random.key(0), 5, 3, 2, batch=(3,), diag=diag)
+    seen = []
+    original = hmm_module.sequential_gaussian_filter_sample
+
+    def spy(key, init, trans, sample_shape=(), noise=None):
+        seen.append(trans)
+        return original(key, init, trans, sample_shape, noise)
+
+    monkeypatch.setattr(hmm_module, "sequential_gaussian_filter_sample", spy)
+    hmm.sample(random.key(1), (2,))
+    trans = hmm._trans
+    trans = trans.to_gaussian() if diag else trans
+    expected = hmm._time_expanded(trans)
+    (used,) = seen
+    assert (used.info_vec == expected.info_vec).all()
+    assert (used.precision == expected.precision).all()
+    assert (used.log_normalizer == expected.log_normalizer).all()
+
+
 def test_gaussian_hmm_matches_gaussian_state_space_moments():
     T, n = 6, 2
     A = jnp.array([[0.9, 0.1], [0.0, 0.8]])

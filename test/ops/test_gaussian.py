@@ -175,6 +175,26 @@ def test_marginalize_condition_identity(left, right):
     assert_allclose(marginal.event_logsumexp(), g.event_logsumexp(), rtol=1e-4)
 
 
+def test_marginalize_static_permutations_avoid_gather():
+    g = random_gaussian(random.key(0), (3,), 4)
+    for f in [lambda g: g.marginalize(left=2), lambda g: g.marginalize(right=1)]:
+        assert "gather" not in jax.jit(f).lower(g).as_text()
+
+
+def test_permute_condition_identity():
+    g = random_gaussian(random.key(0), (3,), 5)
+    value = random.normal(random.key(1), (3, 5))
+    for perm in [np.array([2, 3, 4, 0, 1]), np.array([4, 2, 3, 0, 1])]:
+        assert_allclose(
+            g.event_permute(perm).log_density(value[..., perm]),
+            g.log_density(value),
+            rtol=1e-4,
+        )
+        assert_close_gaussian(
+            g.event_permute(perm), g.event_permute(jnp.asarray(perm)), rtol=0, atol=0
+        )
+
+
 def test_condition_and_left_condition():
     g = random_gaussian(random.key(0), (3,), 5)
     a = random.normal(random.key(1), (3, 2))
@@ -194,6 +214,13 @@ def test_event_logsumexp_against_monte_carlo():
         grid[1] - grid[0]
     )
     assert_allclose(g.event_logsumexp(), expected, atol=1e-2)
+
+
+def test_event_logsumexp_coupled_precision_float32():
+    P = jnp.array([[1e6, 1e3], [1e3, 2.0]], jnp.float32)
+    g = Gaussian(jnp.zeros((), jnp.float32), jnp.zeros(2, jnp.float32), P)
+    expected = jnp.log(2 * jnp.pi) - 0.5 * jnp.linalg.slogdet(P)[1]
+    assert_allclose(g.event_logsumexp(), expected, atol=1e-5)
 
 
 def test_sample_moments_and_noise():
@@ -232,6 +259,16 @@ def test_mvn_to_gaussian_matches_log_prob(make):
     assert g.batch_shape == d.batch_shape
     assert g.precision.shape == d.batch_shape + (2, 2)
     assert_allclose(g.log_density(value), d.log_prob(value), rtol=1e-4)
+
+
+def test_mvn_to_gaussian_diagonal_matches_sqrt_form():
+    loc = random.normal(random.key(0), (3, 2))
+    scale = jnp.exp(0.5 * random.normal(random.key(1), (3, 2)))
+    diag = mvn_to_gaussian(dist.Normal(loc, scale).to_event(1))
+    full = mvn_to_gaussian(
+        dist.MultivariateNormal(loc, scale_tril=jnp.eye(2) * scale[..., None])
+    )
+    assert_close_gaussian(diag, full, rtol=1e-6, atol=0)
 
 
 def test_mvn_to_gaussian_rejects_other_types():
@@ -404,6 +441,15 @@ def test_filter_sample_shape_mean_and_grads(num_steps, sample_shape):
     )(init.info_vec)
     assert jnp.isfinite(grad).all()
     assert jnp.any(grad != 0)
+
+
+def test_filter_sample_lowers_without_gather():
+    init = random_gaussian(random.key(0), (), 2)
+    trans = random_gaussian(random.key(1), (64,), 4)
+    lowered = jax.jit(sequential_gaussian_filter_sample).lower(
+        random.key(2), init, trans
+    )
+    assert "gather" not in lowered.as_text()
 
 
 def test_filter_sample_antithetic():

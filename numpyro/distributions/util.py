@@ -839,35 +839,46 @@ def add_diag(matrix: Array, diag: ArrayLike) -> Array:
     return matrix.at[..., idx, idx].add(diag)
 
 
+CHOLESKY_RELATIVE_JITTER = 4.0
+"""Multiple of machine epsilon used by :func:`relative_jitter` and :func:`safe_cholesky`."""
+
+
 def relative_jitter(matrix: ArrayLike) -> Array:
     """
     Add a gradient-free relative jitter to the diagonal of a symmetric matrix.
 
+    The jitter is ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)``, so it is
+    at rounding level for every diagonal entry regardless of the off-diagonal
+    magnitude. For a positive semi-definite matrix a zero diagonal entry implies
+    a zero row, so degenerate directions receive no jitter.
+
     :param ArrayLike matrix: symmetric matrices of shape ``(..., n, n)``.
-    :return: ``matrix`` with ``4 * eps * max(abs(row))`` added to each diagonal
-        entry, where the jitter is detached from the gradient.
+    :return: ``matrix`` with the jitter added to each diagonal entry, where the
+        jitter is detached from the gradient.
     :rtype: Array
     """
     matrix = jnp.asarray(matrix)
-    jitter = 4 * jnp.finfo(matrix.dtype).eps * jnp.max(jnp.abs(matrix), axis=-1)
-    return add_diag(matrix, lax.stop_gradient(jitter))
+    eye = jnp.eye(matrix.shape[-1], dtype=matrix.dtype)
+    jitter = CHOLESKY_RELATIVE_JITTER * jnp.finfo(matrix.dtype).eps * jnp.abs(matrix)
+    return matrix + lax.stop_gradient(jitter * eye)
 
 
 def safe_cholesky(matrix: Array) -> Array:
     """
     Lower Cholesky factor that tolerates rounding-level indefiniteness.
 
-    Parameters
-    ----------
-    matrix : Array
-        Symmetric positive semi-definite matrices of shape ``(..., n, n)``.
+    The two paths behave differently on degenerate input: for ``n == 1`` a
+    zero entry is clamped to the smallest positive float and yields a finite
+    factor, while for ``n > 1`` the diagonal-relative jitter of
+    :func:`relative_jitter` leaves a zero diagonal untouched and the factor
+    is ``nan``.
 
-    Returns
-    -------
-    Array
-        Lower triangular factors. For ``n == 1`` this is ``sqrt`` of the input
-        clamped at the smallest positive float. Inputs that are not positive
-        definite beyond rounding yield ``nan``.
+    :param Array matrix: symmetric positive semi-definite matrices of shape
+        ``(..., n, n)``.
+    :return: lower triangular factors. For ``n == 1`` this is ``sqrt`` of the
+        input clamped at the smallest positive float. Inputs that are not
+        positive definite beyond rounding yield ``nan``.
+    :rtype: Array
     """
     if matrix.shape[-1] == 1:
         return jnp.sqrt(jnp.clip(matrix, jnp.finfo(matrix.dtype).tiny))

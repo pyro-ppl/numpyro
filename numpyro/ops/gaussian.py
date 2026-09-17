@@ -28,6 +28,8 @@ from dataclasses import dataclass
 import math
 from typing import Callable, ClassVar, Optional, Sequence, Union
 
+import numpy as np
+
 import jax
 from jax import Array, lax, random
 import jax.numpy as jnp
@@ -66,6 +68,21 @@ def _mv(matrix: Array, vector: Array) -> Array:
 
 def _mt(matrix: Array) -> Array:
     return jnp.swapaxes(matrix, -1, -2)
+
+
+def _log_diag_sum(chol: Array) -> Array:
+    """``sum(log(diag(chol)))`` via a masked reduce rather than a gather."""
+    return jnp.log(jnp.einsum("...ii->...i", chol)).sum(-1)
+
+
+def _static_runs(perm: np.ndarray) -> list[slice]:
+    """Split a permutation into maximal runs of consecutive indices."""
+    cuts = np.flatnonzero(np.diff(perm) != 1) + 1
+    bounds = np.concatenate([[0], cuts, [perm.size]])
+    return [
+        slice(int(perm[i]), int(perm[i]) + int(j - i))
+        for i, j in zip(bounds[:-1], bounds[1:])
+    ]
 
 
 def _pad_event(x: Array, event_ndim: int, left: int, right: int) -> Array:
@@ -188,13 +205,22 @@ class Gaussian:
             _pad_event(self.precision, 2, left, right),
         )
 
-    def event_permute(self, perm: Array) -> Gaussian:
-        """Permute event coordinates."""
-        return Gaussian(
-            self.log_normalizer,
-            self.info_vec[..., perm],
-            self.precision[..., perm, :][..., :, perm],
-        )
+    def event_permute(self, perm: Union[Array, np.ndarray]) -> Gaussian:
+        """
+        Permute event coordinates.
+
+        A static ``numpy`` permutation lowers to slices and concatenations;
+        a traced permutation gathers.
+        """
+        if isinstance(perm, np.ndarray):
+            runs = _static_runs(perm)
+            info_vec = jnp.concatenate([self.info_vec[..., s] for s in runs], -1)
+            precision = jnp.concatenate([self.precision[..., s, :] for s in runs], -2)
+            precision = jnp.concatenate([precision[..., :, s] for s in runs], -1)
+        else:
+            info_vec = self.info_vec[..., perm]
+            precision = self.precision[..., perm, :][..., :, perm]
+        return Gaussian(self.log_normalizer, info_vec, precision)
 
     def _broadcast(self) -> Gaussian:
         return self.expand(self.batch_shape)
@@ -260,37 +286,47 @@ class Gaussian:
     def left_condition(self, value: Array) -> Gaussian:
         """Condition on the leading block of coordinates (see :meth:`condition`)."""
         n = value.shape[-1]
-        perm = jnp.concatenate([jnp.arange(n, self.dim), jnp.arange(n)])
+        perm = np.concatenate([np.arange(n, self.dim), np.arange(n)])
         return self.event_permute(perm).condition(value)
 
     def marginalize(self, left: int = 0, right: int = 0) -> Gaussian:
         """
         Integrate out ``left`` leading and ``right`` trailing coordinates.
 
-        Returns
-        -------
-        Gaussian
-            Factor over the remaining coordinates with ``event_logsumexp``
+        One-sided calls index with static slices; only the two-sided case
+        gathers with index arrays.
+
+        :param int left: number of leading coordinates to integrate out.
+        :param int right: number of trailing coordinates to integrate out.
+        :return: factor over the remaining coordinates with ``event_logsumexp``
             preserved. The integrated block must have positive-definite
             precision.
+        :rtype: Gaussian
         """
         if left == 0 and right == 0:
             return self
         n = self.dim
-        keep = jnp.arange(left, n - right)
-        drop = jnp.concatenate([jnp.arange(left), jnp.arange(n - right, n)])
-        P_aa = self.precision[..., keep[:, None], keep]
-        P_ba = self.precision[..., drop[:, None], keep]
-        P_bb = self.precision[..., drop[:, None], drop]
+        if left and right:
+            keep = np.arange(left, n - right)
+            drop = np.concatenate([np.arange(left), np.arange(n - right, n)])
+            P_aa = self.precision[..., keep[:, None], keep]
+            P_ba = self.precision[..., drop[:, None], keep]
+            P_bb = self.precision[..., drop[:, None], drop]
+        else:
+            keep = slice(left, n - right)
+            drop = slice(0, left) if left else slice(n - right, n)
+            P_aa = self.precision[..., keep, keep]
+            P_ba = self.precision[..., drop, keep]
+            P_bb = self.precision[..., drop, drop]
         chol = safe_cholesky(P_bb)
         P_a = solve_triangular(chol, P_ba, lower=True)
-        b_tmp = solve_triangular(chol, self.info_vec[..., drop, None], lower=True)[
+        b_tmp = solve_triangular(chol, self.info_vec[..., drop][..., None], lower=True)[
             ..., 0
         ]
         log_normalizer = (
             self.log_normalizer
             + 0.5 * (left + right) * _LOG_2PI
-            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1)
+            - _log_diag_sum(chol)
             + 0.5 * (b_tmp * b_tmp).sum(-1)
         )
         return Gaussian(
@@ -307,7 +343,7 @@ class Gaussian:
             self.log_normalizer
             + 0.5 * self.dim * _LOG_2PI
             + 0.5 * (u * u).sum(-1)
-            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1)
+            - _log_diag_sum(chol)
         )
 
     def sample(
@@ -395,7 +431,7 @@ def _sqrt_form(scale_tril: Array, loc: Array, matrix: Array) -> Gaussian:
     log_normalizer = (
         -0.5 * loc.shape[-1] * _LOG_2PI
         - 0.5 * (v * v).sum(-1)
-        - jnp.log(jnp.diagonal(scale_tril, axis1=-2, axis2=-1)).sum(-1)
+        - _log_diag_sum(scale_tril)
     )
     return Gaussian(log_normalizer, _mv(_mt(R), v), _mt(R) @ R)
 
@@ -404,24 +440,28 @@ def mvn_to_gaussian(d: Distribution) -> Gaussian:
     """
     Convert a Gaussian distribution to a normalized :class:`Gaussian` factor.
 
-    Parameters
-    ----------
-    d : Distribution
-        ``MultivariateNormal`` or ``Independent(Normal, 1)``, possibly wrapped
-        in ``ExpandedDistribution``.
+    ``Independent(Normal, 1)`` inputs take an elementwise path with no
+    triangular solves.
 
-    Returns
-    -------
-    Gaussian
-        Factor with ``batch_shape == d.batch_shape`` whose ``log_density``
+    :param Distribution d: ``MultivariateNormal`` or ``Independent(Normal, 1)``,
+        possibly wrapped in ``ExpandedDistribution``.
+    :return: factor with ``batch_shape == d.batch_shape`` whose ``log_density``
         equals ``d.log_prob``.
+    :rtype: Gaussian
     """
     diag = _diag_normal_params(d)
     if diag is not None:
         loc, scale = diag
-        scale_tril = jnp.eye(scale.shape[-1], dtype=scale.dtype) * scale[..., None]
-    else:
-        loc, scale_tril = _mvn_params(d)
+        inv_var = scale**-2
+        v = loc / scale
+        log_normalizer = (
+            -0.5 * loc.shape[-1] * _LOG_2PI
+            - 0.5 * (v * v).sum(-1)
+            - jnp.log(scale).sum(-1)
+        )
+        eye = jnp.eye(loc.shape[-1], dtype=loc.dtype)
+        return Gaussian(log_normalizer, loc * inv_var, eye * inv_var[..., None])
+    loc, scale_tril = _mvn_params(d)
     eye = jnp.broadcast_to(jnp.eye(loc.shape[-1], dtype=loc.dtype), scale_tril.shape)
     return _sqrt_form(scale_tril, loc, eye)
 
@@ -546,7 +586,7 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
             log_normalizer
             + 0.5 * nb * _LOG_2PI
             + 0.5 * (Linvb * Linvb).sum(-1)
-            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1)
+            - _log_diag_sum(chol)
         )
     return Gaussian(log_normalizer, info_vec, precision)._broadcast()
 
@@ -614,11 +654,11 @@ def sequential_gaussian_filter_sample(
     num_steps = trans.batch_shape[-1]
     batch_shape = lax.broadcast_shapes(trans.batch_shape[:-1], init.batch_shape)
     trans = trans.expand(batch_shape + (num_steps,))
-    perm = jnp.concatenate(
+    perm = np.concatenate(
         [
-            jnp.arange(state_dim, 2 * state_dim),
-            jnp.arange(state_dim),
-            jnp.arange(2 * state_dim, 3 * state_dim),
+            np.arange(state_dim, 2 * state_dim),
+            np.arange(state_dim),
+            np.arange(2 * state_dim, 3 * state_dim),
         ]
     )
 
@@ -670,19 +710,15 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
     """
     Moments of the normalized Gaussian with the given information parameters.
 
-    Parameters
-    ----------
-    info_vec : Array
-        Shape ``(..., dim)``.
-    precision : Array
-        Shape ``(..., dim, dim)``, positive definite.
+    The precision is passed through
+    :func:`~numpyro.distributions.util.relative_jitter` before the single
+    factorization, so near-singular posterior precisions yield finite moments.
 
-    Returns
-    -------
-    tuple[Array, Array]
-        ``loc = precision^-1 info_vec`` and the lower Cholesky factor of
-        ``precision^-1``, computed with one factorization of the jittered
-        precision.
+    :param Array info_vec: shape ``(..., dim)``.
+    :param Array precision: shape ``(..., dim, dim)``, positive definite.
+    :return: ``loc = precision^-1 info_vec`` and the lower Cholesky factor of
+        ``precision^-1``.
+    :rtype: tuple[Array, Array]
     """
     scale_tril = cholesky_of_inverse(relative_jitter(precision))
     return _mv(scale_tril, _mv(_mt(scale_tril), info_vec)), scale_tril

@@ -17,6 +17,7 @@ from jax.test_util import check_grads
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import (
+    CHOLESKY_RELATIVE_JITTER,
     add_diag,
     binary_cross_entropy_with_logits,
     binomial,
@@ -417,6 +418,15 @@ def test_safe_cholesky_matches_cholesky_on_well_conditioned():
     P = jnp.array([[2.0, 0.5], [0.5, 1.0]])
     assert_allclose(safe_cholesky(P), jnp.linalg.cholesky(P), rtol=1e-5)
     assert jnp.all(jnp.diagonal(relative_jitter(P)) > jnp.diagonal(P))
+
+
+def test_relative_jitter_ignores_off_diagonal_magnitude():
+    P = jnp.array([[1e6, 1e3], [1e3, 2.0]], jnp.float32)
+    eps = jnp.finfo(jnp.float32).eps
+    jitter = jnp.diagonal(relative_jitter(P) - P)
+    expected = CHOLESKY_RELATIVE_JITTER * eps * jnp.diagonal(P)
+    assert_allclose(jitter, expected, rtol=0.1)
+    assert jitter[1] < 1e-5
 
 
 def test_safe_cholesky_accepts_numpy_input():

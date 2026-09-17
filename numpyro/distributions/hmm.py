@@ -244,7 +244,11 @@ class GaussianHMM(HiddenMarkovModel):
     Precision: the information form loses accuracy when the ratio between the
     largest and smallest noise precision within a step is large. float32 is
     adequate for ratios below about ``1e3``; otherwise call
-    :func:`numpyro.enable_x64`.
+    :func:`numpyro.enable_x64`. Every Cholesky factorization adds a
+    gradient-free jitter of ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)``
+    to the precision diagonal (see
+    :func:`~numpyro.distributions.util.relative_jitter`), which is at rounding
+    level for well-posed problems.
 
     Parameters
     ----------
@@ -410,11 +414,17 @@ class GaussianHMM(HiddenMarkovModel):
         )
 
     def _sample_states(
-        self, key: Array, obs_factor: Gaussian, sample_shape: tuple[int, ...]
+        self,
+        key: Array,
+        obs_factor: Optional[Gaussian] = None,
+        sample_shape: tuple[int, ...] = (),
     ) -> Array:
-        trans = self._time_expanded(
-            self._trans + obs_factor.event_pad(left=self.hidden_dim)
-        )
+        trans = self._trans
+        if obs_factor is not None:
+            trans = trans + obs_factor.event_pad(left=self.hidden_dim)
+        elif isinstance(trans, AffineNormal):
+            trans = trans.to_gaussian()
+        trans = self._time_expanded(trans)
         return sequential_gaussian_filter_sample(key, self._init, trans, sample_shape)[
             ..., 1:, :
         ]
@@ -437,9 +447,7 @@ class GaussianHMM(HiddenMarkovModel):
         """
         assert key is not None
         key_z, key_x = random.split(key)
-        z = self._sample_states(
-            key_z, self._obs.marginalize(right=self.obs_dim), sample_shape
-        )
+        z = self._sample_states(key_z, sample_shape=sample_shape)
         keys = random.split(key_x, sample_shape) if sample_shape else key_x
         emit = _vmap_leading(
             lambda states, k: self._obs.left_condition(states).sample(k),
