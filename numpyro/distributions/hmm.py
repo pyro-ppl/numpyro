@@ -465,9 +465,13 @@ class IndependentHMM(Distribution):
     def __init__(
         self, base_dist: Distribution, *, validate_args: Optional[bool] = None
     ) -> None:
-        if not base_dist.batch_shape or tuple(base_dist.event_shape)[-1:] != (1,):
+        if (
+            not base_dist.batch_shape
+            or len(base_dist.event_shape) != 2
+            or base_dist.event_shape[-1] != 1
+        ):
             raise ValueError(
-                "base_dist must be batched and have a unit observation dimension"
+                "base_dist must be batched with event_shape (num_steps, 1)"
             )
         self.base_dist = base_dist
         if validate_args is not None:

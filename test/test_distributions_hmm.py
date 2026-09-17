@@ -371,3 +371,5 @@ def test_independent_hmm():
         plain.prefix_condition(x[0, :, :2])
     with pytest.raises(TypeError):
         plain.reshape_batch((4, 1))
+    with pytest.raises(ValueError):
+        IndependentHMM(dist.Normal(jnp.zeros((4, 3, T, 1)), 1.0).to_event(1))
