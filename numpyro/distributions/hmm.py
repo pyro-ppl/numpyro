@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import copy
 import operator
-from typing import Callable, Optional, Self, Sequence, Union, overload
+from typing import Callable, Optional, Protocol, Self, Sequence, TypeVar, Union
 
 import jax
 from jax import Array, lax, random
@@ -35,11 +35,19 @@ __all__ = ["GaussianHMM", "HiddenMarkovModel", "IndependentHMM"]
 Factor = Union[Gaussian, AffineNormal]
 
 
-@overload
-def _with_batch_rank(factor: Gaussian, rank: int) -> Gaussian: ...
-@overload
-def _with_batch_rank(factor: AffineNormal, rank: int) -> AffineNormal: ...
-def _with_batch_rank(factor: Factor, rank: int) -> Factor:
+class _Shaped(Protocol):
+    """Batch shape operations shared by every factor type."""
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]: ...
+    def expand(self, batch_shape: Sequence[int]) -> Self: ...
+    def reshape(self, batch_shape: Sequence[int]) -> Self: ...
+
+
+F = TypeVar("F", bound=_Shaped)
+
+
+def _with_batch_rank(factor: F, rank: int) -> F:
     missing = rank - len(factor.batch_shape)
     return (
         factor.reshape((1,) * missing + factor.batch_shape) if missing > 0 else factor
@@ -119,6 +127,61 @@ def _resolve_num_steps(time: int, num_steps: Optional[int]) -> int:
     return num_steps
 
 
+def _check_event_shapes(
+    initial_dist: Distribution,
+    transition_matrix: Array,
+    transition_dist: Distribution,
+    observation_matrix: Array,
+    observation_dist: Distribution,
+) -> None:
+    obs_dim, hidden_dim = observation_matrix.shape[-2:]
+    if transition_matrix.shape[-2:] != (hidden_dim, hidden_dim):
+        raise ValueError(
+            "transition_matrix must have shape (..., hidden_dim, hidden_dim)"
+        )
+    for name, d, expected in (
+        ("initial_dist", initial_dist, (hidden_dim,)),
+        ("transition_dist", transition_dist, (hidden_dim,)),
+        ("observation_dist", observation_dist, (obs_dim,)),
+    ):
+        if tuple(d.event_shape) != expected:
+            raise ValueError(
+                f"{name} must have event_shape {expected}, got {tuple(d.event_shape)}"
+            )
+
+
+def _resolve_layout(
+    initial_dist: Distribution,
+    transition_matrix: Array,
+    transition_dist: Distribution,
+    observation_matrix: Array,
+    observation_dist: Distribution,
+    num_steps: Optional[int],
+) -> tuple[tuple[int, ...], int, int]:
+    """
+    Validate event shapes and broadcast the parameters' batch shapes.
+
+    :return: ``(batch_shape, time, num_steps)`` where ``time`` is the size of
+        the parameters' time axis (1 when every parameter is homogeneous).
+    :rtype: tuple[tuple[int, ...], int, int]
+    """
+    _check_event_shapes(
+        initial_dist,
+        transition_matrix,
+        transition_dist,
+        observation_matrix,
+        observation_dist,
+    )
+    batch_shape, time = _time_shape(
+        tuple(initial_dist.batch_shape) + (1,),
+        transition_matrix.shape[:-2],
+        tuple(transition_dist.batch_shape),
+        observation_matrix.shape[:-2],
+        tuple(observation_dist.batch_shape),
+    )
+    return batch_shape, time, _resolve_num_steps(time, num_steps)
+
+
 def _check_expand(old: tuple[int, ...], new: Sequence[int]) -> tuple[int, ...]:
     """Return ``new`` as a tuple if ``old`` broadcasts to exactly it."""
     new = tuple(new)
@@ -138,10 +201,19 @@ class HiddenMarkovModel(Distribution):
 
     Subclasses store three factors: ``_init`` over ``z_0``, ``_trans`` over
     ``(z_{t-1}, z_t)`` and ``_obs`` over ``(z_t, x_t)``. Time is the rightmost
-    batch axis of the per-step factors (size 1 when time-homogeneous). Shapes
-    are derived from the factors, so instances built under :func:`jax.vmap` or
-    carried through :func:`jax.lax.scan` report the mapped batch shape.
+    batch axis of the per-step factors (size 1 when time-homogeneous).
+    :meth:`Distribution.__init__` is not called because ``batch_shape`` and
+    ``event_shape`` are properties derived from the factor leaves instead of
+    stored metadata, so instances built under :func:`jax.vmap` or carried
+    through :func:`jax.lax.scan` report the mapped batch shape (the lazy shape
+    model proposed in issue #2271).
+
+    Subclasses set ``_sequential`` and ``_tensordot`` to the factor type's
+    sequential reduction and pairwise contraction.
     """
+
+    _sequential: Callable[[Gaussian], Gaussian]
+    _tensordot: Callable[[Gaussian, Gaussian, int], Gaussian]
 
     arg_constraints = {}
     support = constraints.real_matrix
@@ -210,8 +282,21 @@ class HiddenMarkovModel(Distribution):
             _obs=self._obs.expand(full + obs_time).reshape(batch_shape + obs_time),
         )
 
-    def _time_expanded(self, factor: Gaussian) -> Gaussian:
+    def _time_expanded(self, factor: F) -> F:
         return factor.expand(factor.batch_shape[:-1] + (self.num_steps,))
+
+    def _reduce(self, z_factor: Gaussian) -> Gaussian:
+        """
+        Contract ``_init`` with the per-step factors ``_trans + z_factor`` over
+        every step, returning a factor over ``z_T``.
+
+        :param Gaussian z_factor: Per-step factor over ``z_t`` (time as the
+            rightmost batch axis, size 1 when homogeneous).
+        :rtype: Gaussian
+        """
+        logp = self._trans + z_factor.event_pad(left=self.hidden_dim)
+        logp = self._sequential(self._time_expanded(logp))
+        return self._tensordot(self._init, logp, self.hidden_dim)
 
     def _lead_and_extra(self, value: Array) -> tuple[Array, int]:
         if value.shape[-2:] != self.event_shape:
@@ -268,6 +353,9 @@ class GaussianHMM(HiddenMarkovModel):
         time-homogeneous.
     """
 
+    _sequential = staticmethod(sequential_gaussian_tensordot)
+    _tensordot = staticmethod(gaussian_tensordot)
+
     def __init__(
         self,
         initial_dist: Distribution,
@@ -281,41 +369,29 @@ class GaussianHMM(HiddenMarkovModel):
     ) -> None:
         transition_matrix = jnp.asarray(transition_matrix)
         observation_matrix = jnp.asarray(observation_matrix)
-        obs_dim, hidden_dim = observation_matrix.shape[-2:]
-        if transition_matrix.shape[-2:] != (hidden_dim, hidden_dim):
-            raise ValueError(
-                "transition_matrix must have shape (..., hidden_dim, hidden_dim)"
-            )
-        for name, d, expected in (
-            ("initial_dist", initial_dist, (hidden_dim,)),
-            ("transition_dist", transition_dist, (hidden_dim,)),
-            ("observation_dist", observation_dist, (obs_dim,)),
-        ):
-            if tuple(d.event_shape) != expected:
-                raise ValueError(
-                    f"{name} must have event_shape {expected}, "
-                    f"got {tuple(d.event_shape)}"
-                )
-        _, time = _time_shape(
-            tuple(initial_dist.batch_shape) + (1,),
-            transition_matrix.shape[:-2],
-            tuple(transition_dist.batch_shape),
-            observation_matrix.shape[:-2],
-            tuple(observation_dist.batch_shape),
+        _, _, num_steps = _resolve_layout(
+            initial_dist,
+            transition_matrix,
+            transition_dist,
+            observation_matrix,
+            observation_dist,
+            num_steps,
         )
         super().__init__(
             mvn_to_gaussian(initial_dist),
             matrix_and_mvn_to_gaussian(transition_matrix, transition_dist),
             matrix_and_mvn_to_gaussian(observation_matrix, observation_dist),
-            _resolve_num_steps(time, num_steps),
+            num_steps,
             validate_args=validate_args,
         )
 
+    @property
+    def has_rsample(self) -> bool:
+        return True
+
     def _posterior(self, value: Array) -> Gaussian:
         """Factor over ``z_T`` given ``value`` of shape ``batch_shape + (num_steps, obs_dim)``."""
-        logp = self._trans + self._obs.condition(value).event_pad(left=self.hidden_dim)
-        logp = sequential_gaussian_tensordot(self._time_expanded(logp))
-        return gaussian_tensordot(self._init, logp, self.hidden_dim)
+        return self._reduce(self._obs.condition(value))
 
     @validate_sample
     def log_prob(self, value: Array) -> Array:
@@ -368,12 +444,8 @@ class GaussianHMM(HiddenMarkovModel):
             )
         per_step = mvn_to_gaussian(_peel_event(other, 1))
         new = self._replace(_obs=self._obs + per_step.event_pad(left=self.hidden_dim))
-        logp = new._trans + new._obs.marginalize(right=self.obs_dim).event_pad(
-            left=self.hidden_dim
-        )
-        logp = sequential_gaussian_tensordot(new._time_expanded(logp))
-        log_normalizer = gaussian_tensordot(
-            new._init, logp, self.hidden_dim
+        log_normalizer = new._reduce(
+            new._obs.marginalize(right=self.obs_dim)
         ).event_logsumexp()
         return new._replace(_init=new._init - log_normalizer), log_normalizer
 
@@ -553,13 +625,13 @@ class IndependentHMM(Distribution):
         value = jnp.swapaxes(value, -1, -2)[..., None]
         return jnp.asarray(self.base_dist.log_prob(value)).sum(-1)
 
+    def _rewrap(self, base: Distribution) -> IndependentHMM:
+        return IndependentHMM(base, validate_args=self.__dict__.get("_validate_args"))
+
     def expand(self, batch_shape: Sequence[int]) -> IndependentHMM:
         batch_shape = _check_expand(self.batch_shape, batch_shape)
         obs = self.base_dist.batch_shape[-1:]
-        return IndependentHMM(
-            self.base_dist.expand(batch_shape + obs),
-            validate_args=self.__dict__.get("_validate_args"),
-        )
+        return self._rewrap(self.base_dist.expand(batch_shape + obs))
 
     def reshape_batch(self, batch_shape: Sequence[int]) -> IndependentHMM:
         base = self.base_dist
@@ -568,10 +640,7 @@ class IndependentHMM(Distribution):
                 "reshape_batch requires a HiddenMarkovModel base distribution"
             )
         obs = base.batch_shape[-1:]
-        return IndependentHMM(
-            base.reshape_batch(tuple(batch_shape) + obs),
-            validate_args=self.__dict__.get("_validate_args"),
-        )
+        return self._rewrap(base.reshape_batch(tuple(batch_shape) + obs))
 
     def prefix_condition(self, data: Array) -> IndependentHMM:
         """
@@ -582,7 +651,4 @@ class IndependentHMM(Distribution):
         if not isinstance(base, GaussianHMM):
             raise TypeError("prefix_condition requires a GaussianHMM base distribution")
         prefix = jnp.swapaxes(data, -1, -2)[..., None]
-        return IndependentHMM(
-            base.prefix_condition(prefix),
-            validate_args=self.__dict__.get("_validate_args"),
-        )
+        return self._rewrap(base.prefix_condition(prefix))
