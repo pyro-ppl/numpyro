@@ -24,6 +24,8 @@ from numpyro.distributions.util import (
     log1mexp,
     logdiffexp,
     multinomial,
+    relative_jitter,
+    safe_cholesky,
     safe_normalize,
     vec_to_tril_matrix,
     von_mises_centered,
@@ -394,3 +396,22 @@ def test_no_tracer_leak_at_lazy_property_sample(my_dist):
     jit_sample = jax.jit(my_dist.sample)
     with jax.check_tracer_leaks():
         jit_sample(jax.random.key(5))
+
+
+def test_safe_cholesky_scalar_path_is_finite_at_zero():
+    value, grad = jax.value_and_grad(
+        lambda x: jnp.log(safe_cholesky(x[None, None])[0, 0])
+    )(jnp.zeros(()))
+    assert jnp.isfinite(value) and jnp.isfinite(grad)
+
+
+def test_safe_cholesky_rank_deficient_has_finite_gradient():
+    P = jnp.array([[1.0, 1.0], [1.0, 1.0]])
+    grad = jax.grad(lambda P: jnp.log(jnp.diagonal(safe_cholesky(P))).sum())(P)
+    assert jnp.isfinite(grad).all()
+
+
+def test_safe_cholesky_matches_cholesky_on_well_conditioned():
+    P = jnp.array([[2.0, 0.5], [0.5, 1.0]])
+    assert_allclose(safe_cholesky(P), jnp.linalg.cholesky(P), rtol=1e-5)
+    assert jnp.all(jnp.diagonal(relative_jitter(P)) > jnp.diagonal(P))

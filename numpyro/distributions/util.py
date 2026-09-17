@@ -834,3 +834,43 @@ def add_diag(matrix: Array, diag: ArrayLike) -> Array:
     """
     idx = jnp.arange(matrix.shape[-1])
     return matrix.at[..., idx, idx].add(diag)
+
+
+def relative_jitter(matrix: Array) -> Array:
+    """
+    Add a gradient-free relative jitter to the diagonal of a symmetric matrix.
+
+    Parameters
+    ----------
+    matrix : Array
+        Symmetric matrices of shape ``(..., n, n)``.
+
+    Returns
+    -------
+    Array
+        ``matrix`` with ``4 * eps * max(abs(row))`` added to each diagonal entry,
+        where the jitter is detached from the gradient.
+    """
+    jitter = 4 * jnp.finfo(matrix.dtype).eps * jnp.max(jnp.abs(matrix), axis=-1)
+    return add_diag(matrix, lax.stop_gradient(jitter))
+
+
+def safe_cholesky(matrix: Array) -> Array:
+    """
+    Lower Cholesky factor that tolerates rounding-level indefiniteness.
+
+    Parameters
+    ----------
+    matrix : Array
+        Symmetric positive semi-definite matrices of shape ``(..., n, n)``.
+
+    Returns
+    -------
+    Array
+        Lower triangular factors. For ``n == 1`` this is ``sqrt`` of the input
+        clamped at the smallest positive float. Inputs that are not positive
+        definite beyond rounding yield ``nan``.
+    """
+    if matrix.shape[-1] == 1:
+        return jnp.sqrt(jnp.clip(matrix, jnp.finfo(matrix.dtype).tiny))
+    return jnp.linalg.cholesky(relative_jitter(matrix))
