@@ -19,6 +19,7 @@ from numpyro.ops.gaussian import (
     matrix_and_gaussian_to_gaussian,
     matrix_and_mvn_to_gaussian,
     mvn_to_gaussian,
+    sequential_gaussian_filter_sample,
     sequential_gaussian_tensordot,
 )
 
@@ -298,3 +299,78 @@ def test_loc_and_scale_tril():
     cov = jnp.linalg.inv(g.precision)
     assert_allclose(loc, _mv(cov, g.info_vec), rtol=1e-3)
     assert_allclose(scale_tril @ _mt(scale_tril), cov, rtol=1e-3)
+
+
+def _posterior_marginals(init, trans):
+    """Marginal mean of every state via prefix and suffix reductions (oracle)."""
+    T, s = trans.batch_shape[-1], init.dim
+    means = []
+    for t in range(T + 1):
+        left = (
+            init
+            if t == 0
+            else gaussian_tensordot(
+                init, sequential_gaussian_tensordot(trans[..., :t]), s
+            )
+        )
+        right = (
+            sequential_gaussian_tensordot(trans[..., t:]).marginalize(right=s)
+            if t < T
+            else None
+        )
+        marginal = left if right is None else left + right
+        loc, _ = loc_and_scale_tril(marginal.info_vec, marginal.precision)
+        means.append(loc)
+    return jnp.stack(means, -2)
+
+
+@pytest.mark.parametrize("num_steps", [1, 2, 3, 4, 7, 8])
+@pytest.mark.parametrize("sample_shape", [(), (5,)])
+def test_filter_sample_shape_mean_and_grads(num_steps, sample_shape):
+    s = 2
+    init = random_gaussian(random.key(0), (3,), s)
+    trans = random_gaussian(random.key(1), (3, num_steps), 2 * s)
+    z = sequential_gaussian_filter_sample(random.key(2), init, trans, sample_shape)
+    assert z.shape == sample_shape + (3, num_steps + 1, s)
+    mean = sequential_gaussian_filter_sample(
+        None, init, trans, noise=jnp.zeros((3, num_steps + 1, s))
+    )
+    assert_allclose(mean, _posterior_marginals(init, trans), rtol=1e-3, atol=1e-3)
+    grad = jax.grad(
+        lambda ln: sequential_gaussian_filter_sample(
+            random.key(2), Gaussian(ln, init.info_vec, init.precision), trans
+        ).sum()
+    )(init.log_normalizer)
+    assert jnp.isfinite(grad).all()
+
+
+def test_filter_sample_antithetic():
+    init = random_gaussian(random.key(0), (), 2)
+    trans = random_gaussian(random.key(1), (5,), 4)
+    noise = random.normal(random.key(2), (6, 2))
+    z = sequential_gaussian_filter_sample(
+        None, init, trans, (3,), noise=jnp.stack([noise, 0 * noise, -noise])
+    )
+    assert_allclose(z[1], (z[0] + z[2]) / 2, rtol=1e-4, atol=1e-4)
+    assert_allclose(
+        z,
+        sequential_gaussian_filter_sample(
+            random.key(9),
+            init,
+            trans,
+            (3,),
+            noise=jnp.stack([noise, 0 * noise, -noise]),
+        ),
+    )
+
+
+def test_filter_sample_moments():
+    init = random_gaussian(random.key(0), (), 1)
+    trans = random_gaussian(random.key(1), (3,), 2)
+    z = sequential_gaussian_filter_sample(random.key(2), init, trans, (20000,))
+    joint = init.event_pad(right=3)
+    for t in range(3):
+        joint = joint + trans[..., t].event_pad(left=t, right=2 - t)
+    cov = jnp.linalg.inv(joint.precision)
+    assert_allclose(z[..., 0].mean(0), _mv(cov, joint.info_vec), atol=0.05)
+    assert_allclose(jnp.cov(z[..., 0].T), cov, atol=0.1)

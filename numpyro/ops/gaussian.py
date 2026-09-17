@@ -51,6 +51,7 @@ __all__ = [
     "matrix_and_gaussian_to_gaussian",
     "matrix_and_mvn_to_gaussian",
     "mvn_to_gaussian",
+    "sequential_gaussian_filter_sample",
     "sequential_gaussian_tensordot",
 ]
 
@@ -530,6 +531,94 @@ def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
             contracted = Gaussian.cat([contracted, gaussian[..., -1:]], axis=-1)
         gaussian = contracted
     return gaussian[..., 0]
+
+
+def sequential_gaussian_filter_sample(
+    key: Optional[Array],
+    init: Gaussian,
+    trans: Gaussian,
+    sample_shape: tuple[int, ...] = (),
+    noise: Optional[Array] = None,
+) -> Array:
+    """
+    Sample state paths from a chain of pairwise factors with ``O(log T)`` parallel depth.
+
+    Parameters
+    ----------
+    key : Array, optional
+        PRNG key; required when ``noise`` is ``None``.
+    init : Gaussian
+        Factor over ``z_0``.
+    trans : Gaussian
+        Factors over ``(z_{t-1}, z_t)`` with time on the last batch axis (``T`` steps).
+    sample_shape : tuple[int, ...]
+        Leading sample dimensions.
+    noise : Array, optional
+        Standard normal draws of shape ``sample_shape + batch_shape + (T + 1, state_dim)``.
+        ``zeros`` yields the posterior mean and ``[n, 0, -n]`` an antithetic triple;
+        ``sample(key)`` equals ``sample(noise=random.normal(key, ...))``.
+
+    Returns
+    -------
+    Array
+        Shape ``sample_shape + batch_shape + (T + 1, state_dim)`` including ``z_0``.
+    """
+    state_dim = init.dim
+    num_steps = trans.batch_shape[-1]
+    batch_shape = lax.broadcast_shapes(trans.batch_shape[:-1], init.batch_shape)
+    trans = trans.expand(batch_shape + (num_steps,))
+    perm = jnp.concatenate(
+        [
+            jnp.arange(state_dim, 2 * state_dim),
+            jnp.arange(state_dim),
+            jnp.arange(2 * state_dim, 3 * state_dim),
+        ]
+    )
+
+    tape = []
+    gaussian = trans
+    while gaussian.batch_shape[-1] > 1:
+        time = gaussian.batch_shape[-1]
+        even = time // 2 * 2
+        x = gaussian[..., 0:even:2].event_pad(right=state_dim)
+        y = gaussian[..., 1:even:2].event_pad(left=state_dim)
+        joint = (x + y).event_permute(perm)
+        tape.append(joint)
+        contracted = joint.marginalize(left=state_dim)
+        if time > even:
+            contracted = Gaussian.cat([contracted, gaussian[..., -1:]], axis=-1)
+        gaussian = contracted
+    final = gaussian[..., 0] + init.expand(batch_shape).event_pad(right=state_dim)
+
+    shape = tuple(sample_shape) + batch_shape + (num_steps + 1, state_dim)
+    if noise is None:
+        noise = random.normal(key, shape, init.precision.dtype)
+    noise = noise.reshape(shape)
+
+    def backward(eps: Array) -> Array:
+        result = final.sample(
+            noise=eps[..., :2, :].reshape(batch_shape + (2 * state_dim,))
+        )
+        result = result.reshape(batch_shape + (2, state_dim))
+        position = 2
+        for joint in reversed(tape):
+            pairs = joint.batch_shape[-1]
+            cond = jnp.concatenate(
+                [result[..., :pairs, :], result[..., 1 : pairs + 1, :]], -1
+            )
+            sample = joint.condition(cond).sample(
+                noise=eps[..., position : position + pairs, :]
+            )
+            position += pairs
+            head = jnp.stack([result[..., :pairs, :], sample], -2).reshape(
+                batch_shape + (2 * pairs, state_dim)
+            )
+            result = jnp.concatenate([head, result[..., pairs:, :]], -2)
+        return result
+
+    for _ in sample_shape:
+        backward = jax.vmap(backward)
+    return backward(noise)
 
 
 def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]:
