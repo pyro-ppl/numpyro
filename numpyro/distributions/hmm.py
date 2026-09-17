@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Callable, Optional, Sequence, Union, overload
+from typing import Callable, Optional, Self, Sequence, Union, overload
 
 import jax
 from jax import Array, lax, random
@@ -149,18 +149,18 @@ class HiddenMarkovModel(Distribution):
     def obs_dim(self) -> int:
         return self._obs.dim - self._init.dim
 
-    def _replace(self, **fields) -> HiddenMarkovModel:
+    def _replace(self, **fields) -> Self:
         new = copy.copy(self)
         for name, value in fields.items():
             object.__setattr__(new, name, value)
         new._init, new._trans, new._obs = _align(new._init, new._trans, new._obs)
         return new
 
-    def expand(self, batch_shape: Sequence[int]) -> HiddenMarkovModel:
+    def expand(self, batch_shape: Sequence[int]) -> Self:
         batch_shape = lax.broadcast_shapes(self.batch_shape, tuple(batch_shape))
         return self._replace(_init=self._init.expand(batch_shape))
 
-    def reshape_batch(self, batch_shape: Sequence[int]) -> HiddenMarkovModel:
+    def reshape_batch(self, batch_shape: Sequence[int]) -> Self:
         """
         Reshape the batch dimensions (same number of elements), e.g. to append
         a singleton batch axis.
@@ -301,6 +301,73 @@ class GaussianHMM(HiddenMarkovModel):
         loc, scale_tril = _vmap_leading(moments, extra)(value)
         return MultivariateNormal(
             loc, scale_tril=scale_tril, validate_args=self._validate_args
+        )
+
+    def conjugate_update(self, other: Distribution) -> tuple[GaussianHMM, Array]:
+        """
+        Multiply by a Gaussian likelihood over the observations.
+
+        Parameters
+        ----------
+        other : Distribution
+            ``Independent(Normal, 2)`` or ``Independent(MultivariateNormal, 1)``
+            (possibly expanded) with ``event_shape == (num_steps, obs_dim)``.
+
+        Returns
+        -------
+        tuple[GaussianHMM, Array]
+            ``(updated, log_normalizer)`` such that
+            ``self.log_prob(x) + other.log_prob(x) == updated.log_prob(x) + log_normalizer``.
+        """
+        if tuple(other.event_shape) != self.event_shape:
+            raise ValueError(
+                f"other must have event_shape {self.event_shape}, "
+                f"got {tuple(other.event_shape)}"
+            )
+        per_step = mvn_to_gaussian(_peel_event(other, 1))
+        new = self._replace(_obs=self._obs + per_step.event_pad(left=self.hidden_dim))
+        logp = new._trans + new._obs.marginalize(right=self.obs_dim).event_pad(
+            left=self.hidden_dim
+        )
+        logp = sequential_gaussian_tensordot(new._time_expanded(logp))
+        log_normalizer = gaussian_tensordot(
+            new._init, logp, self.hidden_dim
+        ).event_logsumexp()
+        return new._replace(_init=new._init - log_normalizer), log_normalizer
+
+    def prefix_condition(self, data: Array) -> GaussianHMM:
+        """
+        Condition on the first ``t < num_steps`` observations and return the
+        model over the remaining steps.
+
+        Parameters
+        ----------
+        data : Array
+            Shape ``(..., t, obs_dim)`` with ``0 < t < num_steps``.
+
+        Returns
+        -------
+        GaussianHMM
+            Model over ``num_steps - t`` steps whose initial distribution is
+            the filtered posterior.
+        """
+        t = data.shape[-2]
+        if not 0 < t < self.num_steps:
+            raise ValueError(f"prefix length must be in (0, {self.num_steps}), got {t}")
+
+        def split(factor: Factor) -> tuple[Factor, Factor]:
+            if factor.batch_shape[-1] == 1:
+                return factor, factor
+            return factor[..., :t], factor[..., t:]
+
+        trans_head, trans_tail = split(self._trans)
+        obs_head, obs_tail = split(self._obs)
+        head = self._replace(_trans=trans_head, _obs=obs_head, num_steps=t)
+        return self._replace(
+            _init=mvn_to_gaussian(head.filter(data)),
+            _trans=trans_tail,
+            _obs=obs_tail,
+            num_steps=self.num_steps - t,
         )
 
     def _sample_states(

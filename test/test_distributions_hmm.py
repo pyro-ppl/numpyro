@@ -269,3 +269,77 @@ def test_gaussian_hmm_matches_gaussian_state_space_moments():
     extra = jnp.stack([jnp.diag(P @ S0 @ P.T) for P in powers]) + jnp.diag(R)
     assert_allclose(x.mean(0), ssm.mean, atol=0.05)
     assert_allclose(x.var(0), ssm.variance + extra, rtol=0.05, atol=0.02)
+
+
+@pytest.mark.parametrize("other_kind", ["normal", "mvn", "expanded"])
+def test_gaussian_hmm_conjugate_update_identity(other_kind):
+    T, n, m = 5, 2, 2
+    hmm = _hmm(random.key(0), T, n, m, batch=(3,))
+    x = random.normal(random.key(1), (3, T, m))
+    if other_kind == "normal":
+        other = dist.Normal(x, 0.7).to_event(2)
+    elif other_kind == "mvn":
+        other = dist.MultivariateNormal(
+            x, covariance_matrix=_spd(random.key(2), m)
+        ).to_event(1)
+    else:
+        other = dist.Normal(0.0, 0.7).expand((3, T, m)).to_event(2)
+    updated, log_normalizer = hmm.conjugate_update(other)
+    assert isinstance(updated, GaussianHMM)
+    assert log_normalizer.shape == (3,)
+    assert updated.batch_shape == (3,)
+    y = random.normal(random.key(3), (4, 3, T, m))
+    assert_allclose(
+        hmm.log_prob(y) + other.log_prob(y),
+        updated.log_prob(y) + log_normalizer,
+        rtol=1e-3,
+        atol=1e-3,
+    )
+    assert updated.sample(random.key(4)).shape == (3, T, m)
+
+
+def test_gaussian_hmm_prefix_condition_chain_rule():
+    T, n, m, t = 9, 3, 2, 4
+    ks = random.split(random.key(5), 6)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (T, n, n))
+    H = random.normal(ks[1], (T, m, n))
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans = dist.MultivariateNormal(
+        jnp.zeros((T, n)), covariance_matrix=_spd(ks[4], n, 0.5)
+    )
+    obs = dist.MultivariateNormal(
+        jnp.zeros((T, m)), covariance_matrix=_spd(ks[5], m, 0.3)
+    )
+    hmm = GaussianHMM(init, A, trans, H, obs)
+    x = hmm.sample(random.key(6))
+    head = GaussianHMM(
+        init,
+        A[:t],
+        dist.MultivariateNormal(trans.mean[:t], scale_tril=trans.scale_tril[:t]),
+        H[:t],
+        dist.MultivariateNormal(obs.mean[:t], scale_tril=obs.scale_tril[:t]),
+    )
+    tail = hmm.prefix_condition(x[:t])
+    assert tail.event_shape == (T - t, m)
+    assert_allclose(
+        hmm.log_prob(x),
+        head.log_prob(x[:t]) + tail.log_prob(x[t:]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+    with pytest.raises(ValueError):
+        hmm.prefix_condition(x)
+    batched = hmm.prefix_condition(jnp.stack([x[:t], x[:t]]))
+    assert batched.batch_shape == (2,)
+    assert batched.log_prob(x[t:]).shape == (2,)
+
+
+def test_gaussian_hmm_reshape_batch():
+    hmm = _hmm(random.key(0), 4, 2, 1, batch=(3,), homogeneous=True)
+    reshaped = hmm.reshape_batch((3, 1))
+    assert reshaped.batch_shape == (3, 1)
+    x = hmm.sample(random.key(1))
+    assert_allclose(reshaped.log_prob(x[:, None]), hmm.log_prob(x)[:, None], rtol=1e-5)
+    assert isinstance(reshaped.prefix_condition(x[:, None, :2]), GaussianHMM)
