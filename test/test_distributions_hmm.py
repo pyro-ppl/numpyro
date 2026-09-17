@@ -10,7 +10,12 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.hmm import GaussianHMM, HiddenMarkovModel, IndependentHMM
+from numpyro.distributions.hmm import (
+    GammaGaussianHMM,
+    GaussianHMM,
+    HiddenMarkovModel,
+    IndependentHMM,
+)
 from numpyro.ops.gaussian import mvn_to_gaussian
 
 
@@ -1102,3 +1107,72 @@ def test_gaussian_hmm_reports_non_broadcastable_value_batch():
         ValueError, match="does not broadcast with batch_shape \\(3,\\)"
     ):
         hmm.log_prob(jnp.zeros((2, 3, 1)))
+
+
+@pytest.mark.parametrize("batch", [(), (3,)])
+@pytest.mark.parametrize("homogeneous", [False, True])
+def test_gamma_gaussian_hmm_shapes(batch, homogeneous):
+    T, n, m = 5, 2, 2
+    ks = random.split(random.key(0), 6)
+    tshape = ((1,) if batch else ()) if homogeneous else (T,)
+    scale_dist = dist.Gamma(jnp.full(batch, 3.0), 2.0)
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], batch + (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans = dist.MultivariateNormal(
+        jnp.zeros(batch + tshape + (n,)), covariance_matrix=_spd(ks[4], n, 0.5)
+    )
+    obs = dist.MultivariateNormal(
+        jnp.zeros(batch + tshape + (m,)), covariance_matrix=_spd(ks[5], m, 0.3)
+    )
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], batch + tshape + (n, n))
+    H = random.normal(ks[1], batch + tshape + (m, n))
+    hmm = GammaGaussianHMM(
+        scale_dist, init, A, trans, H, obs, num_steps=T if homogeneous else None
+    )
+    assert hmm.batch_shape == batch and hmm.event_shape == (T, m)
+    assert not hmm.has_rsample
+    x = random.normal(random.key(1), (4,) + batch + (T, m))
+    assert hmm.log_prob(x).shape == (4,) + batch
+    gamma, mvn = hmm.filter(x)
+    assert gamma.batch_shape == (4,) + batch
+    assert mvn.batch_shape == (4,) + batch and mvn.event_shape == (n,)
+    assert hmm.expand((2,) + batch).log_prob(x[0]).shape == (2,) + batch
+    with pytest.raises(TypeError):
+        GammaGaussianHMM(
+            scale_dist,
+            init,
+            A,
+            dist.Normal(jnp.zeros(batch + tshape + (n,)), 1.0).to_event(1),
+            H,
+            obs,
+            num_steps=T,
+        )
+
+
+@pytest.mark.parametrize("T,n,m", [(1, 1, 1), (2, 2, 1), (5, 2, 2)])
+def test_gamma_gaussian_hmm_log_prob_matches_student_t(T, n, m):
+    ks = random.split(random.key(T), 6)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (T, n, n))
+    H = random.normal(ks[1], (T, m, n))
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans = dist.MultivariateNormal(
+        0.3 * random.normal(ks[4], (T, n)), covariance_matrix=_spd(ks[5], n, 0.5)
+    )
+    obs = dist.MultivariateNormal(
+        0.3 * random.normal(ks[0], (T, m)), covariance_matrix=_spd(ks[1], m, 0.3)
+    )
+    concentration, rate = 4.0, 3.0
+    hmm = GammaGaussianHMM(
+        dist.Gamma(concentration, rate), init, A, trans, H, obs, num_steps=T
+    )
+    x = random.normal(random.key(1), (T, m))
+    mean, cov = dense_reference(init, A, trans, H, obs, T)
+    nz = (T + 1) * n
+    cov_x = cov[nz:, nz:] * rate / concentration
+    expected = dist.MultivariateStudentT(
+        2 * concentration, mean[nz:], jnp.linalg.cholesky(cov_x)
+    ).log_prob(x.ravel())
+    assert_allclose(hmm.log_prob(x), expected, rtol=1e-4, atol=1e-4)

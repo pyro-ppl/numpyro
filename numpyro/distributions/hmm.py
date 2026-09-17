@@ -11,6 +11,7 @@ from typing import (
     Any,
     Callable,
     ClassVar,
+    Generic,
     Optional,
     Protocol,
     Self,
@@ -26,13 +27,20 @@ from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
-from numpyro.distributions.continuous import MultivariateNormal
+from numpyro.distributions.continuous import Gamma, MultivariateNormal
 from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
     Independent,
 )
 from numpyro.distributions.util import validate_sample
+from numpyro.ops.gamma_gaussian import (
+    GammaGaussian,
+    gamma_and_mvn_to_gamma_gaussian,
+    gamma_gaussian_tensordot,
+    matrix_and_mvn_to_gamma_gaussian,
+    sequential_gamma_gaussian_tensordot,
+)
 from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
@@ -45,21 +53,37 @@ from numpyro.ops.gaussian import (
     sequential_gaussian_tensordot,
 )
 
-__all__ = ["GaussianHMM", "HiddenMarkovModel", "IndependentHMM"]
+__all__ = ["GammaGaussianHMM", "GaussianHMM", "HiddenMarkovModel", "IndependentHMM"]
 
 Factor = Union[Gaussian, AffineNormal]
 
 
 class _Shaped(Protocol):
-    """Batch shape operations shared by every factor type."""
+    """Shape operations shared by every factor type."""
 
+    @property
+    def dim(self) -> int: ...
     @property
     def batch_shape(self) -> tuple[int, ...]: ...
     def expand(self, batch_shape: Sequence[int]) -> Self: ...
     def reshape(self, batch_shape: Sequence[int]) -> Self: ...
 
 
+class _Reducible(_Shaped, Protocol):
+    """Factor type a :class:`HiddenMarkovModel` reduces over."""
+
+    def event_pad(self, left: int = ..., right: int = ...) -> Self: ...
+
+
 F = TypeVar("F", bound=_Shaped)
+S = TypeVar("S", bound=_Shaped)
+Z = TypeVar("Z", bound=_Reducible)
+
+
+class _Step(_Shaped, Protocol[Z]):
+    """Per-step factor whose sum with a ``Z`` factor is a ``Z`` factor."""
+
+    def __add__(self, other: Z) -> Z: ...
 
 
 def _with_batch_rank(factor: F, rank: int) -> F:
@@ -69,9 +93,7 @@ def _with_batch_rank(factor: F, rank: int) -> F:
     )
 
 
-def _align(
-    init: Gaussian, trans: Factor, obs: Factor
-) -> tuple[Gaussian, Factor, Factor]:
+def _align(init: F, trans: S, obs: S) -> tuple[F, S, S]:
     """
     Insert leading singleton batch axes so ``init`` has rank ``r`` and the
     per-step factors rank ``r + 1``.
@@ -194,6 +216,8 @@ def _resolve_layout(
     observation_matrix: Array,
     observation_dist: Distribution,
     num_steps: Optional[int],
+    *,
+    extra_batch_shapes: Sequence[tuple[int, ...]] = (),
 ) -> tuple[tuple[int, ...], int, int]:
     """
     Validate event shapes and broadcast the parameters' batch shapes.
@@ -206,6 +230,9 @@ def _resolve_layout(
     :param Distribution observation_dist: observation noise with
         ``event_shape == (obs_dim,)``.
     :param Optional[int] num_steps: requested length of the time axis.
+    :param Sequence[tuple[int, ...]] extra_batch_shapes: batch shapes of
+        additional time-homogeneous parameters (such as a shared scale prior)
+        that must broadcast with the others.
     :return: ``(batch_shape, time, num_steps)`` where ``time`` is the size of
         the parameters' time axis (1 when every parameter is homogeneous).
     :rtype: tuple[tuple[int, ...], int, int]
@@ -225,6 +252,7 @@ def _resolve_layout(
         tuple(transition_dist.batch_shape),
         observation_matrix.shape[:-2],
         tuple(observation_dist.batch_shape),
+        *(tuple(shape) + (1,) for shape in extra_batch_shapes),
     )
     return batch_shape, time, _resolve_num_steps(time, num_steps)
 
@@ -371,7 +399,13 @@ def _kalman_filter(
     return lls.sum(0), loc_T, cov_T
 
 
-class HiddenMarkovModel(Distribution):
+def _require_mvn(d: Distribution, name: str) -> None:
+    base = d.base_dist if isinstance(d, ExpandedDistribution) else d
+    if not isinstance(base, MultivariateNormal):
+        raise TypeError(f"{name} must be a MultivariateNormal, got {type(d).__name__}")
+
+
+class HiddenMarkovModel(Distribution, Generic[Z]):
     """
     Base class for distributions over observation sequences with the latent
     chain marginalized by factor reduction.
@@ -388,23 +422,26 @@ class HiddenMarkovModel(Distribution):
     through :func:`jax.lax.scan` report the mapped batch shape (the lazy shape
     model proposed in https://github.com/pyro-ppl/numpyro/issues/2271).
 
-    Subclasses set ``_sequential`` and ``_tensordot`` to the factor type's
-    sequential reduction and pairwise contraction.
+    The class is generic in the factor type ``Z`` that ``_init`` and the
+    reduction results have (:class:`~numpyro.ops.gaussian.Gaussian` or
+    :class:`~numpyro.ops.gamma_gaussian.GammaGaussian`); the per-step factors
+    may be any type whose sum with a ``Z`` factor is a ``Z`` factor, such as
+    :class:`~numpyro.ops.gaussian.AffineNormal`. Subclasses set
+    ``_sequential`` and ``_tensordot`` to the factor type's sequential
+    reduction and pairwise contraction.
 
     .. note:: Matrices act on the left and the time axis is static; see the
         note in :class:`GaussianHMM` for the differences from Pyro.
 
-    :param init: factor over ``z_0``.
-    :type init: :class:`~numpyro.ops.gaussian.Gaussian`
+    :param Z init: factor over ``z_0``.
     :param trans: per-step factors over ``(z_{t-1}, z_t)``.
-    :type trans: :class:`~numpyro.ops.gaussian.Gaussian` or
-        :class:`~numpyro.ops.gaussian.AffineNormal`
     :param obs: per-step factors over ``(z_t, x_t)``.
-    :type obs: :class:`~numpyro.ops.gaussian.Gaussian` or
-        :class:`~numpyro.ops.gaussian.AffineNormal`
     :param int num_steps: length of the time axis.
     """
 
+    _init: Z
+    _trans: _Step[Z]
+    _obs: _Step[Z]
     _moments: Optional[_Moments]
 
     arg_constraints = {}
@@ -413,13 +450,13 @@ class HiddenMarkovModel(Distribution):
     pytree_aux_fields = ("num_steps",)
 
     @staticmethod
-    def _sequential(factor: Gaussian) -> Gaussian:
+    def _sequential(factor: Z) -> Z:
         raise NotImplementedError(
             "HiddenMarkovModel is abstract; use a subclass such as GaussianHMM"
         )
 
     @staticmethod
-    def _tensordot(x: Gaussian, y: Gaussian, dims: int) -> Gaussian:
+    def _tensordot(x: Z, y: Z, dims: int) -> Z:
         raise NotImplementedError(
             "HiddenMarkovModel is abstract; use a subclass such as GaussianHMM"
         )
@@ -438,9 +475,9 @@ class HiddenMarkovModel(Distribution):
 
     def __init__(
         self,
-        init: Gaussian,
-        trans: Factor,
-        obs: Factor,
+        init: Z,
+        trans: _Step[Z],
+        obs: _Step[Z],
         num_steps: int,
         *,
         validate_args: Optional[bool] = None,
@@ -530,14 +567,14 @@ class HiddenMarkovModel(Distribution):
     def _time_expanded(self, factor: F) -> F:
         return factor.expand(factor.batch_shape[:-1] + (self.num_steps,))
 
-    def _reduce(self, z_factor: Gaussian) -> Gaussian:
+    def _reduce(self, z_factor: Z) -> Z:
         """
         Contract ``_init`` with the per-step factors ``_trans + z_factor`` over
         every step, returning a factor over ``z_T``.
 
-        :param Gaussian z_factor: Per-step factor over ``z_t`` (time as the
-            rightmost batch axis, size 1 when homogeneous).
-        :rtype: Gaussian
+        :param Z z_factor: Per-step factor over ``z_t`` (time as the rightmost
+            batch axis, size 1 when homogeneous).
+        :rtype: Z
         """
         logp = self._trans + z_factor.event_pad(left=self.hidden_dim)
         logp = self._sequential(self._time_expanded(logp))
@@ -560,7 +597,7 @@ class HiddenMarkovModel(Distribution):
         return jnp.broadcast_to(value, lead + value.shape[-2:]), extra
 
 
-class GaussianHMM(HiddenMarkovModel):
+class GaussianHMM(HiddenMarkovModel[Gaussian]):
     r"""
     Hidden Markov model with linear-Gaussian dynamics and observations, with
     the latent states marginalized out exactly.
@@ -650,6 +687,8 @@ class GaussianHMM(HiddenMarkovModel):
         or ``Independent(Normal, 1)``.
     """
 
+    _trans: Factor
+    _obs: Factor
     _sequential = staticmethod(sequential_gaussian_tensordot)
     _tensordot = staticmethod(gaussian_tensordot)
 
@@ -952,6 +991,123 @@ class GaussianHMM(HiddenMarkovModel):
         z = draw(keys, value)
         sample_axes = tuple(range(extra, extra + len(sample_shape)))
         return jnp.moveaxis(z, sample_axes, tuple(range(len(sample_shape))))
+
+
+class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
+    r"""
+    Hidden Markov model whose Gaussian noise covariances are all divided by a
+    shared ``Gamma`` variable, giving a multivariate Student-t marginal over
+    observations.
+
+    Generative model::
+
+        s ~ scale_dist
+        z_0 ~ scale(initial_dist, s)
+        z_t = transition_matrix[t] @ z_{t-1} + scale(transition_dist[t], s).sample()
+        x_t = observation_matrix[t] @ z_t + scale(observation_dist[t], s).sample()
+
+    where ``scale(mvn, s)`` multiplies the precision by ``s``. Only
+    ``log_prob`` and :meth:`filter` are provided.
+
+    Parameters
+    ----------
+    scale_dist : Gamma
+        Prior over the shared precision scale.
+    initial_dist, transition_dist, observation_dist : MultivariateNormal
+        Noise distributions with event shapes ``(hidden_dim,)``,
+        ``(hidden_dim,)`` and ``(obs_dim,)``.
+    transition_matrix, observation_matrix : Array
+        As in :class:`GaussianHMM`.
+    num_steps : int, optional
+        Required when every per-step parameter is time-homogeneous.
+    """
+
+    _trans: GammaGaussian
+    _obs: GammaGaussian
+    _sequential = staticmethod(sequential_gamma_gaussian_tensordot)
+    _tensordot = staticmethod(gamma_gaussian_tensordot)
+
+    def __init__(
+        self,
+        scale_dist: Gamma,
+        initial_dist: Distribution,
+        transition_matrix: Array,
+        transition_dist: Distribution,
+        observation_matrix: Array,
+        observation_dist: Distribution,
+        *,
+        num_steps: Optional[int] = None,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        if not isinstance(scale_dist, Gamma):
+            raise TypeError(
+                f"scale_dist must be a Gamma, got {type(scale_dist).__name__}"
+            )
+        for name, d in (
+            ("initial_dist", initial_dist),
+            ("transition_dist", transition_dist),
+            ("observation_dist", observation_dist),
+        ):
+            _require_mvn(d, name)
+        transition_matrix = jnp.asarray(transition_matrix)
+        observation_matrix = jnp.asarray(observation_matrix)
+        _, _, num_steps = _resolve_layout(
+            initial_dist,
+            transition_matrix,
+            transition_dist,
+            observation_matrix,
+            observation_dist,
+            num_steps,
+            extra_batch_shapes=(tuple(scale_dist.batch_shape),),
+        )
+        super().__init__(
+            gamma_and_mvn_to_gamma_gaussian(scale_dist, initial_dist),
+            matrix_and_mvn_to_gamma_gaussian(transition_matrix, transition_dist),
+            matrix_and_mvn_to_gamma_gaussian(observation_matrix, observation_dist),
+            num_steps,
+            validate_args=validate_args,
+        )
+
+    @property
+    def has_rsample(self) -> bool:
+        return False
+
+    def _posterior(self, value: Array) -> GammaGaussian:
+        """Factor over ``(z_T, s)`` given ``value`` of shape ``batch_shape + (num_steps, obs_dim)``."""
+        return self._reduce(self._obs.condition(value))
+
+    @validate_sample
+    def log_prob(self, value: Array) -> Array:
+        value, extra = self._lead_and_extra(value)
+        return _vmap_leading(
+            lambda v: self._posterior(v).event_logsumexp().logsumexp(), extra
+        )(value)
+
+    def filter(self, value: Array) -> tuple[Gamma, MultivariateNormal]:
+        """
+        Posterior over the precision scale and over the final state.
+
+        Returns
+        -------
+        tuple[Gamma, MultivariateNormal]
+            ``p(s | x)`` and ``p(z_T | x, s = 1)`` scaled as a Gaussian with
+            the posterior precision.
+        """
+        value, extra = self._lead_and_extra(value)
+
+        def moments(v: Array) -> tuple[Array, Array, Array, Array]:
+            g = self._posterior(v)
+            factor = g.event_logsumexp()
+            loc, scale_tril = loc_and_scale_tril(g.info_vec, g.precision)
+            return factor.concentration, factor.rate, loc, scale_tril
+
+        concentration, rate, loc, scale_tril = _vmap_leading(moments, extra)(value)
+        return (
+            Gamma(concentration, rate, validate_args=self._validate_args),
+            MultivariateNormal(
+                loc, scale_tril=scale_tril, validate_args=self._validate_args
+            ),
+        )
 
 
 class IndependentHMM(Distribution):
