@@ -12,6 +12,7 @@ from numpyro.infer.elbo import (
     TraceMeanField_ELBO,
 )
 from numpyro.infer.ensemble import AIES, ESS
+from numpyro.infer.gibbs import CustomGibbs, DiscreteGibbs, Gibbs
 from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs
 from numpyro.infer.importance import psis_diagnostic
@@ -50,9 +51,12 @@ __all__ = [
     "psis_diagnostic",
     "reparam",
     "BarkerMH",
+    "CustomGibbs",
+    "DiscreteGibbs",
     "DiscreteHMCGibbs",
     "ELBO",
     "ESS",
+    "Gibbs",
     "HMC",
     "HMCECS",
     "HMCGibbs",
