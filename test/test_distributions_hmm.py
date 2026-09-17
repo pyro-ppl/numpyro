@@ -127,7 +127,7 @@ def test_gaussian_hmm_log_prob_and_filter_match_dense(T, n, m):
     obs = dist.MultivariateNormal(
         0.3 * random.normal(ks[0], (T, m)), covariance_matrix=_spd(ks[1], m, 0.3)
     )
-    hmm = GaussianHMM(init, A, trans, H, obs)
+    hmm = GaussianHMM(init, A, trans, H, obs, num_steps=T)
     x = random.normal(random.key(1), (T, m))
     mean, cov = dense_reference(init, A, trans, H, obs, T)
     nz = (T + 1) * n

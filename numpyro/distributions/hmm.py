@@ -77,30 +77,24 @@ def _vmap_leading(fn: Callable, ndim: int) -> Callable:
     return fn
 
 
-def _time_shape(
-    init_batch_shape: tuple[int, ...], *step_shapes: tuple[int, ...]
-) -> tuple[tuple[int, ...], Optional[int]]:
-    """
-    Split the broadcast batch shape into ``(batch_shape, time)``; ``time`` is
-    ``None`` when no per-step parameter has batch dimensions.
-    """
-    shape = lax.broadcast_shapes(init_batch_shape + (1,), *step_shapes)
-    return shape[:-1], shape[-1] if any(step_shapes) else None
+def _time_shape(*shapes: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
+    shape = lax.broadcast_shapes(*shapes)
+    return shape[:-1], shape[-1]
 
 
-def _resolve_num_steps(time: Optional[int], num_steps: Optional[int]) -> int:
-    if num_steps is None:
-        if time is None:
+def _resolve_num_steps(time: int, num_steps: Optional[int]) -> int:
+    if time == 1:
+        if num_steps is None:
             raise ValueError(
-                "num_steps is required when no per-step parameter has a time axis"
+                "num_steps is required when all parameters are time-homogeneous"
             )
-        return time
-    if time not in (None, 1, num_steps):
+        return int(num_steps)
+    if num_steps is not None and num_steps != time:
         raise ValueError(
             f"num_steps={num_steps} conflicts with the parameters' time axis "
             f"of size {time}"
         )
-    return int(num_steps)
+    return time
 
 
 class HiddenMarkovModel(Distribution):
@@ -205,8 +199,7 @@ class GaussianHMM(HiddenMarkovModel):
 
     ``event_shape == (num_steps, obs_dim)``. Per-step parameters carry time as
     their rightmost batch dimension; size 1 (or no batch dimensions) means
-    time-homogeneous. ``num_steps`` defaults to the size of that axis and is
-    required when no per-step parameter has batch dimensions. ``log_prob``,
+    time-homogeneous, in which case ``num_steps`` is required. ``log_prob``,
     :meth:`filter` and sampling run in ``O(log num_steps)`` parallel depth.
 
     Precision: the information form loses accuracy when the ratio between the
@@ -228,8 +221,8 @@ class GaussianHMM(HiddenMarkovModel):
     observation_dist : Distribution
         Observation noise with ``event_shape == (obs_dim,)``.
     num_steps : int, optional
-        Length of the time axis; defaults to the per-step parameters' time
-        axis and is required when they have no batch dimensions.
+        Length of the time axis; required when every per-step parameter is
+        time-homogeneous.
     """
 
     def __init__(
@@ -261,7 +254,7 @@ class GaussianHMM(HiddenMarkovModel):
                     f"got {tuple(d.event_shape)}"
                 )
         batch_shape, time = _time_shape(
-            tuple(initial_dist.batch_shape),
+            tuple(initial_dist.batch_shape) + (1,),
             transition_matrix.shape[:-2],
             tuple(transition_dist.batch_shape),
             observation_matrix.shape[:-2],
