@@ -25,6 +25,7 @@ from numpyro.infer.reparam import (
     LocScaleReparam,
     NeuTraReparam,
     ProjectedNormalReparam,
+    StudentTReparam,
     TransformReparam,
 )
 from numpyro.infer.util import initialize_model, log_density
@@ -591,3 +592,38 @@ def test_time_reparam_positive_support(reparam_cls, kwargs, suffix):
         return mcmc.get_samples()["x"].mean(0)
 
     assert_allclose(run({"x": reparam}), run({}), atol=0.15)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
+@pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)
+def test_studentt_reparam_moments(batch_shape, event_shape):
+    df = 5.0
+    shape = batch_shape + event_shape
+    event_dim = len(event_shape)
+    loc = np.random.uniform(-1.0, 1.0, shape)
+    scale = np.random.uniform(0.5, 1.5, shape)
+
+    def model():
+        with numpyro.plate_stack("plates", batch_shape):
+            with numpyro.plate("particles", 20000):
+                numpyro.sample("x", dist.StudentT(df, loc, scale).to_event(event_dim))
+
+    with handlers.reparam(config={"x": StudentTReparam()}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)()
+    assert tr["x"]["fn"].batch_shape == (20000,) + batch_shape
+    assert tr["x_gamma"]["type"] == "sample"
+    value = tr["x"]["value"]
+    expected = dist.StudentT(df, loc, scale)
+    assert_allclose(value.mean(0), expected.mean, atol=0.05)
+    assert_allclose(value.var(0), expected.variance, rtol=0.1)
+
+
+def test_studentt_reparam_observed_site():
+    def model(data):
+        numpyro.sample("x", dist.StudentT(3.0, 0.0, 1.0), obs=data)
+
+    with handlers.reparam(config={"x": StudentTReparam()}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)(jnp.array(0.5))
+    assert tr["x"]["is_observed"] and isinstance(tr["x"]["fn"], dist.Normal)

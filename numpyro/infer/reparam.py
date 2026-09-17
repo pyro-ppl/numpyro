@@ -508,3 +508,29 @@ class DiscreteCosineReparam(UnitJacobianReparam):
 
     def __init__(self, dim: int = -1, smooth: float = 0.0) -> None:
         super().__init__(DiscreteCosineTransform(dim=dim, smooth=smooth), suffix="dct")
+
+
+class StudentTReparam(Reparam):
+    """
+    Auxiliary-variable reparameterizer for
+    :class:`~numpyro.distributions.StudentT` latent or observed variables.
+
+    Represents ``StudentT(df, loc, scale)`` as ``Normal(loc, scale / sqrt(gamma))``
+    with ``gamma ~ Gamma(df / 2, df / 2)`` sampled at an auxiliary site
+    ``{name}_gamma``. The site's distribution becomes conditionally Gaussian,
+    which lets :class:`LinearHMMReparam` marginalize it exactly.
+    """
+
+    def __call__(self, name, fn, obs):
+        fn, expand_shape, event_dim = self._unwrap(fn)
+        if not isinstance(fn, dist.StudentT):
+            raise ValueError(
+                f"StudentTReparam expects a StudentT distribution, got {type(fn).__name__}"
+            )
+        half_df = 0.5 * fn.df
+        gamma = numpyro.sample(
+            f"{name}_gamma",
+            self._wrap(dist.Gamma(half_df, half_df), expand_shape, event_dim),
+        )
+        scale = fn.scale * jax.lax.rsqrt(gamma)
+        return self._wrap(dist.Normal(fn.loc, scale), expand_shape, event_dim), obs
