@@ -9,11 +9,17 @@ A :class:`Gaussian` is an unnormalized log-quadratic function
 may be rank deficient. Factors over pairs of consecutive states compose
 associatively, so a chain of ``T`` factors reduces in ``O(log T)`` parallel
 depth (:func:`sequential_gaussian_tensordot`) and posterior state paths can be
-sampled with the same depth (:func:`sequential_gaussian_filter_sample`).
+sampled with the same depth (:func:`sequential_gaussian_filter_sample`). Both
+algorithms follow the parallel-scan formulation of Sarkka and
+Garcia-Fernandez, "Temporal parallelization of Bayesian smoothers", IEEE
+Transactions on Automatic Control 66(1), 2021 (arXiv:1905.13002), and the
+module is a port of Pyro's ``pyro.ops.gaussian``.
 
 Matrices act on the left: :func:`matrix_and_mvn_to_gaussian` encodes
 ``y = matrix @ x + noise`` with ``matrix`` of shape ``(..., y_dim, x_dim)``.
-A factor over ``(x, y)`` stores ``x`` first.
+A factor over ``(x, y)`` stores ``x`` first. Pyro's factories use
+``y = x @ matrix`` with ``matrix`` of shape ``(..., x_dim, y_dim)``, so a
+matrix taken from a Pyro model must be transposed.
 
 The fields of a factor must broadcast to one batch shape and never carry
 sample dimensions; callers handle extra leading dimensions with
@@ -76,7 +82,16 @@ def _log_diag_sum(chol: Array) -> Array:
 
 
 def _static_runs(perm: np.ndarray) -> list[slice]:
-    """Split a permutation into maximal runs of consecutive indices."""
+    """
+    Split a permutation into maximal runs of consecutive indices.
+
+    :param numpy.ndarray perm: permutation of ``range(n)``.
+    :return: one slice per run, in the order of ``perm``; ``[]`` for an empty
+        permutation.
+    :rtype: list[slice]
+    """
+    if perm.size == 0:
+        return []
     cuts = np.flatnonzero(np.diff(perm) != 1) + 1
     bounds = np.concatenate([[0], cuts, [perm.size]])
     return [
@@ -126,14 +141,12 @@ class Gaussian:
     Unnormalized log-quadratic factor
     ``log_normalizer + x . info_vec - 0.5 x^T precision x``.
 
-    Parameters
-    ----------
-    log_normalizer : Array
-        Shape ``batch_shape``.
-    info_vec : Array
-        Shape ``batch_shape + (dim,)``.
-    precision : Array
-        Shape ``batch_shape + (dim, dim)``; may be rank deficient.
+    :param Array log_normalizer: shape ``batch_shape``.
+    :param Array info_vec: shape ``batch_shape + (dim,)``.
+    :param Array precision: shape ``batch_shape + (dim, dim)``; may be rank
+        deficient.
+    :raises ValueError: if the trailing shapes of ``info_vec`` and
+        ``precision`` disagree.
     """
 
     log_normalizer: Array
@@ -259,17 +272,12 @@ class Gaussian:
         """
         Condition on the trailing block of coordinates.
 
-        Parameters
-        ----------
-        value : Array
-            Shape ``batch_shape + (right,)`` with ``right <= dim``.
-
-        Returns
-        -------
-        Gaussian
-            Factor over the leading ``dim - right`` coordinates with the
+        :param Array value: shape ``(..., right)`` with ``right <= dim``;
+            leading dimensions broadcast against ``batch_shape``.
+        :return: factor over the leading ``dim - right`` coordinates with the
             conditioned density folded into ``log_normalizer``, so
             ``g.log_density(concat([a, b])) == g.condition(b).log_density(a)``.
+        :rtype: Gaussian
         """
         n = self.dim - value.shape[-1]
         info_a, info_b = self.info_vec[..., :n], self.info_vec[..., n:]
@@ -284,7 +292,15 @@ class Gaussian:
         return Gaussian(log_normalizer, info_a - _mv(P_ab, value), P_aa)._broadcast()
 
     def left_condition(self, value: Array) -> Gaussian:
-        """Condition on the leading block of coordinates (see :meth:`condition`)."""
+        """
+        Condition on the leading block of coordinates.
+
+        :param Array value: shape ``(..., left)`` with ``left <= dim``;
+            leading dimensions broadcast against ``batch_shape``.
+        :return: factor over the trailing ``dim - left`` coordinates (see
+            :meth:`condition`).
+        :rtype: Gaussian
+        """
         n = value.shape[-1]
         perm = np.concatenate([np.arange(n, self.dim), np.arange(n)])
         return self.event_permute(perm).condition(value)
@@ -355,20 +371,15 @@ class Gaussian:
         """
         Draw from the normalized Gaussian ``N(precision^-1 info_vec, precision^-1)``.
 
-        Parameters
-        ----------
-        key : Array, optional
-            PRNG key; required when ``noise`` is ``None``.
-        sample_shape : tuple[int, ...]
-            Leading sample dimensions.
-        noise : Array, optional
-            Standard normal draws of shape ``sample_shape + batch_shape + (dim,)``;
-            ``zeros`` yields the mean.
-
-        Returns
-        -------
-        Array
-            Shape ``sample_shape + batch_shape + (dim,)``.
+        :param Optional[Array] key: PRNG key; required when ``noise`` is
+            ``None``.
+        :param tuple sample_shape: leading sample dimensions.
+        :param Optional[Array] noise: standard normal draws of shape
+            ``sample_shape + batch_shape + (dim,)``; ``zeros`` yields the mean.
+        :return: draws of shape ``sample_shape + batch_shape + (dim,)``.
+        :rtype: Array
+        :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
+            ``noise`` has the wrong shape.
         """
         shape = tuple(sample_shape) + self.batch_shape + (self.dim,)
         noise = _noise(noise, key, shape, self.precision.dtype)
@@ -470,12 +481,11 @@ def matrix_and_gaussian_to_gaussian(matrix: Array, y_gaussian: Gaussian) -> Gaus
     """
     Joint factor over ``(x, y)`` for ``y - matrix @ x ~ y_gaussian``.
 
-    Parameters
-    ----------
-    matrix : Array
-        Shape ``(..., y_dim, x_dim)``.
-    y_gaussian : Gaussian
-        Factor over ``y`` with ``dim == y_dim``.
+    :param Array matrix: shape ``(..., y_dim, x_dim)``.
+    :param Gaussian y_gaussian: factor over ``y`` with ``dim == y_dim``.
+    :return: factor over ``(x, y)`` with the broadcast batch shape of
+        ``matrix`` and ``y_gaussian``.
+    :rtype: Gaussian
     """
     batch_shape = lax.broadcast_shapes(matrix.shape[:-2], y_gaussian.batch_shape)
     matrix = _with_batch(matrix, 2, batch_shape)
@@ -499,19 +509,16 @@ def matrix_and_mvn_to_gaussian(
     """
     Factor over ``(x, y)`` for ``y = matrix @ x + noise`` with ``noise ~ d``.
 
-    Parameters
-    ----------
-    matrix : Array
-        Shape ``(..., y_dim, x_dim)``.
-    d : Distribution
-        Noise distribution with ``event_shape == (y_dim,)``;
-        ``MultivariateNormal`` or ``Independent(Normal, 1)``.
-
-    Returns
-    -------
-    Gaussian or AffineNormal
-        :class:`AffineNormal` for diagonal-normal noise, otherwise a
+    :param Array matrix: shape ``(..., y_dim, x_dim)``.
+    :param Distribution d: noise distribution with ``event_shape == (y_dim,)``;
+        ``MultivariateNormal`` or ``Independent(Normal, 1)``, possibly wrapped
+        in ``ExpandedDistribution``.
+    :return: :class:`AffineNormal` for diagonal-normal noise, otherwise a
         :class:`Gaussian` in square-root form.
+    :rtype: Union[Gaussian, AffineNormal]
+    :raises ValueError: if ``d.event_shape`` does not match the rows of
+        ``matrix``.
+    :raises TypeError: if ``d`` is not a supported Gaussian distribution.
     """
     y_dim, x_dim = matrix.shape[-2:]
     if d.event_shape != (y_dim,):
@@ -544,19 +551,16 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
     Contract two factors over ``dims`` shared coordinates:
     ``(x @ y)(a, c) = log int exp(x(a, b) + y(b, c)) db``.
 
-    Parameters
-    ----------
-    x : Gaussian
-        Factor over ``(a, b)`` with ``b`` the trailing ``dims`` coordinates.
-    y : Gaussian
-        Factor over ``(b, c)`` with ``b`` the leading ``dims`` coordinates.
-    dims : int
-        Number of shared coordinates.
-
-    Returns
-    -------
-    Gaussian
-        Factor over ``(a, c)`` with the broadcast batch shape of ``x`` and ``y``.
+    :param Gaussian x: factor over ``(a, b)`` with ``b`` the trailing ``dims``
+        coordinates.
+    :param Gaussian y: factor over ``(b, c)`` with ``b`` the leading ``dims``
+        coordinates.
+    :param int dims: number of shared coordinates; the shared block must have
+        positive-definite precision in ``x + y``.
+    :return: factor over ``(a, c)`` with the broadcast batch shape of ``x``
+        and ``y``.
+    :rtype: Gaussian
+    :raises ValueError: if ``dims`` exceeds the event dimension of a factor.
     """
     na, nb, nc = x.dim - dims, dims, y.dim - dims
     if na < 0 or nc < 0:
@@ -595,17 +599,12 @@ def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
     """
     Reduce a time series of pairwise factors to one factor over ``(z_0, z_T)``.
 
-    Parameters
-    ----------
-    gaussian : Gaussian
-        Factors over ``(z_{t-1}, z_t)`` with ``dim == 2 * state_dim`` and time
-        on the last batch axis.
-
-    Returns
-    -------
-    Gaussian
-        Factor over ``(z_0, z_T)`` with batch shape ``gaussian.batch_shape[:-1]``,
-        computed with ``log2(T)`` batched contractions.
+    :param Gaussian gaussian: factors over ``(z_{t-1}, z_t)`` with
+        ``dim == 2 * state_dim`` and time on the last batch axis.
+    :return: factor over ``(z_0, z_T)`` with batch shape
+        ``gaussian.batch_shape[:-1]``, computed with ``log2(T)`` batched
+        contractions.
+    :rtype: Gaussian
     """
     state_dim = gaussian.dim // 2
     while gaussian.batch_shape[-1] > 1:
@@ -630,25 +629,20 @@ def sequential_gaussian_filter_sample(
     """
     Sample state paths from a chain of pairwise factors with ``O(log T)`` parallel depth.
 
-    Parameters
-    ----------
-    key : Array, optional
-        PRNG key; required when ``noise`` is ``None``.
-    init : Gaussian
-        Factor over ``z_0``.
-    trans : Gaussian
-        Factors over ``(z_{t-1}, z_t)`` with time on the last batch axis (``T`` steps).
-    sample_shape : tuple[int, ...]
-        Leading sample dimensions.
-    noise : Array, optional
-        Standard normal draws of shape ``sample_shape + batch_shape + (T + 1, state_dim)``.
-        ``zeros`` yields the posterior mean and ``[n, 0, -n]`` an antithetic triple;
+    :param Optional[Array] key: PRNG key; required when ``noise`` is ``None``.
+    :param Gaussian init: factor over ``z_0``.
+    :param Gaussian trans: factors over ``(z_{t-1}, z_t)`` with time on the
+        last batch axis (``T`` steps).
+    :param tuple sample_shape: leading sample dimensions.
+    :param Optional[Array] noise: standard normal draws of shape
+        ``sample_shape + batch_shape + (T + 1, state_dim)``. ``zeros`` yields
+        the posterior mean and ``[n, 0, -n]`` an antithetic triple;
         ``sample(key)`` equals ``sample(noise=random.normal(key, ...))``.
-
-    Returns
-    -------
-    Array
-        Shape ``sample_shape + batch_shape + (T + 1, state_dim)`` including ``z_0``.
+    :return: state paths of shape
+        ``sample_shape + batch_shape + (T + 1, state_dim)`` including ``z_0``.
+    :rtype: Array
+    :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
+        ``noise`` has the wrong shape.
     """
     state_dim = init.dim
     num_steps = trans.batch_shape[-1]
@@ -731,12 +725,10 @@ class AffineNormal:
     Conditional ``y | x ~ Normal(matrix @ x + loc, scale)`` standing in for a
     joint factor over ``(x, y)``.
 
-    Parameters
-    ----------
-    matrix : Array
-        Shape ``batch_shape + (y_dim, x_dim)``.
-    loc, scale : Array
-        Shape ``batch_shape + (y_dim,)``.
+    :param Array matrix: shape ``batch_shape + (y_dim, x_dim)``.
+    :param Array loc: shape ``batch_shape + (y_dim,)``.
+    :param Array scale: shape ``batch_shape + (y_dim,)``.
+    :raises ValueError: if the trailing shapes of the fields disagree.
     """
 
     matrix: Array
@@ -791,8 +783,16 @@ class AffineNormal:
 
     def condition(self, value: Array) -> Gaussian:
         """
-        Condition on ``y`` (``value.shape[-1] == y_dim``) without a Cholesky
-        factorization; other block sizes go through :meth:`to_gaussian`.
+        Condition on the trailing block of coordinates.
+
+        Conditioning on all of ``y`` needs no Cholesky factorization; other
+        block sizes go through :meth:`to_gaussian`.
+
+        :param Array value: shape ``(..., right)`` with ``right <= dim``;
+            leading dimensions broadcast against ``batch_shape``.
+        :return: factor over the leading ``dim - right`` coordinates (see
+            :meth:`Gaussian.condition`).
+        :rtype: Gaussian
         """
         if value.shape[-1] != self.matrix.shape[-2]:
             return self.to_gaussian().condition(value)
@@ -807,8 +807,14 @@ class AffineNormal:
 
     def left_condition(self, value: Array) -> Union[AffineNormal, Gaussian]:
         """
-        Condition on ``x`` (``value.shape[-1] == x_dim``); returns an
-        :class:`AffineNormal` with no remaining inputs.
+        Condition on the leading block of coordinates.
+
+        :param Array value: shape ``(..., left)`` with ``left <= dim``;
+            leading dimensions broadcast against ``batch_shape``.
+        :return: for ``left == x_dim``, an :class:`AffineNormal` with no
+            remaining inputs; otherwise a :class:`Gaussian` via
+            :meth:`to_gaussian`.
+        :rtype: Union[AffineNormal, Gaussian]
         """
         if value.shape[-1] != self.matrix.shape[-1]:
             return self.to_gaussian().left_condition(value)
@@ -826,14 +832,16 @@ class AffineNormal:
         """
         Draw ``y`` once all inputs are conditioned away (``x_dim == 0``).
 
-        Parameters
-        ----------
-        key : Array, optional
-            PRNG key; required when ``noise`` is ``None``.
-        sample_shape : tuple[int, ...]
-            Leading sample dimensions.
-        noise : Array, optional
-            Standard normal draws of shape ``sample_shape + batch_shape + (y_dim,)``.
+        :param Optional[Array] key: PRNG key; required when ``noise`` is
+            ``None``.
+        :param tuple sample_shape: leading sample dimensions.
+        :param Optional[Array] noise: standard normal draws of shape
+            ``sample_shape + batch_shape + (y_dim,)``.
+        :return: draws of shape ``sample_shape + batch_shape + (y_dim,)``.
+        :rtype: Array
+        :raises NotImplementedError: if ``x_dim != 0``.
+        :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
+            ``noise`` has the wrong shape.
         """
         if self.matrix.shape[-1] != 0:
             raise NotImplementedError(
@@ -861,8 +869,8 @@ class AffineNormal:
         """Embed the factor into a larger event space with zero coupling."""
         return self.to_gaussian().event_pad(left, right)
 
-    def event_permute(self, perm: Array) -> Gaussian:
-        """Permute event coordinates."""
+    def event_permute(self, perm: Union[Array, np.ndarray]) -> Gaussian:
+        """Permute event coordinates (see :meth:`Gaussian.event_permute`)."""
         return self.to_gaussian().event_permute(perm)
 
     def log_density(self, value: Array) -> Array:

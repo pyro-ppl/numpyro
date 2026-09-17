@@ -74,7 +74,6 @@ extensions = [
     "sphinx.ext.imgconverter",
     "sphinx.ext.intersphinx",
     "sphinx.ext.mathjax",
-    "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_gallery.gen_gallery",
     "sphinx_search.extension",
@@ -83,10 +82,6 @@ extensions = [
 # Enable documentation inheritance
 
 autodoc_inherit_docstrings = True
-
-# NumPy-style docstrings (new modules); existing :param: docstrings are unaffected.
-napoleon_google_docstring = False
-napoleon_numpy_docstring = True
 
 # autodoc_default_options = {
 #     'member-order': 'bysource',

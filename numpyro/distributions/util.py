@@ -850,7 +850,7 @@ def relative_jitter(matrix: ArrayLike) -> Array:
     The jitter is ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)``, so it is
     at rounding level for every diagonal entry regardless of the off-diagonal
     magnitude. For a positive semi-definite matrix a zero diagonal entry implies
-    a zero row, so degenerate directions receive no jitter.
+    a zero row, so zero rows receive no jitter.
 
     :param ArrayLike matrix: symmetric matrices of shape ``(..., n, n)``.
     :return: ``matrix`` with the jitter added to each diagonal entry, where the

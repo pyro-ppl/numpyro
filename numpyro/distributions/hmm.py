@@ -134,6 +134,19 @@ def _check_event_shapes(
     observation_matrix: Array,
     observation_dist: Distribution,
 ) -> None:
+    """
+    Check that the matrices and noise distributions agree on ``hidden_dim``
+    and ``obs_dim``.
+
+    :param Distribution initial_dist: distribution over ``z_0``.
+    :param Array transition_matrix: shape ``(..., hidden_dim, hidden_dim)``.
+    :param Distribution transition_dist: process noise with
+        ``event_shape == (hidden_dim,)``.
+    :param Array observation_matrix: shape ``(..., obs_dim, hidden_dim)``.
+    :param Distribution observation_dist: observation noise with
+        ``event_shape == (obs_dim,)``.
+    :raises ValueError: if any shape disagrees with ``observation_matrix``.
+    """
     obs_dim, hidden_dim = observation_matrix.shape[-2:]
     if transition_matrix.shape[-2:] != (hidden_dim, hidden_dim):
         raise ValueError(
@@ -161,9 +174,19 @@ def _resolve_layout(
     """
     Validate event shapes and broadcast the parameters' batch shapes.
 
+    :param Distribution initial_dist: distribution over ``z_0``.
+    :param Array transition_matrix: shape ``(..., hidden_dim, hidden_dim)``.
+    :param Distribution transition_dist: process noise with
+        ``event_shape == (hidden_dim,)``.
+    :param Array observation_matrix: shape ``(..., obs_dim, hidden_dim)``.
+    :param Distribution observation_dist: observation noise with
+        ``event_shape == (obs_dim,)``.
+    :param Optional[int] num_steps: requested length of the time axis.
     :return: ``(batch_shape, time, num_steps)`` where ``time`` is the size of
         the parameters' time axis (1 when every parameter is homogeneous).
     :rtype: tuple[tuple[int, ...], int, int]
+    :raises ValueError: if event shapes disagree, the batch shapes do not
+        broadcast, or ``num_steps`` is missing or conflicts with ``time``.
     """
     _check_event_shapes(
         initial_dist,
@@ -210,6 +233,19 @@ class HiddenMarkovModel(Distribution):
 
     Subclasses set ``_sequential`` and ``_tensordot`` to the factor type's
     sequential reduction and pairwise contraction.
+
+    .. note:: Matrices act on the left and the time axis is static; see the
+        note in :class:`GaussianHMM` for the differences from Pyro.
+
+    :param init: factor over ``z_0``.
+    :type init: :class:`~numpyro.ops.gaussian.Gaussian`
+    :param trans: per-step factors over ``(z_{t-1}, z_t)``.
+    :type trans: :class:`~numpyro.ops.gaussian.Gaussian` or
+        :class:`~numpyro.ops.gaussian.AffineNormal`
+    :param obs: per-step factors over ``(z_t, x_t)``.
+    :type obs: :class:`~numpyro.ops.gaussian.Gaussian` or
+        :class:`~numpyro.ops.gaussian.AffineNormal`
+    :param int num_steps: length of the time axis.
     """
 
     _sequential: Callable[[Gaussian], Gaussian]
@@ -262,13 +298,34 @@ class HiddenMarkovModel(Distribution):
         return new
 
     def expand(self, batch_shape: Sequence[int]) -> Self:
+        """
+        Broadcast the distribution to ``batch_shape``.
+
+        Only the initial factor is expanded; the per-step factors keep their
+        shapes and broadcast at reduction time. The result is an instance of
+        the same class, not an :class:`ExpandedDistribution`.
+
+        :param tuple batch_shape: batch shape to expand to; must be the
+            broadcast of itself and the current ``batch_shape``.
+        :return: a copy with ``batch_shape`` expanded.
+        :rtype: HiddenMarkovModel
+        :raises ValueError: if the current batch shape does not broadcast to
+            ``batch_shape``.
+        """
         batch_shape = _check_expand(self.batch_shape, batch_shape)
         return self._replace(_init=self._init.expand(batch_shape))
 
     def reshape_batch(self, batch_shape: Sequence[int]) -> Self:
         """
-        Reshape the batch dimensions (same number of elements), e.g. to append
-        a singleton batch axis.
+        Reshape the batch dimensions to ``batch_shape`` with the same number
+        of elements, e.g. to append a singleton batch axis before wrapping in
+        :class:`IndependentHMM` or when a forecasting model has to line up
+        batch axes of several models.
+
+        :param tuple batch_shape: new batch shape.
+        :return: a copy whose factors are broadcast to the current
+            ``batch_shape`` and then reshaped.
+        :rtype: HiddenMarkovModel
         """
         batch_shape = tuple(batch_shape)
         full = self.batch_shape
@@ -324,33 +381,58 @@ class GaussianHMM(HiddenMarkovModel):
     ``event_shape == (num_steps, obs_dim)``. Per-step parameters carry time as
     their rightmost batch dimension; size 1 (or no batch dimensions) means
     time-homogeneous, in which case ``num_steps`` is required. ``log_prob``,
-    :meth:`filter` and sampling run in ``O(log num_steps)`` parallel depth.
+    :meth:`filter` and sampling run in ``O(log num_steps)`` parallel depth,
+    following Sarkka and Garcia-Fernandez, "Temporal parallelization of
+    Bayesian smoothers" (IEEE TAC 2021, arXiv:1905.13002).
 
-    Precision: the information form loses accuracy when the ratio between the
-    largest and smallest noise precision within a step is large. float32 is
-    adequate for ratios below about ``1e3``; otherwise call
-    :func:`numpyro.enable_x64`. Every Cholesky factorization adds a
-    gradient-free jitter of ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)``
-    to the precision diagonal (see
-    :func:`~numpyro.distributions.util.relative_jitter`), which is at rounding
-    level for well-posed problems.
+    .. note:: This class deviates from Pyro's ``GaussianHMM`` in two ways.
 
-    Parameters
-    ----------
-    initial_dist : Distribution
-        ``MultivariateNormal`` or ``Independent(Normal, 1)`` over ``z_0`` with
+        Matrices act on the left. Pyro computes ``z @ transition_matrix`` and
+        ``z @ observation_matrix`` with ``observation_matrix`` of shape
+        ``(hidden_dim, obs_dim)``; here ``transition_matrix @ z`` and
+        ``observation_matrix @ z`` with ``observation_matrix`` of shape
+        ``(obs_dim, hidden_dim)``. To port a Pyro model pass
+        ``transition_matrix.T`` and ``observation_matrix.T`` (transposing the
+        trailing two axes). A square ``transition_matrix`` passed without the
+        transpose silently defines a different model.
+
+        The time axis is static. Pyro's ``duration=None`` mode, where
+        homogeneous parameters give ``event_shape == (1, obs_dim)`` and
+        ``log_prob`` accepts any length, does not exist: a time-homogeneous
+        model needs ``num_steps``, and ``log_prob`` raises ``ValueError``
+        unless ``value`` has the exact trailing shape ``(num_steps, obs_dim)``.
+
+    Precision: the information form loses accuracy when the noise precisions
+    within a step differ by orders of magnitude. Measured on a local linear
+    trend with ``T = 2000`` in float32, ``log_prob`` is biased by about 9
+    nats at process variance ``1e-2`` and about 380 nats at ``1e-6`` (unit
+    observation variance). Call :func:`numpyro.enable_x64` when the noise
+    variances differ by more than a few orders of magnitude. Every Cholesky
+    factorization of a block larger than 1x1 adds a gradient-free jitter of
+    ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)`` to the precision
+    diagonal (see :func:`~numpyro.distributions.util.relative_jitter`), which
+    is at rounding level for well-posed problems; 1x1 blocks are clamped at
+    the smallest positive float instead (see
+    :func:`~numpyro.distributions.util.safe_cholesky`).
+
+    :param Distribution initial_dist: ``MultivariateNormal`` or
+        ``Independent(Normal, 1)`` over ``z_0`` with
         ``event_shape == (hidden_dim,)``.
-    transition_matrix : Array
-        Shape broadcastable to ``batch_shape + (num_steps, hidden_dim, hidden_dim)``.
-    transition_dist : Distribution
-        Process noise with ``event_shape == (hidden_dim,)``.
-    observation_matrix : Array
-        Shape broadcastable to ``batch_shape + (num_steps, obs_dim, hidden_dim)``.
-    observation_dist : Distribution
-        Observation noise with ``event_shape == (obs_dim,)``.
-    num_steps : int, optional
-        Length of the time axis; required when every per-step parameter is
-        time-homogeneous.
+    :param Array transition_matrix: shape broadcastable to
+        ``batch_shape + (num_steps, hidden_dim, hidden_dim)``.
+    :param Distribution transition_dist: process noise with
+        ``event_shape == (hidden_dim,)``.
+    :param Array observation_matrix: shape broadcastable to
+        ``batch_shape + (num_steps, obs_dim, hidden_dim)``.
+    :param Distribution observation_dist: observation noise with
+        ``event_shape == (obs_dim,)``.
+    :param Optional[int] num_steps: length of the time axis; required when
+        every per-step parameter is time-homogeneous.
+    :raises ValueError: if event shapes disagree, the batch shapes do not
+        broadcast, or ``num_steps`` is missing or conflicts with the
+        parameters' time axis.
+    :raises TypeError: if a noise distribution is not ``MultivariateNormal``
+        or ``Independent(Normal, 1)``.
     """
 
     _sequential = staticmethod(sequential_gaussian_tensordot)
@@ -395,6 +477,17 @@ class GaussianHMM(HiddenMarkovModel):
 
     @validate_sample
     def log_prob(self, value: Array) -> Array:
+        """
+        Marginal log density of an observation sequence.
+
+        :param Array value: observations of shape ``lead + (num_steps, obs_dim)``
+            where ``lead`` broadcasts against ``batch_shape``; extra leading
+            dimensions are mapped with :func:`jax.vmap`.
+        :return: log density of shape ``lead``.
+        :rtype: Array
+        :raises ValueError: if ``value`` does not have trailing shape
+            ``(num_steps, obs_dim)``.
+        """
         value, extra = self._lead_and_extra(value)
         return _vmap_leading(lambda v: self._posterior(v).event_logsumexp(), extra)(
             value
@@ -404,11 +497,14 @@ class GaussianHMM(HiddenMarkovModel):
         """
         Posterior over the final state ``z_T`` given the full observation sequence.
 
-        Returns
-        -------
-        MultivariateNormal
-            Batch shape broadcast of ``value`` and ``batch_shape``; usable as
+        :param Array value: observations of shape ``lead + (num_steps, obs_dim)``
+            where ``lead`` broadcasts against ``batch_shape``; extra leading
+            dimensions are mapped with :func:`jax.vmap`.
+        :return: posterior with batch shape ``lead``; usable as
             ``initial_dist`` of a follow-on model.
+        :rtype: MultivariateNormal
+        :raises ValueError: if ``value`` does not have trailing shape
+            ``(num_steps, obs_dim)``.
         """
         value, extra = self._lead_and_extra(value)
 
@@ -425,17 +521,14 @@ class GaussianHMM(HiddenMarkovModel):
         """
         Multiply by a Gaussian likelihood over the observations.
 
-        Parameters
-        ----------
-        other : Distribution
-            ``Independent(Normal, 2)`` or ``Independent(MultivariateNormal, 1)``
-            (possibly expanded) with ``event_shape == (num_steps, obs_dim)``.
-
-        Returns
-        -------
-        tuple[GaussianHMM, Array]
-            ``(updated, log_normalizer)`` such that
+        :param Distribution other: ``Independent(Normal, 2)`` or
+            ``Independent(MultivariateNormal, 1)`` (possibly expanded) with
+            ``event_shape == (num_steps, obs_dim)``.
+        :return: ``(updated, log_normalizer)`` such that
             ``self.log_prob(x) + other.log_prob(x) == updated.log_prob(x) + log_normalizer``.
+        :rtype: tuple[GaussianHMM, Array]
+        :raises ValueError: if ``other.event_shape`` differs from
+            ``event_shape``.
         """
         if tuple(other.event_shape) != self.event_shape:
             raise ValueError(
@@ -454,17 +547,13 @@ class GaussianHMM(HiddenMarkovModel):
         Condition on the first ``t < num_steps`` observations and return the
         model over the remaining steps.
 
-        Parameters
-        ----------
-        data : Array
-            Shape ``(..., t, obs_dim)`` with ``0 < t < num_steps``.
-
-        Returns
-        -------
-        GaussianHMM
-            Model over ``num_steps - t`` steps whose initial distribution is
-            the filtered posterior. Leading dimensions of ``data`` beyond
+        :param Array data: shape ``(..., t, obs_dim)`` with
+            ``0 < t < num_steps``.
+        :return: model over ``num_steps - t`` steps whose initial distribution
+            is the filtered posterior. Leading dimensions of ``data`` beyond
             ``batch_shape`` become batch dimensions of the returned model.
+        :rtype: GaussianHMM
+        :raises ValueError: if ``t`` is not in ``(0, num_steps)``.
         """
         t = data.shape[-2]
         if not 0 < t < self.num_steps:
@@ -505,17 +594,13 @@ class GaussianHMM(HiddenMarkovModel):
         """
         Sample observation sequences ``x_{1:T}`` with the latent states integrated out.
 
-        Parameters
-        ----------
-        key : Array
-            PRNG key.
-        sample_shape : tuple[int, ...]
-            Leading sample dimensions.
-
-        Returns
-        -------
-        Array
-            Shape ``sample_shape + batch_shape + (num_steps, obs_dim)``.
+        :param Optional[Array] key: PRNG key. The annotation follows
+            :meth:`Distribution.sample`, but a key is required; ``None`` is
+            rejected.
+        :param tuple sample_shape: leading sample dimensions.
+        :return: draws of shape
+            ``sample_shape + batch_shape + (num_steps, obs_dim)``.
+        :rtype: Array
         """
         assert key is not None
         key_z, key_x = random.split(key)
@@ -533,20 +618,16 @@ class GaussianHMM(HiddenMarkovModel):
         """
         Sample latent paths ``z_{1:T}`` given observations.
 
-        Parameters
-        ----------
-        key : Array
-            PRNG key.
-        value : Array
-            Observations of shape ``lead + (num_steps, obs_dim)``.
-        sample_shape : tuple[int, ...]
-            Leading sample dimensions.
-
-        Returns
-        -------
-        Array
-            Shape ``sample_shape + lead + (num_steps, hidden_dim)`` where
-            ``lead`` broadcasts ``value`` against ``batch_shape``.
+        :param Array key: PRNG key.
+        :param Array value: observations of shape
+            ``lead + (num_steps, obs_dim)`` where ``lead`` broadcasts against
+            ``batch_shape``.
+        :param tuple sample_shape: leading sample dimensions.
+        :return: latent paths of shape
+            ``sample_shape + lead + (num_steps, hidden_dim)``.
+        :rtype: Array
+        :raises ValueError: if ``value`` does not have trailing shape
+            ``(num_steps, obs_dim)``.
         """
         value, extra = self._lead_and_extra(value)
         keys = random.split(key, value.shape[:extra]) if extra else key
@@ -570,11 +651,10 @@ class IndependentHMM(Distribution):
     :class:`HiddenMarkovModel` base and :meth:`prefix_condition` a
     :class:`GaussianHMM` base.
 
-    Parameters
-    ----------
-    base_dist : Distribution
-        Batched distribution with a trailing batch dimension of size
-        ``obs_dim`` and a unit observation dimension.
+    :param Distribution base_dist: batched distribution with a trailing batch
+        dimension of size ``obs_dim`` and ``event_shape == (num_steps, 1)``.
+    :raises ValueError: if ``base_dist`` is unbatched or its event shape is
+        not ``(num_steps, 1)``.
     """
 
     arg_constraints = {}
@@ -617,23 +697,66 @@ class IndependentHMM(Distribution):
         return self.base_dist.event_shape[0]
 
     def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        """
+        Sample from the base distribution and move the observation axis last.
+
+        :param Optional[Array] key: PRNG key, passed to ``base_dist.sample``.
+        :param tuple sample_shape: leading sample dimensions.
+        :return: draws of shape
+            ``sample_shape + batch_shape + (num_steps, obs_dim)``.
+        :rtype: Array
+        """
         x = jnp.asarray(self.base_dist.sample(key, sample_shape))
         return jnp.swapaxes(x[..., 0], -1, -2)
 
     @validate_sample
     def log_prob(self, value: Array) -> Array:
+        """
+        Sum the base log densities over the observation axis.
+
+        :param Array value: shape ``(..., num_steps, obs_dim)``.
+        :return: log density of shape ``(...)`` broadcast with ``batch_shape``.
+        :rtype: Array
+        """
         value = jnp.swapaxes(value, -1, -2)[..., None]
         return jnp.asarray(self.base_dist.log_prob(value)).sum(-1)
 
     def _rewrap(self, base: Distribution) -> IndependentHMM:
+        """
+        Wrap ``base`` with this instance's ``validate_args`` setting.
+
+        :param Distribution base: replacement base distribution.
+        :rtype: IndependentHMM
+        """
         return IndependentHMM(base, validate_args=self.__dict__.get("_validate_args"))
 
     def expand(self, batch_shape: Sequence[int]) -> IndependentHMM:
+        """
+        Broadcast the distribution to ``batch_shape`` by expanding the base to
+        ``batch_shape + (obs_dim,)``.
+
+        :param tuple batch_shape: batch shape to expand to; must be the
+            broadcast of itself and the current ``batch_shape``.
+        :return: a wrapper around the expanded base.
+        :rtype: IndependentHMM
+        :raises ValueError: if the current batch shape does not broadcast to
+            ``batch_shape``.
+        """
         batch_shape = _check_expand(self.batch_shape, batch_shape)
         obs = self.base_dist.batch_shape[-1:]
         return self._rewrap(self.base_dist.expand(batch_shape + obs))
 
     def reshape_batch(self, batch_shape: Sequence[int]) -> IndependentHMM:
+        """
+        Reshape the batch dimensions with the same number of elements (see
+        :meth:`HiddenMarkovModel.reshape_batch`).
+
+        :param tuple batch_shape: new batch shape, without the trailing
+            ``obs_dim`` axis of the base.
+        :return: a wrapper around the reshaped base.
+        :rtype: IndependentHMM
+        :raises TypeError: if the base is not a :class:`HiddenMarkovModel`.
+        """
         base = self.base_dist
         if not isinstance(base, HiddenMarkovModel):
             raise TypeError(
@@ -646,6 +769,14 @@ class IndependentHMM(Distribution):
         """
         Condition on a prefix of observations (see
         :meth:`GaussianHMM.prefix_condition`).
+
+        :param Array data: shape ``(..., t, obs_dim)`` with
+            ``0 < t < num_steps``.
+        :return: wrapper around the base model over the remaining
+            ``num_steps - t`` steps.
+        :rtype: IndependentHMM
+        :raises TypeError: if the base is not a :class:`GaussianHMM`.
+        :raises ValueError: if ``t`` is not in ``(0, num_steps)``.
         """
         base = self.base_dist
         if not isinstance(base, GaussianHMM):
