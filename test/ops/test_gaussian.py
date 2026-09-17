@@ -8,7 +8,7 @@ import jax
 from jax import random
 import jax.numpy as jnp
 
-from numpyro.ops.gaussian import Gaussian
+from numpyro.ops.gaussian import Gaussian, _mv
 
 
 def random_gaussian(key, batch_shape, dim, rank=None):
@@ -86,3 +86,56 @@ def test_vmap_over_factory_derives_batch_shape():
     g = jax.vmap(make)(jnp.zeros((5, 2)))
     assert g.batch_shape == (5,)
     assert g.log_density(jnp.zeros((5, 2))).shape == (5,)
+
+
+@pytest.mark.parametrize("left,right", [(1, 0), (0, 1), (2, 0), (0, 2), (1, 1)])
+def test_marginalize_condition_identity(left, right):
+    g = random_gaussian(random.key(0), (3,), 4)
+    value = random.normal(random.key(1), (3, 4 - left - right))
+    marginal = g.marginalize(left=left, right=right)
+    assert marginal.batch_shape == (3,)
+    assert marginal.precision.shape == (3, 4 - left - right, 4 - left - right)
+    if right == 0:
+        assert_allclose(
+            marginal.log_density(value),
+            g.condition(value).event_logsumexp(),
+            rtol=1e-4,
+        )
+    assert_allclose(marginal.event_logsumexp(), g.event_logsumexp(), rtol=1e-4)
+
+
+def test_condition_and_left_condition():
+    g = random_gaussian(random.key(0), (3,), 5)
+    a = random.normal(random.key(1), (3, 2))
+    b = random.normal(random.key(2), (3, 3))
+    ab = jnp.concatenate([a, b], -1)
+    assert_allclose(g.condition(b).log_density(a), g.log_density(ab), rtol=1e-4)
+    assert_allclose(g.left_condition(a).log_density(b), g.log_density(ab), rtol=1e-4)
+    assert g.condition(b).batch_shape == (3,)
+
+
+def test_event_logsumexp_against_monte_carlo():
+    g = random_gaussian(random.key(0), (), 2)
+    box = 6.0
+    grid = jnp.linspace(-box, box, 400)
+    xs = jnp.stack(jnp.meshgrid(grid, grid, indexing="ij"), -1).reshape(-1, 2)
+    expected = jax.scipy.special.logsumexp(g.log_density(xs)) + 2 * jnp.log(
+        grid[1] - grid[0]
+    )
+    assert_allclose(g.event_logsumexp(), expected, atol=1e-2)
+
+
+def test_sample_moments_and_noise():
+    g = random_gaussian(random.key(0), (2,), 3)
+    samples = g.sample(random.key(1), (20000,))
+    assert samples.shape == (20000, 2, 3)
+    cov = jnp.linalg.inv(g.precision)
+    mean = _mv(cov, g.info_vec)
+    assert_allclose(samples.mean(0), mean, atol=0.05)
+    assert_allclose(jax.vmap(lambda s: jnp.cov(s.T), in_axes=1)(samples), cov, atol=0.1)
+    noise = random.normal(random.key(2), (4, 2, 3))
+    assert_allclose(
+        g.sample(sample_shape=(4,), noise=noise),
+        g.sample(random.key(9), (4,), noise=noise),
+    )
+    assert_allclose(g.sample(noise=jnp.zeros((2, 3))), mean, rtol=1e-4)

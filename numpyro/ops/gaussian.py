@@ -24,11 +24,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import ClassVar, Sequence, Union
+from typing import ClassVar, Optional, Sequence, Union
 
 import jax
-from jax import Array, lax
+from jax import Array, lax, random
 import jax.numpy as jnp
+from jax.scipy.linalg import cho_solve, solve_triangular
+
+from numpyro.distributions.util import safe_cholesky
 
 __all__ = ["Gaussian"]
 
@@ -162,3 +165,125 @@ class Gaussian:
             -1
         )
         return quadratic + self.log_normalizer
+
+    def condition(self, value: Array) -> Gaussian:
+        """
+        Condition on the trailing block of coordinates.
+
+        Parameters
+        ----------
+        value : Array
+            Shape ``batch_shape + (right,)`` with ``right <= dim``.
+
+        Returns
+        -------
+        Gaussian
+            Factor over the leading ``dim - right`` coordinates with the
+            conditioned density folded into ``log_normalizer``, so
+            ``g.log_density(concat([a, b])) == g.condition(b).log_density(a)``.
+        """
+        n = self.dim - value.shape[-1]
+        info_a, info_b = self.info_vec[..., :n], self.info_vec[..., n:]
+        P_aa = self.precision[..., :n, :n]
+        P_ab = self.precision[..., :n, n:]
+        P_bb = self.precision[..., n:, n:]
+        log_normalizer = (
+            self.log_normalizer
+            - 0.5 * (value * _mv(P_bb, value)).sum(-1)
+            + (value * info_b).sum(-1)
+        )
+        return Gaussian(log_normalizer, info_a - _mv(P_ab, value), P_aa)._broadcast()
+
+    def left_condition(self, value: Array) -> Gaussian:
+        """Condition on the leading block of coordinates (see :meth:`condition`)."""
+        n = value.shape[-1]
+        perm = jnp.concatenate([jnp.arange(n, self.dim), jnp.arange(n)])
+        return self.event_permute(perm).condition(value)
+
+    def marginalize(self, left: int = 0, right: int = 0) -> Gaussian:
+        """
+        Integrate out ``left`` leading and ``right`` trailing coordinates.
+
+        Returns
+        -------
+        Gaussian
+            Factor over the remaining coordinates with ``event_logsumexp``
+            preserved. The integrated block must have positive-definite
+            precision.
+        """
+        if left == 0 and right == 0:
+            return self
+        n = self.dim
+        keep = jnp.arange(left, n - right)
+        drop = jnp.concatenate([jnp.arange(left), jnp.arange(n - right, n)])
+        P_aa = self.precision[..., keep[:, None], keep]
+        P_ba = self.precision[..., drop[:, None], keep]
+        P_bb = self.precision[..., drop[:, None], drop]
+        chol = safe_cholesky(P_bb)
+        P_a = solve_triangular(chol, P_ba, lower=True)
+        b_tmp = solve_triangular(chol, self.info_vec[..., drop, None], lower=True)[
+            ..., 0
+        ]
+        log_normalizer = (
+            self.log_normalizer
+            + 0.5 * (left + right) * _LOG_2PI
+            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1)
+            + 0.5 * (b_tmp * b_tmp).sum(-1)
+        )
+        return Gaussian(
+            log_normalizer,
+            self.info_vec[..., keep] - _mv(_mt(P_a), b_tmp),
+            P_aa - _mt(P_a) @ P_a,
+        )._broadcast()
+
+    def event_logsumexp(self) -> Array:
+        """Integrate the factor over all coordinates; requires positive-definite precision."""
+        chol = safe_cholesky(self.precision)
+        u = solve_triangular(chol, self.info_vec[..., None], lower=True)[..., 0]
+        return (
+            self.log_normalizer
+            + 0.5 * self.dim * _LOG_2PI
+            + 0.5 * (u * u).sum(-1)
+            - jnp.log(jnp.diagonal(chol, axis1=-2, axis2=-1)).sum(-1)
+        )
+
+    def sample(
+        self,
+        key: Optional[Array] = None,
+        sample_shape: tuple[int, ...] = (),
+        noise: Optional[Array] = None,
+    ) -> Array:
+        """
+        Draw from the normalized Gaussian ``N(precision^-1 info_vec, precision^-1)``.
+
+        Parameters
+        ----------
+        key : Array, optional
+            PRNG key; required when ``noise`` is ``None``.
+        sample_shape : tuple[int, ...]
+            Leading sample dimensions.
+        noise : Array, optional
+            Standard normal draws of shape ``sample_shape + batch_shape + (dim,)``;
+            ``zeros`` yields the mean.
+
+        Returns
+        -------
+        Array
+            Shape ``sample_shape + batch_shape + (dim,)``.
+        """
+        shape = tuple(sample_shape) + self.batch_shape + (self.dim,)
+        if noise is None:
+            noise = random.normal(key, shape, self.precision.dtype)
+        noise = noise.reshape(shape)
+        chol = safe_cholesky(self.precision)
+        loc = cho_solve((chol, True), self.info_vec[..., None])[..., 0]
+
+        def draw(eps: Array) -> Array:
+            return (
+                loc
+                + solve_triangular(chol, eps[..., None], lower=True, trans=1)[..., 0]
+            )
+
+        for _ in sample_shape:
+            draw = jax.vmap(draw)
+        return draw(noise)
