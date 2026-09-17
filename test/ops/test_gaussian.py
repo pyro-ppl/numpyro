@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -110,6 +111,50 @@ def test_vmap_over_factory_derives_batch_shape():
     assert g.log_density(jnp.zeros((5, 2))).shape == (5,)
 
 
+def test_construction_rejects_mismatched_event_dims():
+    with pytest.raises(ValueError, match="precision"):
+        Gaussian(jnp.zeros(()), jnp.zeros(2), jnp.eye(3))
+    with pytest.raises(ValueError, match="loc and scale"):
+        AffineNormal(jnp.zeros((2, 3)), jnp.zeros(2), jnp.ones(5))
+    with pytest.raises(ValueError, match="loc and scale"):
+        AffineNormal(jnp.zeros((2, 3)), jnp.zeros(5), jnp.ones(2))
+
+
+def test_unbroadcast_fields_round_trip_shape_ops():
+    g = Gaussian(jnp.zeros(()), random.normal(random.key(0), (3, 2)), jnp.eye(2))
+    assert g.batch_shape == (3,)
+    assert g[0].batch_shape == ()
+    assert_allclose(g[0].info_vec, g.info_vec[0])
+    assert_close_gaussian(g.reshape((3, 1)).reshape((3,)), g.expand((3,)))
+    assert_close_gaussian(Gaussian.cat([g[:1], g[1:]]), g.expand((3,)))
+    with pytest.raises(ValueError, match="batch"):
+        Gaussian.cat([g[0], g[0]])
+
+
+def test_factors_compare_by_identity():
+    g = random_gaussian(random.key(0), (), 0)
+    h = Gaussian(g.log_normalizer, g.info_vec, g.precision)
+    assert len({g, h}) == 2
+    assert g == g and g != h
+    a = AffineNormal(jnp.zeros((2, 3)), jnp.zeros(2), jnp.ones(2))
+    assert len({a, AffineNormal(a.matrix, a.loc, a.scale)}) == 2
+
+
+def test_numpy_fields():
+    g = Gaussian(np.zeros(()), np.zeros(2), np.eye(2))
+    assert_allclose(g.event_logsumexp(), 2 * 0.5 * jnp.log(2 * jnp.pi), rtol=1e-5)
+    assert g.sample(random.key(0), (4,)).shape == (4, 2)
+    assert g.sample(random.key(0)).dtype == jnp.result_type(float)
+
+
+def test_noise_shape_is_checked():
+    g = random_gaussian(random.key(0), (2,), 3)
+    with pytest.raises(ValueError, match="noise must have shape"):
+        g.sample(noise=jnp.zeros((4, 6)))
+    with pytest.raises(ValueError, match="either key or noise"):
+        g.sample()
+
+
 @pytest.mark.parametrize("left,right", [(1, 0), (0, 1), (2, 0), (0, 2), (1, 1)])
 def test_marginalize_condition_identity(left, right):
     g = random_gaussian(random.key(0), (3,), 4)
@@ -186,7 +231,7 @@ def test_mvn_to_gaussian_matches_log_prob(make):
 
 
 def test_mvn_to_gaussian_rejects_other_types():
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match=r"got Independent\(StudentT\)"):
         mvn_to_gaussian(dist.StudentT(3.0, jnp.zeros(2), 1.0).to_event(1))
 
 
@@ -301,6 +346,16 @@ def test_loc_and_scale_tril():
     cov = jnp.linalg.inv(g.precision)
     assert_allclose(loc, _mv(cov, g.info_vec), rtol=1e-3)
     assert_allclose(scale_tril @ _mt(scale_tril), cov, rtol=1e-3)
+
+
+def test_loc_and_scale_tril_x64_keeps_dtype():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("dtype promotion is only observable with x64")
+    g = random_gaussian(random.key(0), (3,), 2)
+    loc, scale_tril = loc_and_scale_tril(
+        g.info_vec.astype(jnp.float32), g.precision.astype(jnp.float32)
+    )
+    assert loc.dtype == jnp.float32 and scale_tril.dtype == jnp.float32
 
 
 def _posterior_marginals(init, trans):

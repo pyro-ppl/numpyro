@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.hmm import GaussianHMM, IndependentHMM
+from numpyro.distributions.hmm import GaussianHMM, HiddenMarkovModel, IndependentHMM
 
 
 def _spd(key, n, scale=1.0):
@@ -110,6 +110,25 @@ def test_gaussian_hmm_expanded_components():
     assert hmm.batch_shape == (3,)
     assert hmm.event_shape == (T, m)
     assert jnp.isfinite(hmm.log_prob(jnp.zeros((3, T, m)))).all()
+
+
+def test_gaussian_hmm_expand_matches_expanded_distribution():
+    T, n, m = 4, 2, 1
+    hmm = _hmm(random.key(0), T, n, m, batch=(3,))
+    for shape in [(), (1,), (2,)]:
+        with pytest.raises(ValueError, match="Cannot broadcast distribution"):
+            hmm.expand(shape)
+    expanded = hmm.expand((2, 3))
+    assert expanded.batch_shape == (2, 3)
+    x = random.normal(random.key(1), (3, T, m))
+    assert_allclose(
+        expanded.log_prob(x), jnp.broadcast_to(hmm.log_prob(x), (2, 3)), rtol=1e-5
+    )
+
+
+def test_hidden_markov_model_is_exported():
+    assert dist.HiddenMarkovModel is HiddenMarkovModel
+    assert isinstance(_hmm(random.key(0), 3, 2, 1), dist.HiddenMarkovModel)
 
 
 @pytest.mark.parametrize(
@@ -235,30 +254,33 @@ def test_gaussian_hmm_invalid_arguments():
     init = dist.Normal(jnp.zeros(n), 1.0).to_event(1)
     trans = dist.Normal(jnp.zeros(n), 1.0).to_event(1)
     obs = dist.Normal(jnp.zeros(m), 1.0).to_event(1)
+    A, H = jnp.eye(n), jnp.ones((m, n))
     with pytest.raises(ValueError, match="num_steps"):
-        GaussianHMM(init, jnp.eye(n), trans, jnp.ones((m, n)), obs)
+        GaussianHMM(init, A, trans, H, obs)
     with pytest.raises(ValueError, match="num_steps"):
         GaussianHMM(
-            init,
-            jnp.broadcast_to(jnp.eye(n), (T, n, n)),
-            trans,
-            jnp.ones((m, n)),
-            obs,
-            num_steps=T + 1,
+            init, jnp.broadcast_to(A, (T, n, n)), trans, H, obs, num_steps=T + 1
         )
     with pytest.raises(ValueError, match="event_shape"):
-        GaussianHMM(init, jnp.eye(n), obs, jnp.ones((m, n)), obs, num_steps=T)
-    with pytest.raises(TypeError):
+        GaussianHMM(init, A, obs, H, obs, num_steps=T)
+    with pytest.raises(TypeError, match=r"got Independent\(StudentT\)"):
         GaussianHMM(
             dist.StudentT(3.0, jnp.zeros(n), 1.0).to_event(1),
-            jnp.eye(n),
+            A,
             trans,
-            jnp.ones((m, n)),
+            H,
             obs,
             num_steps=T,
         )
     with pytest.raises(ValueError, match="positive"):
-        GaussianHMM(init, jnp.eye(n), trans, jnp.ones((m, n)), obs, num_steps=0)
+        GaussianHMM(init, A, trans, H, obs, num_steps=0)
+    for num_steps in [5.5, 5.0]:
+        with pytest.raises(TypeError):
+            GaussianHMM(init, A, trans, H, obs, num_steps=num_steps)
+    with pytest.raises(ValueError, match=r"time axis sizes are \[1, 3, 1, 2, 1\]"):
+        GaussianHMM(
+            init, jnp.broadcast_to(A, (T, n, n)), trans, jnp.ones((2, m, n)), obs
+        )
 
 
 @pytest.mark.parametrize("diag", [False, True])
@@ -328,7 +350,9 @@ def test_gaussian_hmm_matches_gaussian_state_space_moments():
     assert_allclose(x.var(0), ssm.variance + extra, rtol=0.05, atol=0.02)
 
 
-@pytest.mark.parametrize("other_kind", ["normal", "mvn", "expanded"])
+@pytest.mark.parametrize(
+    "other_kind", ["normal", "mvn", "expanded", "expanded_independent", "masked"]
+)
 def test_gaussian_hmm_conjugate_update_identity(other_kind):
     T, n, m = 5, 2, 2
     hmm = _hmm(random.key(0), T, n, m, batch=(3,))
@@ -339,8 +363,12 @@ def test_gaussian_hmm_conjugate_update_identity(other_kind):
         other = dist.MultivariateNormal(
             x, covariance_matrix=_spd(random.key(2), m)
         ).to_event(1)
-    else:
+    elif other_kind == "expanded":
         other = dist.Normal(0.0, 0.7).expand((3, T, m)).to_event(2)
+    elif other_kind == "expanded_independent":
+        other = dist.Normal(x[0], 0.7).to_event(2).expand((3,))
+    else:
+        other = dist.Normal(x, 0.7).to_event(2).mask(True)
     updated, log_normalizer = hmm.conjugate_update(other)
     assert isinstance(updated, GaussianHMM)
     assert log_normalizer.shape == (3,)
@@ -430,6 +458,8 @@ def test_independent_hmm():
         plain.reshape_batch((4, 1))
     with pytest.raises(ValueError):
         IndependentHMM(dist.Normal(jnp.zeros((4, 3, T, 1)), 1.0).to_event(1))
+    with pytest.raises(ValueError, match="Cannot broadcast distribution"):
+        hmm.expand((3,))
 
 
 def test_gaussian_hmm_marginalizes_local_level_in_nuts():

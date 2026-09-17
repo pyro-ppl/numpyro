@@ -15,9 +15,11 @@ Matrices act on the left: :func:`matrix_and_mvn_to_gaussian` encodes
 ``y = matrix @ x + noise`` with ``matrix`` of shape ``(..., y_dim, x_dim)``.
 A factor over ``(x, y)`` stores ``x`` first.
 
-Every factor keeps all of its fields at one common batch shape and never
-carries sample dimensions; callers handle extra leading dimensions with
-:func:`jax.vmap`.
+The fields of a factor must broadcast to one batch shape and never carry
+sample dimensions; callers handle extra leading dimensions with
+:func:`jax.vmap`. Shape operations (``__getitem__``, ``reshape``, ``cat``)
+broadcast the fields to that shape first, and every factory and operation in
+this module already returns broadcast fields via ``_broadcast()``.
 """
 
 from __future__ import annotations
@@ -80,15 +82,28 @@ def _noise(
     shape: tuple[int, ...],
     dtype: jnp.dtype,
 ) -> Array:
+    """
+    Return ``noise`` after checking its shape, or draw standard normals.
+
+    :param Array noise: draws of exactly ``shape``, or ``None`` to draw them.
+    :param Array key: PRNG key; required when ``noise`` is ``None``.
+    :param tuple shape: required shape of the draws.
+    :param dtype: dtype of the fresh draws, canonicalized to the enabled
+        precision so NumPy float64 fields do not trigger x64 warnings.
+    :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
+        ``noise.shape != shape``.
+    """
     if noise is None:
         if key is None:
             raise ValueError("either key or noise is required")
-        noise = random.normal(key, shape, dtype)
-    return noise.reshape(shape)
+        return random.normal(key, shape, jax.dtypes.canonicalize_dtype(dtype))
+    if noise.shape != shape:
+        raise ValueError(f"noise must have shape {shape}, got {noise.shape}")
+    return noise
 
 
 @jax.tree_util.register_dataclass
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Gaussian:
     """
     Unnormalized log-quadratic factor
@@ -109,6 +124,17 @@ class Gaussian:
     precision: Array
 
     event_ndims: ClassVar[tuple[int, int, int]] = (0, 1, 2)
+
+    def __post_init__(self) -> None:
+        fields = (self.log_normalizer, self.info_vec, self.precision)
+        if not all(hasattr(x, "shape") for x in fields):
+            return
+        dim = self.info_vec.shape[-1]
+        if self.precision.shape[-2:] != (dim, dim):
+            raise ValueError(
+                f"precision must have trailing shape {(dim, dim)}, "
+                f"got {self.precision.shape[-2:]}"
+            )
 
     @property
     def dim(self) -> int:
@@ -131,27 +157,21 @@ class Gaussian:
         return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
 
     def reshape(self, batch_shape: Sequence[int]) -> Gaussian:
-        """
-        Reshape the batch dimensions of every field to ``batch_shape``.
-
-        All fields must share one batch shape (the module invariant).
-        """
-        return self._map(
+        """Reshape the batch dimensions of every field to ``batch_shape``."""
+        return self._broadcast()._map(
             lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
         )
 
     def __getitem__(self, index: Union[int, slice, tuple]) -> Gaussian:
         index = index if isinstance(index, tuple) else (index,)
-        return self._map(lambda x, k: x[index + (slice(None),) * k])
+        return self._broadcast()._map(lambda x, k: x[index + (slice(None),) * k])
 
     @staticmethod
     def cat(parts: Sequence[Gaussian], axis: int = 0) -> Gaussian:
-        """
-        Concatenate factors along a batch axis.
-
-        All fields of every part must share one batch shape (the module
-        invariant).
-        """
+        """Concatenate factors along a batch axis."""
+        parts = [p._broadcast() for p in parts]
+        if not parts[0].batch_shape:
+            raise ValueError("cannot concatenate factors without batch dimensions")
         axis = axis % len(parts[0].batch_shape)
         return Gaussian(
             jnp.concatenate([p.log_normalizer for p in parts], axis),
@@ -343,12 +363,19 @@ def _diag_normal_params(d: Distribution) -> Optional[tuple[Array, Array]]:
     return jnp.broadcast_to(base.loc, shape), jnp.broadcast_to(base.scale, shape)
 
 
+def _type_name(d: Distribution) -> str:
+    """Name ``d`` with its wrapped bases, e.g. ``Independent(StudentT)``."""
+    base = getattr(d, "base_dist", None)
+    name = type(d).__name__
+    return name if base is None else f"{name}({_type_name(base)})"
+
+
 def _mvn_params(d: Distribution) -> tuple[Array, Array]:
     base = d.base_dist if isinstance(d, ExpandedDistribution) else d
     if not isinstance(base, MultivariateNormal):
         raise TypeError(
             "expected MultivariateNormal or Independent(Normal, 1), "
-            f"got {type(d).__name__}"
+            f"got {_type_name(d)}"
         )
     shape = d.batch_shape + d.event_shape
     return (
@@ -661,7 +688,7 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
 
 
 @jax.tree_util.register_dataclass
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class AffineNormal:
     """
     Conditional ``y | x ~ Normal(matrix @ x + loc, scale)`` standing in for a
@@ -678,6 +705,17 @@ class AffineNormal:
     matrix: Array
     loc: Array
     scale: Array
+
+    def __post_init__(self) -> None:
+        fields = (self.matrix, self.loc, self.scale)
+        if not all(hasattr(x, "shape") for x in fields):
+            return
+        y_dim = self.matrix.shape[-2]
+        if self.loc.shape[-1] != y_dim or self.scale.shape[-1] != y_dim:
+            raise ValueError(
+                f"loc and scale must have trailing dimension {y_dim}, "
+                f"got {self.loc.shape[-1]} and {self.scale.shape[-1]}"
+            )
 
     @property
     def dim(self) -> int:

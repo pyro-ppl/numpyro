@@ -415,3 +415,21 @@ def test_safe_cholesky_matches_cholesky_on_well_conditioned():
     P = jnp.array([[2.0, 0.5], [0.5, 1.0]])
     assert_allclose(safe_cholesky(P), jnp.linalg.cholesky(P), rtol=1e-5)
     assert jnp.all(jnp.diagonal(relative_jitter(P)) > jnp.diagonal(P))
+
+
+def test_safe_cholesky_accepts_numpy_input():
+    P = np.array([[2.0, 0.5], [0.5, 1.0]], dtype=np.float32)
+    assert_allclose(safe_cholesky(P), np.linalg.cholesky(P), rtol=1e-5)
+    assert_allclose(relative_jitter(P), P, rtol=1e-5)
+
+
+def test_safe_cholesky_grads_ignore_jitter():
+    A = random.normal(random.key(0), (3, 2, 2))
+    P = A @ jnp.swapaxes(A, -1, -2) + jnp.eye(2)
+    check_grads(safe_cholesky, (P,), order=2, modes=["fwd", "rev"], rtol=1e-2)
+    assert_allclose(
+        jax.jacobian(safe_cholesky)(P),
+        jax.jacobian(jnp.linalg.cholesky)(P),
+        rtol=1e-4,
+        atol=1e-4,
+    )

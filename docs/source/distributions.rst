@@ -471,6 +471,14 @@ ZeroSumNormal
 Hidden Markov Models
 --------------------
 
+HiddenMarkovModel
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.hmm.HiddenMarkovModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GaussianHMM
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.hmm.GaussianHMM

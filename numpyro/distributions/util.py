@@ -308,7 +308,9 @@ def cholesky_of_inverse(matrix):
     tril_inv = jnp.swapaxes(
         jnp.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1
     )
-    identity = jnp.broadcast_to(jnp.identity(matrix.shape[-1]), tril_inv.shape)
+    identity = jnp.broadcast_to(
+        jnp.identity(matrix.shape[-1], dtype=matrix.dtype), tril_inv.shape
+    )
     return solve_triangular(tril_inv, identity, lower=True)
 
 
@@ -836,21 +838,16 @@ def add_diag(matrix: Array, diag: ArrayLike) -> Array:
     return matrix.at[..., idx, idx].add(diag)
 
 
-def relative_jitter(matrix: Array) -> Array:
+def relative_jitter(matrix: ArrayLike) -> Array:
     """
     Add a gradient-free relative jitter to the diagonal of a symmetric matrix.
 
-    Parameters
-    ----------
-    matrix : Array
-        Symmetric matrices of shape ``(..., n, n)``.
-
-    Returns
-    -------
-    Array
-        ``matrix`` with ``4 * eps * max(abs(row))`` added to each diagonal entry,
-        where the jitter is detached from the gradient.
+    :param ArrayLike matrix: symmetric matrices of shape ``(..., n, n)``.
+    :return: ``matrix`` with ``4 * eps * max(abs(row))`` added to each diagonal
+        entry, where the jitter is detached from the gradient.
+    :rtype: Array
     """
+    matrix = jnp.asarray(matrix)
     jitter = 4 * jnp.finfo(matrix.dtype).eps * jnp.max(jnp.abs(matrix), axis=-1)
     return add_diag(matrix, lax.stop_gradient(jitter))
 

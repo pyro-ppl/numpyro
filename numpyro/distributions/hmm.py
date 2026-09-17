@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import operator
 from typing import Callable, Optional, Self, Sequence, Union, overload
 
 import jax
@@ -12,7 +13,11 @@ import jax.numpy as jnp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import MultivariateNormal
-from numpyro.distributions.distribution import Distribution, Independent
+from numpyro.distributions.distribution import (
+    Distribution,
+    ExpandedDistribution,
+    Independent,
+)
 from numpyro.distributions.util import validate_sample
 from numpyro.ops.gaussian import (
     AffineNormal,
@@ -59,17 +64,21 @@ def _align(
 
 
 def _peel_event(d: Distribution, n: int) -> Distribution:
-    """Remove ``n`` reinterpreted batch dimensions from nested ``Independent`` layers."""
-    while n > 0:
-        if not isinstance(d, Independent):
-            raise ValueError(
-                f"cannot remove {n} event dimensions from {type(d).__name__}"
-            )
-        k = min(n, d.reinterpreted_batch_ndims)
-        remaining = d.reinterpreted_batch_ndims - k
-        d = d.base_dist if remaining == 0 else Independent(d.base_dist, remaining)
-        n -= k
-    return d
+    """
+    Remove ``n`` reinterpreted batch dimensions from nested ``Independent``
+    layers, looking through an outer ``ExpandedDistribution``.
+    """
+    if n == 0:
+        return d
+    if isinstance(d, ExpandedDistribution):
+        base = _peel_event(d.base_dist, n)
+        return base.expand(d.batch_shape + tuple(d.event_shape)[:n])
+    if not isinstance(d, Independent):
+        raise ValueError(f"cannot remove {n} event dimensions from {type(d).__name__}")
+    k = min(n, d.reinterpreted_batch_ndims)
+    remaining = d.reinterpreted_batch_ndims - k
+    d = d.base_dist if remaining == 0 else Independent(d.base_dist, remaining)
+    return _peel_event(d, n - k)
 
 
 def _vmap_leading(fn: Callable, ndim: int) -> Callable:
@@ -79,17 +88,25 @@ def _vmap_leading(fn: Callable, ndim: int) -> Callable:
 
 
 def _time_shape(*shapes: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
-    shape = lax.broadcast_shapes(*shapes)
+    try:
+        shape = lax.broadcast_shapes(*shapes)
+    except ValueError as e:
+        raise ValueError(
+            f"parameter batch shapes {list(shapes)} do not broadcast; "
+            "the per-step time axis sizes are "
+            f"{[s[-1] if s else 1 for s in shapes]}"
+        ) from e
     return shape[:-1], shape[-1]
 
 
 def _resolve_num_steps(time: int, num_steps: Optional[int]) -> int:
+    if num_steps is not None:
+        num_steps = operator.index(num_steps)
     if time == 1:
         if num_steps is None:
             raise ValueError(
                 "num_steps is required when all parameters are time-homogeneous"
             )
-        num_steps = int(num_steps)
     elif num_steps is not None and num_steps != time:
         raise ValueError(
             f"num_steps={num_steps} conflicts with the parameters' time axis "
@@ -100,6 +117,18 @@ def _resolve_num_steps(time: int, num_steps: Optional[int]) -> int:
     if num_steps < 1:
         raise ValueError("num_steps must be a positive integer")
     return num_steps
+
+
+def _check_expand(old: tuple[int, ...], new: Sequence[int]) -> tuple[int, ...]:
+    """Return ``new`` as a tuple if ``old`` broadcasts to exactly it."""
+    new = tuple(new)
+    try:
+        full = lax.broadcast_shapes(old, new)
+    except ValueError:
+        full = None
+    if full != new:
+        raise ValueError(f"Cannot broadcast distribution of shape {old} to shape {new}")
+    return new
 
 
 class HiddenMarkovModel(Distribution):
@@ -161,7 +190,7 @@ class HiddenMarkovModel(Distribution):
         return new
 
     def expand(self, batch_shape: Sequence[int]) -> Self:
-        batch_shape = lax.broadcast_shapes(self.batch_shape, tuple(batch_shape))
+        batch_shape = _check_expand(self.batch_shape, batch_shape)
         return self._replace(_init=self._init.expand(batch_shape))
 
     def reshape_batch(self, batch_shape: Sequence[int]) -> Self:
@@ -496,8 +525,7 @@ class IndependentHMM(Distribution):
         return tuple(self.base_dist.event_shape)[:-1] + self.base_dist.batch_shape[-1:]
 
     @constraints.dependent_property(event_dim=2)
-    def support(self) -> constraints.Constraint:
-        assert self.base_dist.support is not None
+    def support(self) -> Optional[constraints.Constraint]:
         return self.base_dist.support
 
     @property
@@ -518,9 +546,10 @@ class IndependentHMM(Distribution):
         return jnp.asarray(self.base_dist.log_prob(value)).sum(-1)
 
     def expand(self, batch_shape: Sequence[int]) -> IndependentHMM:
+        batch_shape = _check_expand(self.batch_shape, batch_shape)
         obs = self.base_dist.batch_shape[-1:]
         return IndependentHMM(
-            self.base_dist.expand(tuple(batch_shape) + obs),
+            self.base_dist.expand(batch_shape + obs),
             validate_args=self.__dict__.get("_validate_args"),
         )
 
