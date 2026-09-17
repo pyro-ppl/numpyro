@@ -28,7 +28,7 @@ from numpyro.distributions.distribution import Distribution, ExpandedDistributio
 from numpyro.distributions.util import safe_cholesky
 from numpyro.ops.gaussian import (
     _LOG_2PI,
-    Gaussian,
+    AffineNormal,
     _mt,
     _mv,
     _pad_event,
@@ -55,10 +55,9 @@ class GammaFactor:
     Unnormalized Gamma log-density
     ``log_normalizer + (concentration - 1) log s - rate s``.
 
-    Parameters
-    ----------
-    log_normalizer, concentration, rate : Array
-        Shape ``batch_shape``.
+    :param Array log_normalizer: shape ``batch_shape``.
+    :param Array concentration: shape ``batch_shape``.
+    :param Array rate: shape ``batch_shape``.
     """
 
     log_normalizer: Array
@@ -87,14 +86,20 @@ class GammaGaussian:
     Factor ``log_normalizer + alpha log s + s (x . info_vec - 0.5 x^T precision x - beta)``
     over ``(x, s)``.
 
-    Parameters
-    ----------
-    log_normalizer, alpha, beta : Array
-        Shape ``batch_shape``.
-    info_vec : Array
-        Shape ``batch_shape + (dim,)``.
-    precision : Array
-        Shape ``batch_shape + (dim, dim)``.
+    For fixed ``s`` the factor is a :class:`~numpyro.ops.gaussian.Gaussian`
+    with information vector ``s info_vec`` and precision ``s precision``, that
+    is ``p(x | s) = N(s info_vec, s precision)`` in information form. A
+    normalized joint ``s ~ Gamma(concentration, rate)``,
+    ``x | s ~ N(loc, precision = s P)`` has ``alpha = concentration + dim / 2 - 1``
+    and ``beta = rate + 0.5 info_vec^T P^-1 info_vec``, so that integrating
+    ``x`` leaves a :class:`GammaFactor` with the prior ``concentration`` and
+    ``rate``.
+
+    :param Array log_normalizer: shape ``batch_shape``.
+    :param Array info_vec: shape ``batch_shape + (dim,)``.
+    :param Array precision: shape ``batch_shape + (dim, dim)``.
+    :param Array alpha: shape ``batch_shape``.
+    :param Array beta: shape ``batch_shape``.
     """
 
     log_normalizer: Array
@@ -195,10 +200,21 @@ class GammaGaussian:
         )._broadcast()
 
     def log_density(self, value: Array, s: Array) -> Array:
-        """Evaluate the factor at ``value`` of shape ``(..., dim)`` and scale ``s``."""
+        """
+        Evaluate the factor at ``value`` and scale ``s``.
+
+        :param Array value: shape ``(..., dim)``.
+        :param Array s: scale, broadcastable with ``batch_shape``.
+        :return: log density with the broadcast shape of ``value.shape[:-1]``,
+            ``batch_shape`` and ``s.shape``.
+        :rtype: Array
+        """
         scale_term = self.alpha * jnp.log(s) - self.beta * s
         if self.dim == 0:
-            return scale_term + self.log_normalizer
+            return jnp.broadcast_to(
+                scale_term + self.log_normalizer,
+                lax.broadcast_shapes(value.shape[:-1], self.batch_shape, jnp.shape(s)),
+            )
         quadratic = (value * (-0.5 * _mv(self.precision, value) + self.info_vec)).sum(
             -1
         )
@@ -208,17 +224,12 @@ class GammaGaussian:
         """
         Condition on the trailing block of coordinates.
 
-        Parameters
-        ----------
-        value : Array
-            Shape ``batch_shape + (right,)`` with ``right <= dim``.
-
-        Returns
-        -------
-        GammaGaussian
-            Factor over the leading ``dim - right`` coordinates with the
+        :param Array value: shape ``(..., right)`` with ``right <= dim``;
+            leading dimensions broadcast against ``batch_shape``.
+        :return: factor over the leading ``dim - right`` coordinates with the
             conditioned quadratic folded into ``beta``, so
             ``g.log_density(concat([a, b]), s) == g.condition(b).log_density(a, s)``.
+        :rtype: GammaGaussian
         """
         n = self.dim - value.shape[-1]
         info_a, info_b = self.info_vec[..., :n], self.info_vec[..., n:]
@@ -242,12 +253,12 @@ class GammaGaussian:
         """
         Integrate out ``left`` leading and ``right`` trailing coordinates.
 
-        Returns
-        -------
-        GammaGaussian
-            Factor over the remaining coordinates with ``event_logsumexp``
-            preserved. The integrated block must have positive-definite
-            precision.
+        :param int left: number of leading coordinates to integrate.
+        :param int right: number of trailing coordinates to integrate.
+        :return: factor over the remaining coordinates with
+            ``event_logsumexp`` preserved; the integrated block must have
+            positive-definite precision.
+        :rtype: GammaGaussian
         """
         if left == 0 and right == 0:
             return self
@@ -280,10 +291,8 @@ class GammaGaussian:
         """
         Integrate the factor over ``x``; requires positive-definite precision.
 
-        Returns
-        -------
-        GammaFactor
-            The remaining factor over ``s``.
+        :return: the remaining factor over ``s``.
+        :rtype: GammaFactor
         """
         chol = safe_cholesky(self.precision)
         u = solve_triangular(chol, self.info_vec[..., None], lower=True)[..., 0]
@@ -299,10 +308,13 @@ class GammaGaussian:
         """
         Marginal over ``s`` of the normalized joint.
 
-        Returns
-        -------
-        MultivariateStudentT
-            Student-t with ``2 (alpha - dim / 2 + 1)`` degrees of freedom.
+        The moments come from :func:`~numpyro.ops.gaussian.loc_and_scale_tril`,
+        which adds the rounding-level diagonal jitter of
+        :func:`~numpyro.distributions.util.relative_jitter` before factorizing
+        ``precision``.
+
+        :return: Student-t with ``2 (alpha - dim / 2 + 1)`` degrees of freedom.
+        :rtype: MultivariateStudentT
         """
         concentration = self.alpha - 0.5 * self.dim + 1
         loc, scale_tril = loc_and_scale_tril(self.info_vec, self.precision)
@@ -355,32 +367,20 @@ def matrix_and_mvn_to_gamma_gaussian(matrix: Array, mvn: Distribution) -> GammaG
     Factor over ``(x, y, s)`` for ``y = matrix @ x + noise`` with
     ``noise ~ MultivariateNormal(loc, precision = s * P)``.
 
-    Parameters
-    ----------
-    matrix : Array
-        Shape ``(..., y_dim, x_dim)``.
-    mvn : Distribution
-        ``MultivariateNormal`` noise with ``event_shape == (y_dim,)``.
-
-    Returns
-    -------
-    GammaGaussian
-        Factor over ``concat([x, y])`` with ``alpha == y_dim / 2`` and the
+    :param Array matrix: shape ``(..., y_dim, x_dim)``.
+    :param Distribution mvn: ``MultivariateNormal`` or ``Independent(Normal, 1)``
+        noise with ``event_shape == (y_dim,)``, possibly wrapped in
+        ``ExpandedDistribution``.
+    :return: factor over ``concat([x, y])`` with ``alpha == y_dim / 2`` and the
         quadratic ``0.5 loc^T P loc`` tracked in ``beta``.
-
-    Raises
-    ------
-    TypeError
-        If ``mvn`` is a diagonal normal, for which
-        :func:`~numpyro.ops.gaussian.matrix_and_mvn_to_gaussian` returns an
-        :class:`~numpyro.ops.gaussian.AffineNormal`.
+    :rtype: GammaGaussian
+    :raises TypeError: if ``mvn`` is not a supported Gaussian distribution.
+    :raises ValueError: if ``mvn.event_shape`` does not match the rows of
+        ``matrix``.
     """
     g = matrix_and_mvn_to_gaussian(matrix, mvn)
-    if not isinstance(g, Gaussian):
-        raise TypeError(
-            "matrix_and_mvn_to_gamma_gaussian requires a MultivariateNormal noise "
-            "distribution"
-        )
+    if isinstance(g, AffineNormal):
+        g = g.to_gaussian()
     y_dim, x_dim = matrix.shape[-2:]
     loc = jnp.broadcast_to(mvn.mean, g.info_vec.shape[:-1] + (y_dim,))
     half_quadratic = 0.5 * (g.info_vec[..., x_dim:] * loc).sum(-1)
@@ -401,19 +401,15 @@ def gamma_gaussian_tensordot(
     Contract two factors over ``dims`` shared coordinates:
     ``(x @ y)(a, c, s) = log int exp(x(a, b, s) + y(b, c, s)) db``.
 
-    Parameters
-    ----------
-    x : GammaGaussian
-        Factor over ``(a, b)`` with ``b`` the trailing ``dims`` coordinates.
-    y : GammaGaussian
-        Factor over ``(b, c)`` with ``b`` the leading ``dims`` coordinates.
-    dims : int
-        Number of shared coordinates.
-
-    Returns
-    -------
-    GammaGaussian
-        Factor over ``(a, c)`` with the broadcast batch shape of ``x`` and ``y``.
+    :param GammaGaussian x: factor over ``(a, b)`` with ``b`` the trailing
+        ``dims`` coordinates.
+    :param GammaGaussian y: factor over ``(b, c)`` with ``b`` the leading
+        ``dims`` coordinates.
+    :param int dims: number of shared coordinates.
+    :return: factor over ``(a, c)`` with the broadcast batch shape of ``x``
+        and ``y``.
+    :rtype: GammaGaussian
+    :raises ValueError: if ``dims`` exceeds the event dimension of a factor.
     """
     na, nb, nc = x.dim - dims, dims, y.dim - dims
     if na < 0 or nc < 0:
@@ -429,17 +425,11 @@ def sequential_gamma_gaussian_tensordot(gaussian: GammaGaussian) -> GammaGaussia
     """
     Reduce pairwise factors over time to one factor over ``(z_0, z_T, s)``.
 
-    Parameters
-    ----------
-    gaussian : GammaGaussian
-        Batched factor whose trailing batch dimension indexes time and whose
-        event dimension is ``2 * state_dim``.
-
-    Returns
-    -------
-    GammaGaussian
-        The contraction ``g[..., 0] @ g[..., 1] @ ... @ g[..., T - 1]`` over
-        each intermediate state, computed in ``log2(T)`` batched steps.
+    :param GammaGaussian gaussian: batched factor whose trailing batch
+        dimension indexes time and whose event dimension is ``2 * state_dim``.
+    :return: the contraction ``g[..., 0] @ g[..., 1] @ ... @ g[..., T - 1]``
+        over each intermediate state, computed in ``log2(T)`` batched steps.
+    :rtype: GammaGaussian
     """
     state_dim = gaussian.dim // 2
     while gaussian.batch_shape[-1] > 1:

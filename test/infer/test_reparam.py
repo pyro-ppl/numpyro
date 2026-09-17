@@ -685,17 +685,29 @@ def test_linear_hmm_reparam_gaussian_components_match_gaussian_hmm():
     )
 
 
-def test_linear_hmm_reparam_requires_distribution_from_sub_reparam():
+def test_linear_hmm_reparam_rejects_value_returning_sub_reparam():
     T, n, m = 3, 1, 1
     init, A, trans, H, obs = _components(T, n, m, random.key(0))
 
     def model():
         numpyro.sample("x", LinearHMM(init, A, trans, H, obs))
 
-    with pytest.raises(ValueError, match="distribution"):
+    with pytest.raises(ValueError, match="x_trans must not return a value"):
         with handlers.reparam(
             config={"x": LinearHMMReparam(trans=LocScaleReparam(0.0))}
         ):
+            handlers.seed(model, 0)()
+
+
+def test_linear_hmm_reparam_rejects_non_gaussian_noise():
+    T, n, m = 3, 1, 1
+    init, A, trans, H, obs = _components(T, n, m, random.key(0), noise="student")
+
+    def model():
+        numpyro.sample("x", LinearHMM(init, A, trans, H, obs))
+
+    with pytest.raises(ValueError, match=r"x_trans must be .*got StudentT"):
+        with handlers.reparam(config={"x": LinearHMMReparam()}):
             handlers.seed(model, 0)()
 
 

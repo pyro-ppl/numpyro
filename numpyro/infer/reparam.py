@@ -3,25 +3,32 @@
 
 from abc import ABC, abstractmethod
 import math
-from typing import Iterable
+from typing import Iterable, Optional
 
 import numpy as np
 
 import jax
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
-from numpyro.distributions.hmm import _peel_event
+from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.transforms import (
     ComposeTransform,
     DiscreteCosineTransform,
     HaarTransform,
     Transform,
 )
-from numpyro.distributions.util import is_identically_one, safe_normalize, sum_rightmost
+from numpyro.distributions.util import (
+    _peel_event,
+    is_identically_one,
+    safe_normalize,
+    sum_rightmost,
+)
 from numpyro.infer.autoguide import AutoContinuous
+from numpyro.ops.gaussian import is_gaussian_noise
 from numpyro.util import not_jax_tracer
 
 
@@ -522,7 +529,9 @@ class StudentTReparam(Reparam):
     which lets :class:`LinearHMMReparam` marginalize it exactly.
     """
 
-    def __call__(self, name, fn, obs):
+    def __call__(
+        self, name: str, fn: Distribution, obs: Optional[ArrayLike]
+    ) -> tuple[Distribution, Optional[ArrayLike]]:
         fn, expand_shape, event_dim = self._unwrap(fn)
         if not isinstance(fn, dist.StudentT):
             raise ValueError(
@@ -544,35 +553,74 @@ class LinearHMMReparam(Reparam):
 
     Each of ``init``, ``trans`` and ``obs`` is an optional sub-reparameterizer
     applied to the corresponding noise distribution at an auxiliary site
-    ``{name}_init``, ``{name}_trans`` or ``{name}_obs``. Sub-reparameterizers
-    must return a Gaussian distribution (for example :class:`StudentTReparam`);
-    the site is then replaced by a :class:`~numpyro.distributions.GaussianHMM`
-    with the hidden states marginalized out, wrapped in a
+    ``{name}_init``, ``{name}_trans`` or ``{name}_obs``. After
+    reparameterization every noise distribution must be Gaussian
+    (``MultivariateNormal`` or ``Independent(Normal, 1)``, for example the
+    result of :class:`StudentTReparam`); the site is then replaced by a
+    :class:`~numpyro.distributions.GaussianHMM` with the hidden states
+    marginalized out, wrapped in a
     :class:`~numpyro.distributions.TransformedDistribution` when the
     ``LinearHMM`` has observation transforms.
 
-    Parameters
-    ----------
-    init, trans, obs : Reparam, optional
-        Sub-reparameterizers for the initial, transition and observation noise.
+    :param Optional[Reparam] init: sub-reparameterizer for the initial noise.
+    :param Optional[Reparam] trans: sub-reparameterizer for the transition
+        noise.
+    :param Optional[Reparam] obs: sub-reparameterizer for the observation
+        noise.
     """
 
-    def __init__(self, init=None, trans=None, obs=None):
+    def __init__(
+        self,
+        init: Optional[Reparam] = None,
+        trans: Optional[Reparam] = None,
+        obs: Optional[Reparam] = None,
+    ) -> None:
         self.init = init
         self.trans = trans
         self.obs = obs
 
-    def _apply(self, reparam, name, fn):
-        if reparam is None:
-            return fn
-        new_fn, _ = reparam(name, fn, None)
-        if not isinstance(new_fn, dist.Distribution):
-            raise ValueError(
-                f"sub-reparameterizer for {name} must return a distribution"
-            )
-        return new_fn
+    def _apply(
+        self, reparam: Optional[Reparam], name: str, fn: Distribution, event_dim: int
+    ) -> Distribution:
+        """
+        Reparameterize one noise distribution and check that the result is
+        Gaussian.
 
-    def __call__(self, name, fn, obs):
+        :param Optional[Reparam] reparam: sub-reparameterizer, or ``None`` to
+            use ``fn`` as is.
+        :param str name: auxiliary site name passed to ``reparam``.
+        :param Distribution fn: noise distribution whose trailing ``event_dim``
+            batch dimensions have been folded into the event.
+        :param int event_dim: number of folded dimensions to restore.
+        :return: Gaussian noise distribution with the folded dimensions
+            restored as batch dimensions.
+        :rtype: Distribution
+        :raises ValueError: if ``reparam`` returns a value or anything other
+            than a distribution, or if the resulting distribution is not
+            Gaussian.
+        """
+        if reparam is not None:
+            new_fn, value = reparam(name, fn, None)
+            if value is not None:
+                raise ValueError(
+                    f"sub-reparameterizer for {name} must not return a value"
+                )
+            if not isinstance(new_fn, Distribution):
+                raise ValueError(
+                    f"sub-reparameterizer for {name} must return a distribution"
+                )
+            fn = new_fn
+        fn = _peel_event(fn, event_dim)
+        if not is_gaussian_noise(fn):
+            raise ValueError(
+                f"{name} must be a MultivariateNormal or Independent(Normal, 1) "
+                f"after reparameterization, got {type(self._unwrap(fn)[0]).__name__}"
+            )
+        return fn
+
+    def __call__(
+        self, name: str, fn: Distribution, obs: Optional[ArrayLike]
+    ) -> tuple[Distribution, Optional[ArrayLike]]:
         fn, expand_shape, event_dim = self._unwrap(fn)
         if isinstance(fn, dist.IndependentHMM):
             # The base carries obs_dim as its trailing batch dim; treat it as
@@ -584,7 +632,9 @@ class LinearHMMReparam(Reparam):
             hmm = self._reparam_linear(name, fn, event_dim)
         return self._wrap(hmm, expand_shape, event_dim), obs
 
-    def _reparam_linear(self, name, fn, event_dim):
+    def _reparam_linear(
+        self, name: str, fn: Distribution, event_dim: int
+    ) -> Distribution:
         if not isinstance(fn, dist.LinearHMM):
             raise ValueError(
                 "LinearHMMReparam expects a LinearHMM or IndependentHMM, "
@@ -595,24 +645,19 @@ class LinearHMMReparam(Reparam):
         # per-step noise distributions.
         extra = event_dim - 2
         time_shape = fn.batch_shape + (fn.num_steps,)
-        init_dist = _peel_event(
-            self._apply(self.init, f"{name}_init", fn.initial_dist.to_event(extra)),
-            extra,
+        init_dist = self._apply(
+            self.init, f"{name}_init", fn.initial_dist.to_event(extra), extra
         )
-        trans_dist = _peel_event(
-            self._apply(
-                self.trans,
-                f"{name}_trans",
-                fn.transition_dist.expand(time_shape).to_event(1 + extra),
-            ),
+        trans_dist = self._apply(
+            self.trans,
+            f"{name}_trans",
+            fn.transition_dist.expand(time_shape).to_event(1 + extra),
             1 + extra,
         )
-        obs_dist = _peel_event(
-            self._apply(
-                self.obs,
-                f"{name}_obs",
-                fn.observation_dist.expand(time_shape).to_event(1 + extra),
-            ),
+        obs_dist = self._apply(
+            self.obs,
+            f"{name}_obs",
+            fn.observation_dist.expand(time_shape).to_event(1 + extra),
             1 + extra,
         )
         hmm = dist.GaussianHMM(

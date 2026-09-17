@@ -10,6 +10,7 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions import transforms
 from numpyro.distributions.hmm import (
     GammaGaussianHMM,
     GaussianHMM,
@@ -1145,11 +1146,54 @@ def test_gamma_gaussian_hmm_shapes(batch, homogeneous):
             scale_dist,
             init,
             A,
-            dist.Normal(jnp.zeros(batch + tshape + (n,)), 1.0).to_event(1),
+            dist.StudentT(3.0, jnp.zeros(batch + tshape + (n,)), 1.0).to_event(1),
             H,
             obs,
             num_steps=T,
         )
+
+
+def test_gamma_gaussian_hmm_diag_matches_full_covariance():
+    T, n, m = 6, 2, 2
+    ks = random.split(random.key(21), 6)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (T, n, n))
+    H = random.normal(ks[1], (T, m, n))
+    init_loc = random.normal(ks[2], (n,))
+    init_scale = 0.5 + random.uniform(ks[3], (n,))
+    trans_scale = 0.3 + random.uniform(ks[4], (T, n))
+    obs_scale = 0.2 + random.uniform(ks[5], (T, m))
+    scale_dist = dist.Gamma(4.0, 3.0)
+    diag = GammaGaussianHMM(
+        scale_dist,
+        dist.Normal(init_loc, init_scale).to_event(1),
+        A,
+        dist.Normal(jnp.zeros((T, n)), trans_scale).to_event(1),
+        H,
+        dist.Normal(jnp.zeros((T, m)), obs_scale).to_event(1),
+    )
+    full = GammaGaussianHMM(
+        scale_dist,
+        dist.MultivariateNormal(init_loc, covariance_matrix=jnp.diag(init_scale**2)),
+        A,
+        dist.MultivariateNormal(
+            jnp.zeros((T, n)),
+            covariance_matrix=jnp.eye(n) * (trans_scale**2)[..., None, :],
+        ),
+        H,
+        dist.MultivariateNormal(
+            jnp.zeros((T, m)),
+            covariance_matrix=jnp.eye(m) * (obs_scale**2)[..., None, :],
+        ),
+    )
+    x = random.normal(random.key(22), (3, T, m))
+    assert_allclose(diag.log_prob(x), full.log_prob(x), rtol=1e-4, atol=1e-4)
+    gamma_diag, mvn_diag = diag.filter(x)
+    gamma_full, mvn_full = full.filter(x)
+    assert_allclose(gamma_diag.rate, gamma_full.rate, rtol=1e-4)
+    assert_allclose(mvn_diag.mean, mvn_full.mean, rtol=1e-3, atol=1e-3)
+    assert_allclose(
+        mvn_diag.covariance_matrix, mvn_full.covariance_matrix, rtol=1e-3, atol=1e-3
+    )
 
 
 @pytest.mark.parametrize("T,n,m", [(1, 1, 1), (2, 2, 1), (5, 2, 2)])
@@ -1331,6 +1375,39 @@ def test_linear_hmm_homogeneous_keeps_time_axis():
     assert expanded.sample(random.key(2)).shape == (5, T, m)
 
 
+def test_linear_hmm_vmap_reports_mapped_batch():
+    T, n, m = 5, 2, 1
+    A = jnp.broadcast_to(0.8 * jnp.eye(n), (T, n, n))
+    H = jnp.ones((T, m, n))
+
+    def make(scale):
+        return LinearHMM(
+            dist.Normal(jnp.zeros(n), scale).to_event(1),
+            A,
+            dist.StudentT(4.0, jnp.zeros((T, n)), scale).to_event(1),
+            H,
+            dist.Normal(jnp.zeros((T, m)), 0.3).to_event(1),
+        )
+
+    hmm = jax.vmap(make)(jnp.array([0.5, 1.0]))
+    assert hmm.batch_shape == (2,) and hmm.event_shape == (T, m)
+    assert hmm.sample(random.key(0)).shape == (2, T, m)
+    assert hmm.sample(random.key(0), (3,)).shape == (3, 2, T, m)
+
+
+def test_linear_hmm_rejects_shape_changing_observation_transform():
+    T, n, m = 5, 2, 2
+    init = dist.Normal(jnp.zeros(n), 1.0).to_event(1)
+    trans = dist.Normal(jnp.zeros((T, n)), 0.5).to_event(1)
+    obs = dist.TransformedDistribution(
+        dist.Normal(jnp.zeros((T, m - 1)), 0.3).to_event(1),
+        transforms.StickBreakingTransform(),
+    )
+    assert obs.event_shape == (m,)
+    with pytest.raises(ValueError, match="StickBreakingTransform"):
+        LinearHMM(init, jnp.eye(n), trans, jnp.ones((m, n)), obs)
+
+
 def _mrf(key, T, n, m, *, batch=()):
     ks = random.split(key, 6)
     init = dist.MultivariateNormal(
@@ -1386,6 +1463,14 @@ def test_gaussian_mrf_log_prob_matches_unrolled(T, n, m):
     log_joint = joint.condition(x.ravel()).event_logsumexp()
     log_hidden = joint.marginalize(right=T * m).event_logsumexp()
     assert_allclose(mrf.log_prob(x), log_joint - log_hidden, rtol=1e-4, atol=1e-4)
+
+
+def test_gaussian_mrf_log_prob_batched_values_match_loop():
+    T, n, m = 4, 2, 1
+    mrf = _mrf(random.key(0), T, n, m, batch=(3,))
+    x = random.normal(random.key(1), (5, 3, T, m))
+    expected = jnp.stack([mrf.log_prob(x[i]) for i in range(5)])
+    assert_allclose(mrf.log_prob(x), expected, rtol=1e-4, atol=1e-4)
 
 
 def test_gaussian_mrf_block_diagonal_reduces_to_independent_observations():

@@ -87,6 +87,33 @@ def test_log_density_matches_fixed_scale_gaussian():
     assert added.batch_shape == (3,)
 
 
+def test_log_density_dim_zero_broadcasts_value_and_scale():
+    gg = random_gamma_gaussian(random.key(0), (3,), 2).marginalize(right=2)
+    assert gg.dim == 0
+    x = jnp.zeros((5, 3, 0))
+    s = jnp.exp(random.normal(random.key(2), (3,)))
+    assert gg.log_density(x, s).shape == (5, 3)
+    assert gg.log_density(x, jnp.ones((4, 1, 1))).shape == (4, 5, 3)
+    assert_allclose(
+        gg.log_density(x, s), jnp.broadcast_to(gg.log_density(x[0], s), (5, 3))
+    )
+
+
+def test_condition_broadcasts_leading_value_dims():
+    gg = random_gamma_gaussian(random.key(0), (3,), 4)
+    s = jnp.exp(random.normal(random.key(2), (3,)))
+    a = random.normal(random.key(1), (7, 3, 2))
+    b = random.normal(random.key(3), (7, 3, 2))
+    conditioned = gg.condition(b)
+    assert conditioned.batch_shape == (7, 3) and conditioned.dim == 2
+    assert_allclose(
+        conditioned.log_density(a, s),
+        gg.log_density(jnp.concatenate([a, b], -1), s),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+
 @pytest.mark.parametrize("left,right", [(1, 0), (0, 1), (0, 2), (1, 1)])
 def test_marginalize_and_condition(left, right):
     gg = random_gamma_gaussian(random.key(0), (3,), 4)
@@ -161,9 +188,20 @@ def test_matrix_and_mvn_to_gamma_gaussian():
         precision_matrix=s[:, None, None] * mvn.precision_matrix,
     ).log_prob(y)
     assert_allclose(gg.log_density(jnp.concatenate([x, y], -1), s), expected, rtol=1e-4)
+    diag = dist.Normal(
+        random.normal(random.key(5), (4, y_dim)),
+        jnp.exp(0.1 * random.normal(random.key(6), (4, y_dim))),
+    ).to_event(1)
+    full = dist.MultivariateNormal(
+        diag.mean, covariance_matrix=jnp.eye(y_dim) * diag.variance[..., None, :]
+    )
+    assert_close_gamma_gaussian(
+        matrix_and_mvn_to_gamma_gaussian(matrix, diag),
+        matrix_and_mvn_to_gamma_gaussian(matrix, full),
+    )
     with pytest.raises(TypeError):
         matrix_and_mvn_to_gamma_gaussian(
-            matrix, dist.Normal(jnp.zeros((4, y_dim)), 1.0).to_event(1)
+            matrix, dist.StudentT(3.0, jnp.zeros((4, y_dim)), 1.0).to_event(1)
         )
 
 

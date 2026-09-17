@@ -35,7 +35,7 @@ from numpyro.distributions.distribution import (
     TransformedDistribution,
 )
 from numpyro.distributions.transforms import Transform
-from numpyro.distributions.util import validate_sample
+from numpyro.distributions.util import _peel_event, validate_sample
 from numpyro.ops.gamma_gaussian import (
     GammaGaussian,
     gamma_and_mvn_to_gamma_gaussian,
@@ -115,24 +115,6 @@ def _align(init: F, trans: S, obs: S) -> tuple[F, S, S]:
         _with_batch_rank(trans, rank + 1),
         _with_batch_rank(obs, rank + 1),
     )
-
-
-def _peel_event(d: Distribution, n: int) -> Distribution:
-    """
-    Remove ``n`` reinterpreted batch dimensions from nested ``Independent``
-    layers, looking through an outer ``ExpandedDistribution``.
-    """
-    if n == 0:
-        return d
-    if isinstance(d, ExpandedDistribution):
-        base = _peel_event(d.base_dist, n)
-        return base.expand(d.batch_shape + tuple(d.event_shape)[:n])
-    if not isinstance(d, Independent):
-        raise ValueError(f"cannot remove {n} event dimensions from {type(d).__name__}")
-    k = min(n, d.reinterpreted_batch_ndims)
-    remaining = d.reinterpreted_batch_ndims - k
-    d = d.base_dist if remaining == 0 else Independent(d.base_dist, remaining)
-    return _peel_event(d, n - k)
 
 
 def _vmap_leading(fn: Callable, ndim: int) -> Callable:
@@ -406,12 +388,6 @@ def _kalman_filter(
 
     (loc_T, cov_T), lls = lax.scan(step, (loc0, cov0), xs)
     return lls.sum(0), loc_T, cov_T
-
-
-def _require_mvn(d: Distribution, name: str) -> None:
-    base = d.base_dist if isinstance(d, ExpandedDistribution) else d
-    if not isinstance(base, MultivariateNormal):
-        raise TypeError(f"{name} must be a MultivariateNormal, got {type(d).__name__}")
 
 
 def _peel_observation(d: Distribution) -> tuple[Distribution, list[Transform]]:
@@ -1039,20 +1015,25 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
     where ``scale(mvn, s)`` multiplies the precision by ``s``. Only
     ``log_prob`` and :meth:`filter` are provided.
 
+    .. note:: Matrices act on the left and ``num_steps`` is required for
+        time-homogeneous parameters; see the note in :class:`GaussianHMM`.
+
     :param Distribution scale_dist: ``Gamma`` prior over the shared precision
         scale, possibly wrapped in ``ExpandedDistribution``.
-    :param Distribution initial_dist: ``MultivariateNormal`` with event shape
-        ``(hidden_dim,)``.
+    :param Distribution initial_dist: ``MultivariateNormal`` or
+        ``Independent(Normal, 1)`` over ``z_0`` with
+        ``event_shape == (hidden_dim,)``.
     :param Array transition_matrix: as in :class:`GaussianHMM`.
-    :param Distribution transition_dist: ``MultivariateNormal`` with event
-        shape ``(hidden_dim,)``.
+    :param Distribution transition_dist: process noise with
+        ``event_shape == (hidden_dim,)``.
     :param Array observation_matrix: as in :class:`GaussianHMM`.
-    :param Distribution observation_dist: ``MultivariateNormal`` with event
-        shape ``(obs_dim,)``.
+    :param Distribution observation_dist: observation noise with
+        ``event_shape == (obs_dim,)``.
     :param Optional[int] num_steps: required when every per-step parameter is
         time-homogeneous.
     :raises TypeError: if ``scale_dist`` is not a ``Gamma`` or a noise
-        distribution is not a ``MultivariateNormal``.
+        distribution is not ``MultivariateNormal`` or
+        ``Independent(Normal, 1)``.
     """
 
     _trans: GammaGaussian
@@ -1081,12 +1062,6 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
             raise TypeError(
                 f"scale_dist must be a Gamma, got {type(scale_dist).__name__}"
             )
-        for name, d in (
-            ("initial_dist", initial_dist),
-            ("transition_dist", transition_dist),
-            ("observation_dist", observation_dist),
-        ):
-            _require_mvn(d, name)
         transition_matrix = jnp.asarray(transition_matrix)
         observation_matrix = jnp.asarray(observation_matrix)
         _, _, num_steps = _resolve_layout(
@@ -1116,6 +1091,18 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
 
     @validate_sample
     def log_prob(self, value: Array) -> Array:
+        """
+        Marginal log density of an observation sequence with ``s`` and the
+        hidden states integrated out.
+
+        :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
+            leading dimensions broadcast with ``batch_shape`` as in
+            :meth:`GaussianHMM.log_prob`.
+        :return: log density with the broadcast shape.
+        :rtype: Array
+        :raises ValueError: if ``value`` does not have trailing shape
+            ``(num_steps, obs_dim)``.
+        """
         value, extra = self._lead_and_extra(value)
         return _vmap_leading(
             lambda v: self._posterior(v).event_logsumexp().logsumexp(), extra
@@ -1125,11 +1112,14 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
         """
         Posterior over the precision scale and over the final state.
 
-        Returns
-        -------
-        tuple[Gamma, MultivariateNormal]
-            ``p(s | x)`` and ``p(z_T | x, s = 1)`` scaled as a Gaussian with
-            the posterior precision.
+        :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
+            leading dimensions broadcast with ``batch_shape`` as in
+            :meth:`GaussianHMM.filter`.
+        :return: ``p(s | x)`` and ``p(z_T | x, s = 1)``, the latter a
+            Gaussian with the posterior precision.
+        :rtype: tuple[Gamma, MultivariateNormal]
+        :raises ValueError: if ``value`` does not have trailing shape
+            ``(num_steps, obs_dim)``.
         """
         value, extra = self._lead_and_extra(value)
 
@@ -1158,17 +1148,20 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
     ``initial_dist`` is over ``z_0``. ``log_prob`` is
     ``log p(x) = log \int f(z, x) dz - log \int\int f(z, x) dz dx``.
 
-    Parameters
-    ----------
-    initial_dist : MultivariateNormal
-        Event shape ``(hidden_dim,)``.
-    transition_dist : MultivariateNormal
-        Event shape ``(2 * hidden_dim,)``; time on the rightmost batch axis.
-    observation_dist : MultivariateNormal
-        Event shape ``(hidden_dim + obs_dim,)``; time on the rightmost batch
+    :param Distribution initial_dist: ``MultivariateNormal`` or
+        ``Independent(Normal, 1)`` with ``event_shape == (hidden_dim,)``.
+    :param Distribution transition_dist: joint over ``(z_{t-1}, z_t)`` with
+        ``event_shape == (2 * hidden_dim,)``; time on the rightmost batch
         axis.
-    num_steps : int, optional
-        Required when both per-step distributions are time-homogeneous.
+    :param Distribution observation_dist: joint over ``(z_t, x_t)`` with
+        ``event_shape == (hidden_dim + obs_dim,)``; time on the rightmost
+        batch axis.
+    :param Optional[int] num_steps: required when both per-step distributions
+        are time-homogeneous.
+    :raises ValueError: if the event shapes disagree, the batch shapes do not
+        broadcast, or ``num_steps`` is missing or conflicts with the time axis.
+    :raises TypeError: if a distribution is not ``MultivariateNormal`` or
+        ``Independent(Normal, 1)``.
     """
 
     _trans: Gaussian
@@ -1185,12 +1178,6 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
         num_steps: Optional[int] = None,
         validate_args: Optional[bool] = None,
     ) -> None:
-        for name, d in (
-            ("initial_dist", initial_dist),
-            ("transition_dist", transition_dist),
-            ("observation_dist", observation_dist),
-        ):
-            _require_mvn(d, name)
         hidden_dim = initial_dist.event_shape[0]
         if tuple(transition_dist.event_shape) != (2 * hidden_dim,):
             raise ValueError(
@@ -1217,25 +1204,31 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
     def has_rsample(self) -> bool:
         return False
 
-    def _log_prob_core(self, value: Array) -> Array:
-        batch_shape = self.batch_shape + (self.num_steps,)
-        stacked = Gaussian.cat(
-            [
-                z.expand(batch_shape).reshape((1,) + batch_shape)
-                for z in (
-                    self._obs.condition(value),
-                    self._obs.marginalize(right=self.obs_dim),
-                )
-            ],
-            axis=0,
-        )
-        logp = self._reduce(stacked).event_logsumexp()
-        return logp[0] - logp[1]
-
     @validate_sample
     def log_prob(self, value: Array) -> Array:
+        r"""
+        Marginal log density of an observation sequence.
+
+        The normalizer ``log \int\int f(z, x) dz dx`` does not depend on
+        ``value`` and is computed once; only the conditioned reduction is
+        mapped over the leading dimensions of ``value``.
+
+        :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
+            leading dimensions broadcast with ``batch_shape`` as in
+            :meth:`GaussianHMM.log_prob`.
+        :return: log density with the broadcast shape.
+        :rtype: Array
+        :raises ValueError: if ``value`` does not have trailing shape
+            ``(num_steps, obs_dim)``.
+        """
         value, extra = self._lead_and_extra(value)
-        return _vmap_leading(self._log_prob_core, extra)(value)
+        log_normalizer = self._reduce(
+            self._obs.marginalize(right=self.obs_dim)
+        ).event_logsumexp()
+        log_joint = _vmap_leading(
+            lambda v: self._reduce(self._obs.condition(v)).event_logsumexp(), extra
+        )(value)
+        return log_joint - log_normalizer
 
 
 class IndependentHMM(Distribution):
@@ -1410,15 +1403,25 @@ class LinearHMM(Distribution):
     ``log_prob`` is not available; use
     :class:`~numpyro.infer.reparam.LinearHMMReparam` for inference.
 
-    Parameters
-    ----------
-    initial_dist, transition_dist, observation_dist : Distribution
-        Reparameterized distributions with event shapes ``(hidden_dim,)``,
-        ``(hidden_dim,)`` and ``(obs_dim,)``.
-    transition_matrix, observation_matrix : Array
-        As in :class:`GaussianHMM`.
-    num_steps : int, optional
-        Required when every per-step parameter is time-homogeneous.
+    .. note:: Matrices act on the left and ``num_steps`` is required for
+        time-homogeneous parameters; see the note in :class:`GaussianHMM`.
+
+    :param Distribution initial_dist: reparameterized distribution over
+        ``z_0`` with ``event_shape == (hidden_dim,)``.
+    :param Array transition_matrix: as in :class:`GaussianHMM`.
+    :param Distribution transition_dist: reparameterized process noise with
+        ``event_shape == (hidden_dim,)``.
+    :param Array observation_matrix: as in :class:`GaussianHMM`.
+    :param Distribution observation_dist: reparameterized observation noise
+        with ``event_shape == (obs_dim,)``; observation transforms must
+        preserve the event shape.
+    :param Optional[int] num_steps: required when every per-step parameter is
+        time-homogeneous.
+    :raises TypeError: if a noise distribution is not reparameterized or does
+        not have ``event_dim == 1``.
+    :raises ValueError: if event shapes disagree, the batch shapes do not
+        broadcast, ``num_steps`` is missing or conflicts with the parameters'
+        time axis, or an observation transform changes the event shape.
     """
 
     arg_constraints = {}
@@ -1462,6 +1465,18 @@ class LinearHMM(Distribution):
         )
         obs_dim, hidden_dim = observation_matrix.shape[-2:]
         observation_dist, transforms = _peel_observation(observation_dist)
+        if tuple(observation_dist.event_shape) != (obs_dim,):
+            raise ValueError(
+                f"observation noise must have event_shape {(obs_dim,)}, "
+                f"got {tuple(observation_dist.event_shape)}"
+            )
+        for transform in transforms:
+            if tuple(transform.forward_shape((obs_dim,))) != (obs_dim,):
+                raise ValueError(
+                    f"observation transform {type(transform).__name__} maps "
+                    f"event_shape {(obs_dim,)} to "
+                    f"{tuple(transform.forward_shape((obs_dim,)))}"
+                )
         self.initial_dist = initial_dist.expand(batch_shape)
         self.transition_matrix = jnp.broadcast_to(
             transition_matrix, batch_shape + (time, hidden_dim, hidden_dim)
@@ -1478,7 +1493,7 @@ class LinearHMM(Distribution):
 
     @property
     def batch_shape(self) -> tuple[int, ...]:
-        return tuple(self.initial_dist.batch_shape)
+        return self.transition_matrix.shape[:-3]
 
     @property
     def event_shape(self) -> tuple[int, ...]:
@@ -1507,16 +1522,27 @@ class LinearHMM(Distribution):
         return constraints.independent(support, 2 - support.event_dim)
 
     def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        """
+        Draw observation sequences by simulating the generative model.
+
+        :param Optional[Array] key: PRNG key.
+        :param tuple sample_shape: leading sample dimensions, drawn by mapping
+            over split keys so that the component distributions' static batch
+            shapes need not know about batch axes added by :func:`jax.vmap`.
+        :return: draws of shape
+            ``sample_shape + batch_shape + (num_steps, obs_dim)``.
+        :rtype: Array
+        """
         assert key is not None
+        if sample_shape:
+            keys = random.split(key, math.prod(sample_shape))
+            keys = keys.reshape(tuple(sample_shape) + keys.shape[1:])
+            return _vmap_leading(self.sample, len(sample_shape))(keys)
         key_init, key_trans, key_obs = random.split(key, 3)
         time_shape = self.batch_shape + (self.num_steps,)
-        z0 = jnp.asarray(self.initial_dist.sample(key_init, sample_shape))
-        eps = jnp.asarray(
-            self.transition_dist.expand(time_shape).sample(key_trans, sample_shape)
-        )
-        nu = jnp.asarray(
-            self.observation_dist.expand(time_shape).sample(key_obs, sample_shape)
-        )
+        z0 = jnp.asarray(self.initial_dist.sample(key_init))
+        eps = jnp.asarray(self.transition_dist.expand(time_shape).sample(key_trans))
+        nu = jnp.asarray(self.observation_dist.expand(time_shape).sample(key_obs))
         A = jnp.moveaxis(
             jnp.broadcast_to(
                 self.transition_matrix, time_shape + self.transition_matrix.shape[-2:]
