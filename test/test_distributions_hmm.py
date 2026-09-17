@@ -126,6 +126,72 @@ def test_gaussian_hmm_expand_matches_expanded_distribution():
     )
 
 
+_T = 4
+_LAYOUTS = [
+    # (init, transition_matrix, transition_dist, observation_matrix, observation_dist)
+    # batch-plus-time shape prefixes; time axis is (), (1,) or (T,); batch is () or (2,)
+    ((), (), (), (), ()),
+    ((), (_T,), (), (), ()),
+    ((), (), (_T,), (), ()),
+    ((), (), (), (_T,), ()),
+    ((), (), (), (), (_T,)),
+    ((), (1,), (_T,), (), (1,)),
+    ((2,), (), (), (), ()),
+    ((), (2, _T), (), (), ()),
+    ((), (), (2, 1), (), (_T,)),
+    ((2,), (_T,), (2, 1), (1,), (2, _T)),
+    ((), (1,), (), (2, _T), (1,)),
+    ((2,), (2, 1), (2, _T), (), ()),
+]
+
+
+def _layout_params(key, n, m, init_shape, A_shape, trans_shape, H_shape, obs_shape):
+    ks = random.split(key, 8)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], A_shape + (n, n))
+    H = random.normal(ks[1], H_shape + (m, n))
+    init = dist.MultivariateNormal(
+        random.normal(ks[2], init_shape + (n,)), covariance_matrix=_spd(ks[3], n)
+    )
+    trans = dist.MultivariateNormal(
+        random.normal(ks[4], trans_shape + (n,)), covariance_matrix=_spd(ks[5], n, 0.5)
+    )
+    obs = dist.MultivariateNormal(
+        random.normal(ks[6], obs_shape + (m,)), covariance_matrix=_spd(ks[7], m, 0.3)
+    )
+    return init, A, trans, H, obs
+
+
+@pytest.mark.parametrize("layout", _LAYOUTS, ids=[str(s) for s in _LAYOUTS])
+def test_gaussian_hmm_mixed_time_and_batch_layouts(layout):
+    T, n, m = _T, 2, 1
+    batch = (2,) if any(2 in shape for shape in layout) else ()
+    init, A, trans, H, obs = _layout_params(random.key(3), n, m, *layout)
+    hmm = GaussianHMM(init, A, trans, H, obs, num_steps=T)
+    assert hmm.batch_shape == batch
+    assert hmm.event_shape == (T, m)
+    x = random.normal(random.key(4), (3,) + batch + (T, m))
+    log_prob = jax.jit(hmm.log_prob)(x)
+    assert log_prob.shape == (3,) + batch
+    assert hmm.filter(x).batch_shape == (3,) + batch
+
+    def full_mvn(d):
+        loc = jnp.broadcast_to(d.mean, batch + (T,) + d.event_shape)
+        return dist.MultivariateNormal(loc, covariance_matrix=d.covariance_matrix)
+
+    full = GaussianHMM(
+        dist.MultivariateNormal(
+            jnp.broadcast_to(init.mean, batch + (n,)),
+            covariance_matrix=init.covariance_matrix,
+        ),
+        jnp.broadcast_to(A, batch + (T, n, n)),
+        full_mvn(trans),
+        jnp.broadcast_to(H, batch + (T, m, n)),
+        full_mvn(obs),
+    )
+    assert full.batch_shape == batch
+    assert_allclose(log_prob, jax.jit(full.log_prob)(x), rtol=1e-4, atol=1e-4)
+
+
 def test_hidden_markov_model_is_exported():
     assert dist.HiddenMarkovModel is HiddenMarkovModel
     assert isinstance(_hmm(random.key(0), 3, 2, 1), dist.HiddenMarkovModel)
@@ -247,6 +313,54 @@ def test_gaussian_hmm_jit_vmap_scan_and_treedef():
     assert "_batch_shape" not in hmm.__dict__
     lifted = jax.tree.map(lambda a: a[None], expanded)
     assert lifted.batch_shape == (1, 3)
+
+
+@pytest.mark.parametrize("independent", [False, True])
+def test_hmm_pytree_round_trip(independent):
+    T, n, m = 4, 2, 3
+    hmm = _hmm(random.key(0), T, n, 1, batch=(m,))
+    if independent:
+        hmm = IndependentHMM(hmm)
+    x = hmm.sample(random.key(1), (2,))
+    leaves, treedef = jax.tree_util.tree_flatten(hmm)
+    rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert type(rebuilt) is type(hmm)
+    assert rebuilt.batch_shape == hmm.batch_shape
+    assert rebuilt.event_shape == hmm.event_shape
+    assert rebuilt.num_steps == T
+    assert_allclose(rebuilt.log_prob(x), hmm.log_prob(x), rtol=1e-6)
+    assert_allclose(
+        jax.tree_util.tree_unflatten(treedef, jax.tree.leaves(rebuilt))
+        .expand(hmm.batch_shape)
+        .log_prob(x),
+        hmm.log_prob(x),
+        rtol=1e-6,
+    )
+
+
+def test_hmm_validate_args():
+    T, n, m = 4, 2, 1
+    init, A, trans, H, obs = _layout_params(random.key(2), n, m, (), (T,), (), (), ())
+    hmm = GaussianHMM(init, A, trans, H, obs, validate_args=True)
+    x = random.normal(random.key(3), (3, T, m))
+    assert_allclose(
+        hmm.log_prob(x), GaussianHMM(init, A, trans, H, obs).log_prob(x), rtol=1e-6
+    )
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        log_prob = hmm.log_prob(x.at[0, 0, 0].set(jnp.inf))
+    assert log_prob[0] == -jnp.inf and jnp.isfinite(log_prob[1:]).all()
+    posterior = hmm.filter(x)
+    assert posterior._validate_args is True
+    assert posterior.batch_shape == (3,)
+    assert hmm.expand((3,))._validate_args is True
+    assert hmm.prefix_condition(x[:, :2])._validate_args is True
+    independent = IndependentHMM(
+        GaussianHMM(init, A, trans, H, obs).expand((m,)), validate_args=True
+    )
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        assert independent.log_prob(x.at[0, 0, 0].set(jnp.nan))[0] == -jnp.inf
+    assert independent.prefix_condition(x[:, :2])._validate_args is True
+    assert independent.expand((3,))._validate_args is True
 
 
 def test_gaussian_hmm_invalid_arguments():
@@ -442,6 +556,28 @@ def test_gaussian_hmm_prefix_condition_chain_rule():
     assert batched.log_prob(x[t:]).shape == (2,)
 
 
+def test_gaussian_hmm_homogeneous_prefix_condition_chain_rule():
+    T, n, m, t = 6, 2, 1, 2
+    hmm = _hmm(random.key(5), T, n, m, homogeneous=True)
+    head = _hmm(random.key(5), t, n, m, homogeneous=True)
+    x = hmm.sample(random.key(6), (2,))
+    tail = hmm.prefix_condition(x[:, :t])
+    assert isinstance(tail, GaussianHMM)
+    assert tail.batch_shape == (2,) and tail.event_shape == (T - t, m)
+    assert_allclose(
+        hmm.log_prob(x),
+        head.log_prob(x[:, :t]) + tail.log_prob(x[:, t:]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+    assert_allclose(
+        tail.prefix_condition(x[:, t : t + 1]).log_prob(x[:, t + 1 :]),
+        hmm.prefix_condition(x[:, : t + 1]).log_prob(x[:, t + 1 :]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+
 def test_gaussian_hmm_reshape_batch():
     hmm = _hmm(random.key(0), 4, 2, 1, batch=(3,), homogeneous=True)
     reshaped = hmm.reshape_batch((3, 1))
@@ -462,11 +598,7 @@ def test_independent_hmm():
     x = hmm.sample(random.key(1), (2,))
     assert x.shape == (2, 4, T, m)
     assert hmm.log_prob(x).shape == (2, 4)
-    assert_allclose(
-        hmm.log_prob(x),
-        base.log_prob(jnp.swapaxes(x, -1, -2)[..., None]).sum(-1),
-        rtol=1e-5,
-    )
+    assert jnp.isfinite(hmm.log_prob(x)).all()
     assert hmm.expand((6, 4)).batch_shape == (6, 4)
     tail = hmm.prefix_condition(x[0, :, :2])
     assert tail.batch_shape == (4,) and tail.event_shape == (T - 2, m)
@@ -481,6 +613,77 @@ def test_independent_hmm():
         IndependentHMM(dist.Normal(jnp.zeros((4, 3, T, 1)), 1.0).to_event(1))
     with pytest.raises(ValueError, match="Cannot broadcast distribution"):
         hmm.expand((3,))
+
+
+def test_independent_hmm_matches_block_diagonal_gaussian_hmm():
+    T, n, m = 4, 2, 3
+    ks = random.split(random.key(7), 7)
+    A = 0.8 * jnp.eye(n) + 0.1 * random.normal(ks[0], (m, T, n, n))
+    H = random.normal(ks[1], (m, T, 1, n))
+    init_loc = random.normal(ks[2], (m, n))
+    init_cov = jax.vmap(lambda k: _spd(k, n))(random.split(ks[3], m))
+    trans_loc = random.normal(ks[4], (m, T, n))
+    trans_cov = jax.vmap(lambda k: _spd(k, n, 0.5))(random.split(ks[5], m))
+    obs_loc = random.normal(ks[6], (m, T, 1))
+    obs_scale = jnp.array([0.3, 0.5, 0.7])
+    base = GaussianHMM(
+        dist.MultivariateNormal(init_loc, covariance_matrix=init_cov),
+        A,
+        dist.MultivariateNormal(trans_loc, covariance_matrix=trans_cov[:, None]),
+        H,
+        dist.Normal(obs_loc, obs_scale[:, None, None]).to_event(1),
+    )
+    hmm = IndependentHMM(base)
+    block_diag = jax.vmap(lambda *blocks: jax.scipy.linalg.block_diag(*blocks))
+    full = GaussianHMM(
+        dist.MultivariateNormal(
+            init_loc.reshape(-1),
+            covariance_matrix=jax.scipy.linalg.block_diag(*init_cov),
+        ),
+        block_diag(*A),
+        dist.MultivariateNormal(
+            jnp.moveaxis(trans_loc, 0, 1).reshape(T, m * n),
+            covariance_matrix=jax.scipy.linalg.block_diag(*trans_cov),
+        ),
+        block_diag(*H),
+        dist.Normal(obs_loc[..., 0].T, obs_scale).to_event(1),
+    )
+    assert full.batch_shape == () and full.event_shape == (T, m)
+    assert hmm.batch_shape == () and hmm.event_shape == (T, m)
+    x = hmm.sample(random.key(8), (3,))
+    assert_allclose(hmm.log_prob(x), full.log_prob(x), rtol=1e-4, atol=1e-4)
+    assert_allclose(
+        hmm.prefix_condition(x[:, :2]).log_prob(x[:, 2:]),
+        full.prefix_condition(x[:, :2]).log_prob(x[:, 2:]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+
+def test_gaussian_hmm_log_prob_value_and_grad_float32():
+    T, n, m = 5, 2, 1
+    hmm = _hmm(random.key(0), T, n, m, homogeneous=True)
+    x = hmm.sample(random.key(1))
+    A = 0.9 * jnp.eye(n)
+    init = dist.MultivariateNormal(jnp.zeros(n), jnp.eye(n))
+
+    def log_prob_of(transition_matrix, noise_scale):
+        return GaussianHMM(
+            init,
+            transition_matrix,
+            dist.Normal(jnp.zeros(n), noise_scale).to_event(1),
+            jnp.ones((m, n)),
+            dist.Normal(jnp.zeros(m), 0.3).to_event(1),
+            num_steps=T,
+        ).log_prob(x)
+
+    lp, (grad_A, grad_scale) = jax.value_and_grad(log_prob_of, argnums=(0, 1))(
+        A, jnp.float32(0.5)
+    )
+    assert lp.dtype == grad_A.dtype == grad_scale.dtype == jnp.float32
+    assert jnp.isfinite(lp) and jnp.isfinite(grad_A).all()
+    assert jnp.all(grad_A != 0) and grad_scale != 0
+    assert_allclose(lp, log_prob_of(A, 0.5), rtol=1e-6)
 
 
 def test_gaussian_hmm_marginalizes_local_level_in_nuts():

@@ -420,6 +420,29 @@ def test_safe_cholesky_matches_cholesky_on_well_conditioned():
     assert jnp.all(jnp.diagonal(relative_jitter(P)) > jnp.diagonal(P))
 
 
+def test_safe_cholesky_batched_matches_cholesky():
+    A = random.normal(random.key(0), (2, 3, 3))
+    P = A @ jnp.swapaxes(A, -1, -2) + jnp.eye(3)
+    L = safe_cholesky(P)
+    assert L.shape == (2, 3, 3)
+    assert_allclose(L, jnp.linalg.cholesky(P), rtol=1e-5)
+    assert_allclose(L @ jnp.swapaxes(L, -1, -2), P, rtol=1e-4)
+
+
+def test_safe_cholesky_x64_float64_jitter_is_at_float64_rounding_level():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("float64 jitter is only observable with x64")
+    A = random.normal(random.key(0), (2, 3, 3), jnp.float64)
+    P = A @ jnp.swapaxes(A, -1, -2) + jnp.eye(3, dtype=jnp.float64)
+    L = safe_cholesky(P)
+    assert L.dtype == jnp.float64
+    assert_allclose(L, jnp.linalg.cholesky(P), rtol=1e-12)
+    jitter = jnp.diagonal(relative_jitter(P) - P, axis1=-2, axis2=-1)
+    expected = CHOLESKY_RELATIVE_JITTER * jnp.finfo(jnp.float64).eps
+    assert_allclose(jitter, expected * jnp.diagonal(P, axis1=-2, axis2=-1), rtol=0.1)
+    assert safe_cholesky(P.astype(jnp.float32)).dtype == jnp.float32
+
+
 def test_relative_jitter_ignores_off_diagonal_magnitude():
     P = jnp.array([[1e6, 1e3], [1e3, 2.0]], jnp.float32)
     eps = jnp.finfo(jnp.float32).eps

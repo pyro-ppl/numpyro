@@ -8,13 +8,12 @@ import pytest
 import jax
 from jax import random
 import jax.numpy as jnp
+from jax.test_util import check_grads
 
 import numpyro.distributions as dist
 from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
-    _mt,
-    _mv,
     gaussian_tensordot,
     loc_and_scale_tril,
     matrix_and_gaussian_to_gaussian,
@@ -61,6 +60,33 @@ def test_expand(old_shape, new_shape):
     expanded = g.expand(new_shape)
     assert expanded.batch_shape == new_shape
     assert expanded.precision.shape == new_shape + (2, 2)
+    value = random.normal(random.key(1), old_shape + (2,))
+    assert_allclose(
+        expanded.log_density(value),
+        jnp.broadcast_to(g.log_density(value), new_shape),
+        rtol=1e-6,
+    )
+
+
+def test_cat_and_expand_middle_axis_with_unbroadcast_fields():
+    info_vec = random.normal(random.key(0), (2, 4, 1, 3))
+    factor = random.normal(random.key(1), (1, 3, 3, 3))
+    g = Gaussian(jnp.zeros(()), info_vec, factor @ jnp.swapaxes(factor, -1, -2))
+    assert g.batch_shape == (2, 4, 3)
+    full = g.expand((2, 4, 3))
+    assert full.log_normalizer.shape == (2, 4, 3)
+    assert full.precision.shape == (2, 4, 3, 3, 3)
+    value = random.normal(random.key(2), (2, 4, 3, 3))
+    assert_allclose(full.log_density(value), g.log_density(value), rtol=1e-6)
+    assert_close_gaussian(Gaussian.cat([g[:, :1], g[:, 1:]], axis=1), full, 0, 0)
+    assert_close_gaussian(Gaussian.cat([g[:, :3], g[:, 3:]], axis=-2), full, 0, 0)
+    assert_close_gaussian(Gaussian.cat([g[:1], g[1:]], axis=0), full, 0, 0)
+    lifted = g.expand((5, 2, 4, 3))
+    assert_allclose(
+        lifted.log_density(value),
+        jnp.broadcast_to(g.log_density(value), (5, 2, 4, 3)),
+        rtol=1e-6,
+    )
 
 
 def test_reshape_round_trip():
@@ -205,15 +231,16 @@ def test_condition_and_left_condition():
     assert g.condition(b).batch_shape == (3,)
 
 
-def test_event_logsumexp_against_monte_carlo():
-    g = random_gaussian(random.key(0), (), 2)
-    box = 6.0
-    grid = jnp.linspace(-box, box, 400)
-    xs = jnp.stack(jnp.meshgrid(grid, grid, indexing="ij"), -1).reshape(-1, 2)
-    expected = jax.scipy.special.logsumexp(g.log_density(xs)) + 2 * jnp.log(
-        grid[1] - grid[0]
+def test_event_logsumexp_matches_closed_form():
+    g = random_gaussian(random.key(0), (3,), 3)
+    mean = jnp.linalg.solve(g.precision, g.info_vec[..., None])[..., 0]
+    expected = (
+        g.log_normalizer
+        + 0.5 * g.dim * jnp.log(2 * jnp.pi)
+        - 0.5 * jnp.linalg.slogdet(g.precision)[1]
+        + 0.5 * (g.info_vec * mean).sum(-1)
     )
-    assert_allclose(g.event_logsumexp(), expected, atol=1e-2)
+    assert_allclose(g.event_logsumexp(), expected, rtol=1e-5)
 
 
 def test_event_logsumexp_coupled_precision_float32():
@@ -228,7 +255,7 @@ def test_sample_moments_and_noise():
     samples = g.sample(random.key(1), (20000,))
     assert samples.shape == (20000, 2, 3)
     cov = jnp.linalg.inv(g.precision)
-    mean = _mv(cov, g.info_vec)
+    mean = jnp.einsum("...ij,...j->...i", cov, g.info_vec)
     assert_allclose(samples.mean(0), mean, atol=0.05)
     assert_allclose(jax.vmap(lambda s: jnp.cov(s.T), in_axes=1)(samples), cov, atol=0.1)
     noise = random.normal(random.key(2), (4, 2, 3))
@@ -285,7 +312,7 @@ def test_matrix_and_gaussian_to_gaussian_broadcasts_batch():
     g = matrix_and_gaussian_to_gaussian(matrix, y_gaussian)
     assert g.batch_shape == (4,)
     assert g.precision.shape == (4, x_dim + y_dim, x_dim + y_dim)
-    expected = y_gaussian.log_density(y - _mv(matrix, x))
+    expected = y_gaussian.log_density(y - jnp.einsum("...ij,...j->...i", matrix, x))
     assert_allclose(g.log_density(jnp.concatenate([x, y], -1)), expected, rtol=1e-4)
 
 
@@ -301,7 +328,7 @@ def test_matrix_and_mvn_to_gaussian_density(diag):
     x = random.normal(random.key(2), (4, x_dim))
     y = random.normal(random.key(3), (4, y_dim))
     g = matrix_and_mvn_to_gaussian(matrix, noise)
-    assert isinstance(g, AffineNormal if diag else type(mvn_to_gaussian(noise)))
+    assert isinstance(g, AffineNormal if diag else Gaussian)
     assert g.dim == x_dim + y_dim
     expected = noise.log_prob(y - jnp.einsum("...ij,...j->...i", matrix, x))
     assert_allclose(g.log_density(jnp.concatenate([x, y], -1)), expected, rtol=1e-4)
@@ -330,6 +357,17 @@ def test_matrix_and_mvn_to_gaussian_with_prior():
     assert_allclose(joint.log_density(y), y_dist.log_prob(y), rtol=1e-4)
 
 
+def _tensordot_oracle(x, y, na, nb, nc):
+    """Contract ``x`` and ``y`` by marginalizing the shared block of the padded joint."""
+    joint = x.event_pad(right=nc) + y.event_pad(left=na)
+    if nb == 0:
+        return joint
+    perm = jnp.concatenate(
+        [jnp.arange(na), jnp.arange(na + nb, na + nb + nc), jnp.arange(na, na + nb)]
+    )
+    return joint.event_permute(perm).marginalize(right=nb)
+
+
 @pytest.mark.parametrize(
     "na,nb,nc", [(1, 1, 1), (2, 1, 0), (0, 2, 1), (2, 2, 2), (1, 0, 1)]
 )
@@ -339,19 +377,42 @@ def test_gaussian_tensordot_against_dense(na, nb, nc):
     xy = gaussian_tensordot(x, y, nb)
     assert xy.dim == na + nc
     assert xy.batch_shape == (3,)
-    joint = x.event_pad(right=nc) + y.event_pad(left=na)
-    if nb == 0:
-        expected = joint
-    else:
-        perm = jnp.concatenate(
-            [
-                jnp.arange(na),
-                jnp.arange(na + nb, na + nb + nc),
-                jnp.arange(na, na + nb),
-            ]
-        )
-        expected = joint.event_permute(perm).marginalize(right=nb)
-    assert_close_gaussian(xy, expected)
+    assert_close_gaussian(xy, _tensordot_oracle(x, y, na, nb, nc))
+
+
+@pytest.mark.parametrize("na,nb,nc", [(1, 1, 1), (2, 2, 1)])
+@pytest.mark.parametrize("rank", [1, None])
+def test_gaussian_tensordot_broadcasts_batch_and_rank_deficient(na, nb, nc, rank):
+    x = random_gaussian(random.key(0), (2, 1), na + nb, rank=rank)
+    y = random_gaussian(random.key(1), (3,), nb + nc, rank=rank)
+    if rank == 1:
+        assert jnp.linalg.matrix_rank(x.precision).max() == 1
+    xy = gaussian_tensordot(x, y, nb)
+    assert xy.dim == na + nc
+    assert xy.batch_shape == (2, 3)
+    assert xy.precision.shape == (2, 3, na + nc, na + nc)
+    assert_close_gaussian(xy, _tensordot_oracle(x, y, na, nb, nc))
+
+
+def test_sequential_gaussian_tensordot_check_grads():
+    T, s = 4, 2
+    g = random_gaussian(random.key(0), (T,), 2 * s)
+    factor = random.normal(random.key(1), (T, 2 * s, 2 * s))
+
+    def value(info_vec, factor):
+        precision = factor @ jnp.swapaxes(factor, -1, -2) + jnp.eye(2 * s)
+        chain = Gaussian(g.log_normalizer, info_vec, precision)
+        return sequential_gaussian_tensordot(chain).event_logsumexp()
+
+    check_grads(
+        value,
+        (g.info_vec, factor),
+        order=1,
+        modes=["rev"],
+        eps=1e-2,
+        rtol=1e-2,
+        atol=1e-2,
+    )
 
 
 @pytest.mark.parametrize("num_steps", list(range(1, 20)))
@@ -381,12 +442,30 @@ def test_sequential_gaussian_tensordot_float32_long_horizon():
     assert jnp.isfinite(result) and jnp.isfinite(grad).all()
 
 
+def test_sequential_gaussian_tensordot_x64_long_horizon():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("float64 reduction is tested with x64 only")
+    T, s = 20_000, 2
+    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], jnp.float64)
+    noise = dist.MultivariateNormal(
+        jnp.zeros(s, jnp.float64), covariance_matrix=0.1 * jnp.eye(s, dtype=jnp.float64)
+    )
+
+    def value(matrix):
+        g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
+        return sequential_gaussian_tensordot(g).event_logsumexp()
+
+    result, grad = jax.jit(jax.value_and_grad(value))(matrix)
+    assert result.dtype == jnp.float64 and grad.dtype == jnp.float64
+    assert jnp.isfinite(result) and jnp.isfinite(grad).all()
+
+
 def test_loc_and_scale_tril():
     g = random_gaussian(random.key(0), (3,), 2)
     loc, scale_tril = loc_and_scale_tril(g.info_vec, g.precision)
     cov = jnp.linalg.inv(g.precision)
-    assert_allclose(loc, _mv(cov, g.info_vec), rtol=1e-3)
-    assert_allclose(scale_tril @ _mt(scale_tril), cov, rtol=1e-3)
+    assert_allclose(loc, jnp.einsum("...ij,...j->...i", cov, g.info_vec), rtol=1e-3)
+    assert_allclose(scale_tril @ jnp.swapaxes(scale_tril, -1, -2), cov, rtol=1e-3)
 
 
 def test_loc_and_scale_tril_x64_keeps_dtype():
@@ -443,6 +522,51 @@ def test_filter_sample_shape_mean_and_grads(num_steps, sample_shape):
     assert jnp.any(grad != 0)
 
 
+@pytest.mark.parametrize("num_steps", [5, 6])
+def test_filter_sample_jit_2d_batch_and_sample_shape(num_steps):
+    s, batch, sample_shape = 2, (2, 2), (2, 3)
+    init = random_gaussian(random.key(0), batch, s)
+    trans = random_gaussian(random.key(1), batch + (num_steps,), 2 * s)
+    sampler = jax.jit(sequential_gaussian_filter_sample, static_argnums=3)
+    z = sampler(random.key(2), init, trans, sample_shape)
+    assert z.shape == sample_shape + batch + (num_steps + 1, s)
+    assert_allclose(
+        z, sequential_gaussian_filter_sample(random.key(2), init, trans, sample_shape)
+    )
+    mean = sampler(
+        None, init, trans, sample_shape, jnp.zeros(sample_shape + z.shape[2:])
+    )
+    expected = jnp.broadcast_to(_posterior_marginals(init, trans), mean.shape)
+    assert_allclose(mean, expected, rtol=1e-3, atol=1e-3)
+
+
+def test_filter_sample_check_grads():
+    T, s = 3, 2
+    init = random_gaussian(random.key(0), (), s)
+    trans = random_gaussian(random.key(1), (T,), 2 * s)
+    factor = random.normal(random.key(2), (T, 2 * s, 2 * s))
+    noise = random.normal(random.key(3), (T + 1, s))
+
+    def sample(init_info, trans_info, factor):
+        precision = factor @ jnp.swapaxes(factor, -1, -2)
+        return sequential_gaussian_filter_sample(
+            None,
+            Gaussian(init.log_normalizer, init_info, init.precision),
+            Gaussian(trans.log_normalizer, trans_info, precision),
+            noise=noise,
+        )
+
+    check_grads(
+        sample,
+        (init.info_vec, trans.info_vec, factor),
+        order=1,
+        modes=["rev"],
+        eps=1e-2,
+        rtol=1e-2,
+        atol=1e-2,
+    )
+
+
 def test_filter_sample_lowers_without_gather():
     init = random_gaussian(random.key(0), (), 2)
     trans = random_gaussian(random.key(1), (64,), 4)
@@ -480,5 +604,6 @@ def test_filter_sample_moments():
     for t in range(3):
         joint = joint + trans[..., t].event_pad(left=t, right=2 - t)
     cov = jnp.linalg.inv(joint.precision)
-    assert_allclose(z[..., 0].mean(0), _mv(cov, joint.info_vec), atol=0.05)
+    mean = jnp.einsum("...ij,...j->...i", cov, joint.info_vec)
+    assert_allclose(z[..., 0].mean(0), mean, atol=0.05)
     assert_allclose(jnp.cov(z[..., 0].T), cov, atol=0.1)
