@@ -13,6 +13,7 @@ from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
     _mv,
+    matrix_and_gaussian_to_gaussian,
     matrix_and_mvn_to_gaussian,
     mvn_to_gaussian,
 )
@@ -179,6 +180,19 @@ def test_mvn_to_gaussian_matches_log_prob(make):
 def test_mvn_to_gaussian_rejects_other_types():
     with pytest.raises(TypeError):
         mvn_to_gaussian(dist.StudentT(3.0, jnp.zeros(2), 1.0).to_event(1))
+
+
+def test_matrix_and_gaussian_to_gaussian_broadcasts_batch():
+    x_dim, y_dim = 3, 2
+    matrix = random.normal(random.key(0), (4, y_dim, x_dim))
+    y_gaussian = random_gaussian(random.key(1), (), y_dim)
+    x = random.normal(random.key(2), (4, x_dim))
+    y = random.normal(random.key(3), (4, y_dim))
+    g = matrix_and_gaussian_to_gaussian(matrix, y_gaussian)
+    assert g.batch_shape == (4,)
+    assert g.precision.shape == (4, x_dim + y_dim, x_dim + y_dim)
+    expected = y_gaussian.log_density(y - _mv(matrix, x))
+    assert_allclose(g.log_density(jnp.concatenate([x, y], -1)), expected, rtol=1e-4)
 
 
 @pytest.mark.parametrize("diag", [False, True])

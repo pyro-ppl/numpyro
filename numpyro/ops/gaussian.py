@@ -383,6 +383,9 @@ def matrix_and_gaussian_to_gaussian(matrix: Array, y_gaussian: Gaussian) -> Gaus
     y_gaussian : Gaussian
         Factor over ``y`` with ``dim == y_dim``.
     """
+    batch_shape = lax.broadcast_shapes(matrix.shape[:-2], y_gaussian.batch_shape)
+    matrix = _with_batch(matrix, 2, batch_shape)
+    y_gaussian = y_gaussian.expand(batch_shape)
     P_yy = y_gaussian.precision
     P_xy = -_mt(matrix) @ P_yy
     P_xx = -P_xy @ matrix
@@ -393,7 +396,7 @@ def matrix_and_gaussian_to_gaussian(matrix: Array, y_gaussian: Gaussian) -> Gaus
     info_vec = jnp.concatenate(
         [-_mv(_mt(matrix), y_gaussian.info_vec), y_gaussian.info_vec], -1
     )
-    return Gaussian(y_gaussian.log_normalizer, info_vec, precision)._broadcast()
+    return Gaussian(y_gaussian.log_normalizer, info_vec, precision)
 
 
 def matrix_and_mvn_to_gaussian(
