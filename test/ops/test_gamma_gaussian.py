@@ -96,7 +96,9 @@ def test_shape_ops():
     assert gg.expand((3, 6)).batch_shape == (3, 6)
     reshaped = gg.reshape((2, 3))
     assert_close_gamma_gaussian(reshaped.reshape((6,)), gg)
-    assert_close_gamma_gaussian(GammaGaussian.cat([gg[:2], gg[2:]], axis=0), gg)
+    assert_close_gamma_gaussian(
+        GammaGaussian.cat([gg[:2], gg[2:]], axis=0), gg, rtol=0, atol=0
+    )
     assert_close_gamma_gaussian(
         GammaGaussian.cat([reshaped[:, :1], reshaped[:, 1:]], axis=1),
         reshaped,
@@ -107,8 +109,15 @@ def test_shape_ops():
     perm = jnp.array([1, 0])
     assert_close_gamma_gaussian(gg.event_permute(perm).event_permute(perm), gg)
     added = gg + other
-    assert_close_gamma_gaussian(
-        added, GammaGaussian(*(a + b for a, b in zip(gg._fields(), other._fields())))
+    assert added.batch_shape == (6,)
+    x = random.normal(random.key(1), (6, 2))
+    s = jnp.exp(random.normal(random.key(2), (6,)))
+    # Adding factors multiplies densities. Measured float32 gap: 1.5e-5 nats at
+    # log densities of order 100, i.e. 1.8e-7 relative.
+    assert_allclose(
+        added.log_density(x, s),
+        gg.log_density(x, s) + other.log_density(x, s),
+        rtol=1e-6,
     )
 
 
@@ -391,9 +400,11 @@ def test_gamma_gaussian_tensordot_matches_fixed_scale(na, nb, nc):
     )
 
 
-# Covers every branch of the log2 reduction: no loop (1), a single even step
-# (2, 4, 8, 16), an odd length with a leftover tail (3, 5, 7, 9, 17).
-@pytest.mark.parametrize("num_steps", [1, 2, 3, 4, 5, 7, 8, 9, 16, 17])
+# Covers every branch of the log2 reduction and both orderings of the two loop
+# bodies: no loop at all (1); only even halvings, one to four of them
+# (2, 4, 8, 16); a leftover tail on the very first step (3, 5, 7, 9, 17); and an
+# even step that only then produces a leftover tail, 6 -> 3 -> 2 -> 1.
+@pytest.mark.parametrize("num_steps", [1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 17])
 @pytest.mark.parametrize("state_dim", [1, 2])
 def test_sequential_gamma_gaussian_tensordot_matches_fold(num_steps, state_dim):
     g = random_gamma_gaussian(random.key(num_steps), (2, num_steps), 2 * state_dim)

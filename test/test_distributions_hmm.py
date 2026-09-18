@@ -1701,3 +1701,10 @@ def test_gamma_gaussian_hmm_and_mrf_jit_vmap_pytree(kind):
     mapped = jax.vmap(make)(jnp.array([2.0, 4.0]))
     assert mapped.batch_shape == (2,)
     assert mapped.log_prob(x[0]).shape == (2,)
+    # The vmapped constructor must agree with building each member separately:
+    # measured max abs difference 0.0 (bit-identical) for both kinds.
+    assert_allclose(
+        mapped.log_prob(x[0]),
+        jnp.stack([make(2.0).log_prob(x[0]), make(4.0).log_prob(x[0])]),
+        rtol=1e-6,
+    )
