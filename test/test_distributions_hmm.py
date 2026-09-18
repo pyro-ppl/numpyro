@@ -943,3 +943,35 @@ def test_gaussian_hmm_sequential_derived_models():
     assert mapped.batch_shape == (2,) and mapped.log_prob(x[0]).shape == (2,)
     leaves, treedef = jax.tree_util.tree_flatten(seq)
     assert jax.tree_util.tree_unflatten(treedef, leaves).sequential
+
+
+def test_gaussian_hmm_sample_requires_key():
+    hmm = _hmm(random.key(0), 3, 2, 1, homogeneous=True)
+    with pytest.raises(ValueError, match="PRNG key"):
+        hmm.sample(None)
+    with pytest.raises(ValueError, match="PRNG key"):
+        IndependentHMM(hmm.expand((2,))).sample(None)
+
+
+def test_gaussian_hmm_coerces_integer_matrices_to_float():
+    import numpy as np
+
+    n, m = 2, 1
+    hmm = GaussianHMM(
+        dist.Normal(jnp.zeros(n), 1.0).to_event(1),
+        np.eye(n, dtype=np.int64),
+        dist.Normal(jnp.zeros(n), 1.0).to_event(1),
+        np.ones((m, n), dtype=np.int32),
+        dist.Normal(jnp.zeros(m), 0.3).to_event(1),
+        num_steps=3,
+    )
+    assert hmm._trans.matrix.dtype == jnp.result_type(float)
+    assert hmm._obs.matrix.dtype == jnp.result_type(float)
+
+
+def test_gaussian_hmm_reports_non_broadcastable_value_batch():
+    hmm = _hmm(random.key(0), 3, 2, 1, batch=(3,), homogeneous=True)
+    with pytest.raises(
+        ValueError, match="does not broadcast with batch_shape \\(3,\\)"
+    ):
+        hmm.log_prob(jnp.zeros((2, 3, 1)))

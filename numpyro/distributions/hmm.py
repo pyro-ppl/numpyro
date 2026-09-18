@@ -22,6 +22,7 @@ import jax
 from jax import Array, lax, random
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_solve, solve_triangular
+from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import MultivariateNormal
@@ -106,6 +107,15 @@ def _vmap_leading(fn: Callable, ndim: int) -> Callable:
     for _ in range(ndim):
         fn = jax.vmap(fn)
     return fn
+
+
+def _as_float(matrix: ArrayLike) -> Array:
+    """
+    Convert ``matrix`` to an array, promoting integer input to the default
+    float dtype and leaving float dtypes untouched.
+    """
+    matrix = jnp.asarray(matrix)
+    return matrix.astype(jnp.result_type(matrix.dtype, float))
 
 
 def _time_shape(*shapes: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
@@ -513,7 +523,13 @@ class HiddenMarkovModel(Distribution):
                 f"value must have trailing shape {self.event_shape}, "
                 f"got {value.shape[-2:]}"
             )
-        lead = lax.broadcast_shapes(value.shape[: value.ndim - 2], self.batch_shape)
+        try:
+            lead = lax.broadcast_shapes(value.shape[: value.ndim - 2], self.batch_shape)
+        except ValueError as e:
+            raise ValueError(
+                f"value batch shape {value.shape[: value.ndim - 2]} does not "
+                f"broadcast with batch_shape {self.batch_shape}"
+            ) from e
         extra = len(lead) - len(self.batch_shape)
         return jnp.broadcast_to(value, lead + value.shape[-2:]), extra
 
@@ -612,8 +628,8 @@ class GaussianHMM(HiddenMarkovModel):
         sequential: bool = False,
         validate_args: Optional[bool] = None,
     ) -> None:
-        transition_matrix = jnp.asarray(transition_matrix)
-        observation_matrix = jnp.asarray(observation_matrix)
+        transition_matrix = _as_float(transition_matrix)
+        observation_matrix = _as_float(observation_matrix)
         batch_shape, time, num_steps = _resolve_layout(
             initial_dist,
             transition_matrix,
@@ -834,15 +850,14 @@ class GaussianHMM(HiddenMarkovModel):
         """
         Sample observation sequences ``x_{1:T}`` with the latent states integrated out.
 
-        :param Optional[Array] key: PRNG key. The annotation follows
-            :meth:`Distribution.sample`, but a key is required; ``None`` fails
-            an assertion.
+        :param Optional[Array] key: PRNG key; ``None`` raises ``ValueError``.
         :param tuple sample_shape: leading sample dimensions.
         :return: draws of shape
             ``sample_shape + batch_shape + (num_steps, obs_dim)``.
         :rtype: Array
         """
-        assert key is not None
+        if key is None:
+            raise ValueError("GaussianHMM.sample requires a PRNG key")
         key_z, key_x = random.split(key)
         z = self._sample_states(key_z, sample_shape=sample_shape)
         keys = random.split(key_x, sample_shape) if sample_shape else key_x
@@ -941,12 +956,15 @@ class IndependentHMM(Distribution):
         """
         Sample from the base distribution and move the observation axis last.
 
-        :param Optional[Array] key: PRNG key, passed to ``base_dist.sample``.
+        :param Optional[Array] key: PRNG key, passed to ``base_dist.sample``;
+            ``None`` raises ``ValueError``.
         :param tuple sample_shape: leading sample dimensions.
         :return: draws of shape
             ``sample_shape + batch_shape + (num_steps, obs_dim)``.
         :rtype: Array
         """
+        if key is None:
+            raise ValueError("IndependentHMM.sample requires a PRNG key")
         x = jnp.asarray(self.base_dist.sample(key, sample_shape))
         return jnp.swapaxes(x[..., 0], -1, -2)
 
