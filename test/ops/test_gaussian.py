@@ -426,6 +426,42 @@ def test_sequential_gaussian_tensordot_matches_fold(num_steps, state_dim):
     assert_close_gaussian(actual, expected, rtol=1e-3, atol=1e-3)
 
 
+@pytest.mark.parametrize("T", [1000, 100_000])
+def test_sequential_gaussian_tensordot_long_horizon_is_normalized(T):
+    """Contracting ``N(z_0; 0, I)`` with ``T`` zero-mean transition densities
+    and marginalizing every state integrates to one, so the exact log
+    normalizer and its gradient with respect to the matrix are zero."""
+    s = 2
+    dtype = jnp.result_type(float)
+    if dtype == jnp.float32:
+        if T > 1000:
+            pytest.skip("float32 drifts by 7.6 nats at 100k steps; x64 covers it")
+        # Measured float32 error at T=1000: value 4.2e-2, gradient max 20.5.
+        value_atol, grad_atol = 0.1, 62.0
+    else:
+        # Measured float64 error at T=100k: value 1.1e-9, gradient max 1.0e-6.
+        value_atol, grad_atol = 1e-8, 1e-5
+    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], dtype)
+    noise = dist.MultivariateNormal(
+        jnp.zeros(s, dtype), covariance_matrix=0.1 * jnp.eye(s, dtype=dtype)
+    )
+    init = mvn_to_gaussian(
+        dist.MultivariateNormal(
+            jnp.zeros(s, dtype), covariance_matrix=jnp.eye(s, dtype=dtype)
+        )
+    )
+
+    def value(matrix):
+        g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
+        reduced = sequential_gaussian_tensordot(g)
+        return gaussian_tensordot(init, reduced, s).event_logsumexp()
+
+    result, grad = jax.jit(jax.value_and_grad(value))(matrix)
+    assert result.dtype == dtype and grad.dtype == dtype
+    assert_allclose(result, 0.0, atol=value_atol)
+    assert_allclose(grad, jnp.zeros_like(grad), atol=grad_atol)
+
+
 def test_sequential_gaussian_tensordot_rejects_empty_time_axis():
     g = random_gaussian(random.key(0), (2, 3), 4)[..., :0]
     with pytest.raises(ValueError, match="empty time axis"):

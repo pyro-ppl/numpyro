@@ -82,6 +82,53 @@ def dense_reference(init, A, trans, H, obs, T):
     )
 
 
+def kalman_log_prob(x, m0, P0, A, Q, C, R):
+    """Covariance-form Kalman filter log-likelihood for time-homogeneous parameters,
+    in the dtype of the inputs."""
+    from jax.scipy.linalg import cho_solve, solve_triangular
+
+    obs_dim = x.shape[-1]
+
+    def step(carry, x_t):
+        m, P = carry
+        m_pred = A @ m
+        P_pred = A @ P @ A.T + Q
+        S = C @ P_pred @ C.T + R
+        L = jnp.linalg.cholesky(S)
+        r = x_t - C @ m_pred
+        u = solve_triangular(L, r, lower=True)
+        ll = (
+            -0.5 * u @ u
+            - jnp.log(jnp.diagonal(L)).sum()
+            - 0.5 * obs_dim * jnp.log(2 * jnp.pi)
+        )
+        K = cho_solve((L, True), C @ P_pred).T
+        return (m_pred + K @ r, P_pred - K @ S @ K.T), ll
+
+    return lax.scan(step, (m0, P0), x)[1].sum()
+
+
+def _small_noise_model(T, obs_sd, dtype):
+    """Two-state model with unit initial covariance, process noise ``0.1 * I`` and
+    observation noise ``obs_sd``; data simulated in float64 with numpy."""
+    import numpy as np
+
+    A = np.array([[0.9, 0.1], [0.0, 0.8]])
+    Q = 0.1 * np.eye(2)
+    C = np.array([[1.0, 0.5], [0.0, 1.0]])
+    R = obs_sd**2 * np.eye(2)
+    rng = np.random.default_rng(1)
+    z = np.zeros(2)
+    xs = []
+    for _ in range(T):
+        z = A @ z + rng.multivariate_normal(np.zeros(2), Q)
+        xs.append(C @ z + rng.multivariate_normal(np.zeros(2), R))
+    x = np.stack(xs)
+    c = lambda a: jnp.asarray(a, dtype)  # noqa: E731
+    params = (jnp.zeros(2, dtype), jnp.eye(2, dtype=dtype), c(A), c(Q), c(C), c(R))
+    return c(x), params
+
+
 @pytest.mark.parametrize("batch", [(), (3,), (2, 3)])
 @pytest.mark.parametrize("homogeneous", [False, True])
 @pytest.mark.parametrize("diag", [False, True])
@@ -720,25 +767,71 @@ def test_gaussian_hmm_x64_extreme_scales():
         pytest.skip("extreme noise scales are tested with x64 only")
     T = 500
     A = jnp.array([[1.0, 1.0], [0.0, 1.0]])
-    hmm = GaussianHMM(
-        dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2)),
-        A,
-        dist.MultivariateNormal(jnp.zeros(2), 1e-6 * jnp.eye(2)),
-        jnp.array([[1.0, 0.0]]),
-        dist.MultivariateNormal(jnp.zeros(1), jnp.eye(1)),
-        num_steps=T,
-    )
-    x = hmm.sample(random.key(0))
+    Q = 1e-6 * jnp.eye(2)
+    C = jnp.array([[1.0, 0.0]])
+    R = jnp.eye(1)
+    m0, P0 = jnp.zeros(2), jnp.eye(2)
 
-    def log_prob_of(transition_matrix):
+    def log_prob_of(transition_matrix, x):
         return GaussianHMM(
-            dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2)),
+            dist.MultivariateNormal(m0, P0),
             transition_matrix,
-            dist.MultivariateNormal(jnp.zeros(2), 1e-6 * jnp.eye(2)),
-            jnp.array([[1.0, 0.0]]),
-            dist.MultivariateNormal(jnp.zeros(1), jnp.eye(1)),
+            dist.MultivariateNormal(jnp.zeros(2), Q),
+            C,
+            dist.MultivariateNormal(jnp.zeros(1), R),
             num_steps=T,
         ).log_prob(x)
 
-    lp, grad = jax.value_and_grad(log_prob_of)(A)
-    assert jnp.isfinite(lp) and jnp.isfinite(grad).all()
+    x = GaussianHMM(
+        dist.MultivariateNormal(m0, P0),
+        A,
+        dist.MultivariateNormal(jnp.zeros(2), Q),
+        C,
+        dist.MultivariateNormal(jnp.zeros(1), R),
+        num_steps=T,
+    ).sample(random.key(0))
+    lp, grad = jax.value_and_grad(log_prob_of)(A, x)
+    reference, reference_grad = jax.value_and_grad(
+        lambda A_: kalman_log_prob(x, m0, P0, A_, Q, C, R)
+    )(A)
+    # Measured against the Kalman reference (which agrees with a 60-digit
+    # Decimal Kalman filter to 4e-12): value error 3.3e-3, relative 4.5e-6;
+    # gradient max absolute deviation 7.7e-2, max relative 8.8e-6. The
+    # information form loses float64 accuracy on this unit-root model with an
+    # error that scales like T**3 / Q; the tolerances are 3x the measurements.
+    assert_allclose(lp, reference, rtol=1e-5)
+    assert_allclose(grad, reference_grad, rtol=3e-5, atol=0.25)
+
+
+def test_gaussian_hmm_x64_small_observation_noise_matches_kalman():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("float64 accuracy is tested with x64 only")
+    T, obs_sd = 256, 0.001
+    x, (m0, P0, A, Q, C, R) = _small_noise_model(T, obs_sd, jnp.float64)
+    hmm = GaussianHMM(
+        dist.MultivariateNormal(m0, P0),
+        A,
+        dist.MultivariateNormal(jnp.zeros(2), Q),
+        C,
+        dist.MultivariateNormal(jnp.zeros(2), R),
+        num_steps=T,
+    )
+    assert_allclose(hmm.log_prob(x), kalman_log_prob(x, m0, P0, A, Q, C, R), rtol=1e-10)
+
+
+def test_gaussian_hmm_float32_small_observation_noise_matches_kalman():
+    # Measured before the retry-on-failure jitter: error 8.1e-2 at T=64,
+    # obs_sd=0.01; after: 1.3e-2. A float32 covariance-form Kalman filter is
+    # within 1.5e-5 of its float64 value on the same data.
+    T, obs_sd = 64, 0.01
+    x, (m0, P0, A, Q, C, R) = _small_noise_model(T, obs_sd, jnp.float32)
+    hmm = GaussianHMM(
+        dist.MultivariateNormal(m0, P0),
+        A,
+        dist.MultivariateNormal(jnp.zeros(2, jnp.float32), Q),
+        C,
+        dist.MultivariateNormal(jnp.zeros(2, jnp.float32), R),
+        num_steps=T,
+    )
+    reference = kalman_log_prob(x, m0, P0, A, Q, C, R)
+    assert abs(float(hmm.log_prob(x)) - float(reference)) < 3e-2
