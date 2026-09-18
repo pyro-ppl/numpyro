@@ -1175,6 +1175,24 @@ class OrderedLogistic(CategoricalProbs):
 
 
 class MultinomialProbs(Distribution):
+    r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
+    outcomes, parameterized by a probability vector on the simplex and a total
+    count :math:`n` of i.i.d. trials.
+
+    The Probability Mass Function (PMF) of the Multinomial distribution is
+    defined as:
+
+    .. math::
+        P(X = \mathbf{x} \mid \mathbf{p}, n) =
+        \frac{n!}{\prod_{k=0}^{K-1} x_k!} \prod_{k=0}^{K-1} p_k^{x_k}
+
+    where the probability vector :math:`\mathbf{p} = (p_0, p_1, \dots, p_{K-1})`
+    (:attr:`probs`) satisfies :math:`p_k \ge 0` and :math:`\sum_{k=0}^{K-1} p_k = 1`,
+    :math:`n` is the number of trials (:attr:`total_count`), and the count vector
+    :math:`\mathbf{x} = (x_0, x_1, \dots, x_{K-1})` lies on the support
+    :math:`x_k \in \{0, 1, \dots, n\}` with :math:`\sum_{k=0}^{K-1} x_k = n`.
+    """
+
     arg_constraints = {
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
@@ -1190,6 +1208,15 @@ class MultinomialProbs(Distribution):
         total_count_max: Optional[int] = None,
         validate_args: Optional[bool] = None,
     ):
+        r"""
+        :param probs: Category probability vector on the simplex; the trailing
+            dimension indexes the :math:`K` categories and must sum to one.
+        :param total_count: Number of trials :math:`n`. If this is a JAX array,
+            it is required to specify `total_count_max`.
+        :param total_count_max: The maximum number of trials,
+            i.e. `max(total_count)`, used to size the sampler's internal arrays.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -1207,6 +1234,18 @@ class MultinomialProbs(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw count-vector samples from the Multinomial distribution.
+
+        This method delegates to :func:`~numpyro.distributions.util.multinomial`,
+        which internally relies on :func:`~jax.random.categorical` to run the
+        :attr:`total_count` trials over the log-probabilities of :attr:`probs`.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer count vectors :math:`\mathbf{x}` with
+            :math:`\sum_{k=0}^{K-1} x_k =` :attr:`total_count`, drawn from the
+            Multinomial distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         return multinomial(
@@ -1219,6 +1258,22 @@ class MultinomialProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at ``value``.
+
+        .. math::
+            \ln P(X = \mathbf{x} \mid \mathbf{p}, n) =
+            \ln\Gamma(n + 1)
+            + \sum_{k=0}^{K-1} \left[ x_k \ln p_k - \ln\Gamma(x_k + 1) \right]
+
+        where :math:`n` is :attr:`total_count`. The implementation uses
+        :func:`~jax.scipy.special.gammaln` for the factorial terms and
+        :func:`~jax.scipy.special.xlogy` so that zero counts contribute
+        correctly even when some :math:`p_k = 0`.
+
+        :param value: Count vector :math:`\mathbf{x}` whose last dimension has
+            size :math:`K` and sums to :attr:`total_count`.
+        :return: Log probability scores evaluated under the Multinomial PMF.
+        """
         value = jnp.array(value, jnp.result_type(float))
         return gammaln(self.total_count + 1) + jnp.sum(
             xlogy(value, self.probs) - gammaln(value + 1), axis=-1
@@ -1226,18 +1281,40 @@ class MultinomialProbs(Distribution):
 
     @lazy_property
     def logits(self) -> Array:
+        r"""The log-probability (logits) parameter of the Multinomial
+        distribution is the (already-normalized) log of the category
+        probabilities:
+
+        .. math::
+            \alpha_k = \ln p_k, \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_logits_multinom(self.probs)
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Multinomial distribution.
+
+        .. math::
+            \mathbb{E}[X_k] = n\, p_k, \quad k \in \{0, 1, \dots, K-1\}
+        """
         return self.probs * jnp.expand_dims(self.total_count, -1)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Multinomial distribution.
+
+        .. math::
+            \mathrm{Var}(X_k) = n\, p_k (1 - p_k),
+            \quad k \in \{0, 1, \dots, K-1\}
+        """
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
     def support(self) -> constraints.Constraint:
+        r"""The support of the Multinomial distribution is the set of count
+        vectors :math:`\mathbf{x} \in \{0, 1, \dots, n\}^K` whose entries sum to
+        :attr:`total_count` :math:`n`.
+        """
         return constraints.multinomial(self.total_count)
 
     @classmethod
@@ -1250,6 +1327,27 @@ class MultinomialProbs(Distribution):
 
 
 class MultinomialLogits(Distribution):
+    r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
+    outcomes, parameterized by unnormalized log-probabilities (logits) and a
+    total count :math:`n` of i.i.d. trials.
+
+    The Probability Mass Function (PMF) of the Multinomial distribution is
+    defined, via the softmax transformation of the logits, as:
+
+    .. math::
+        P(X = \mathbf{x} \mid \boldsymbol{\alpha}, n) =
+        \frac{n!}{\prod_{k=0}^{K-1} x_k!}
+        \prod_{k=0}^{K-1} \left(
+            \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)}
+        \right)^{x_k}
+
+    where :math:`\boldsymbol{\alpha} = (\alpha_0, \alpha_1, \dots, \alpha_{K-1})`
+    is the real-valued logits vector (:attr:`logits`), :math:`n` is the number
+    of trials (:attr:`total_count`), and the count vector
+    :math:`\mathbf{x} = (x_0, x_1, \dots, x_{K-1})` lies on the support
+    :math:`x_k \in \{0, 1, \dots, n\}` with :math:`\sum_{k=0}^{K-1} x_k = n`.
+    """
+
     arg_constraints = {
         "logits": constraints.real_vector,
         "total_count": constraints.nonnegative_integer,
@@ -1265,6 +1363,16 @@ class MultinomialLogits(Distribution):
         total_count_max: Optional[int] = None,
         validate_args: Optional[bool] = None,
     ):
+        r"""
+        :param logits: Real-valued logits vector; the trailing dimension indexes
+            the :math:`K` categories. Logits are unnormalized and converted to
+            probabilities via the softmax function.
+        :param total_count: Number of trials :math:`n`. If this is a JAX array,
+            it is required to specify `total_count_max`.
+        :param total_count_max: The maximum number of trials,
+            i.e. `max(total_count)`, used to size the sampler's internal arrays.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -1284,6 +1392,18 @@ class MultinomialLogits(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw count-vector samples from the Multinomial distribution.
+
+        This method delegates to :func:`~numpyro.distributions.util.multinomial`,
+        which internally relies on :func:`~jax.random.categorical` to run the
+        :attr:`total_count` trials over :attr:`logits` directly.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer count vectors :math:`\mathbf{x}` with
+            :math:`\sum_{k=0}^{K-1} x_k =` :attr:`total_count`, drawn from the
+            Multinomial distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         return multinomial(
@@ -1296,6 +1416,23 @@ class MultinomialLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at ``value``.
+
+        .. math::
+            \ln P(X = \mathbf{x} \mid \boldsymbol{\alpha}, n) =
+            \ln\Gamma(n + 1)
+            + \sum_{k=0}^{K-1} \left[ x_k \alpha_k - \ln\Gamma(x_k + 1) \right]
+            - n\,\ln\!\sum_{j=0}^{K-1} \exp(\alpha_j)
+
+        where :math:`n` is :attr:`total_count`. The normalizing log-partition is
+        computed via :func:`~jax.scipy.special.logsumexp`, which uses the
+        standard max-subtraction trick to guarantee numerical stability in the
+        presence of large or widely-spread logit magnitudes.
+
+        :param value: Count vector :math:`\mathbf{x}` whose last dimension has
+            size :math:`K` and sums to :attr:`total_count`.
+        :return: Log probability scores evaluated under the Multinomial PMF.
+        """
         if self._validate_args:
             self._validate_sample(value)
         normalize_term = self.total_count * logsumexp(self.logits, axis=-1) - gammaln(
@@ -1307,18 +1444,44 @@ class MultinomialLogits(Distribution):
 
     @lazy_property
     def probs(self) -> Array:
+        r"""The probability vector of the Multinomial distribution is given by
+        the softmax of the logits:
+
+        .. math::
+            p_k = \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)},
+            \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_probs_multinom(self.logits)
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Multinomial distribution.
+
+        .. math::
+            \mathbb{E}[X_k] = n\, p_k, \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`.
+        """
         return jnp.expand_dims(self.total_count, -1) * self.probs
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Multinomial distribution.
+
+        .. math::
+            \mathrm{Var}(X_k) = n\, p_k (1 - p_k),
+            \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`.
+        """
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
     def support(self) -> constraints.Constraint:
+        r"""The support of the Multinomial distribution is the set of count
+        vectors :math:`\mathbf{x} \in \{0, 1, \dots, n\}^K` whose entries sum to
+        :attr:`total_count` :math:`n`.
+        """
         return constraints.multinomial(self.total_count)
 
     @classmethod
