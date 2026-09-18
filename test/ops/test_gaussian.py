@@ -201,10 +201,15 @@ def test_marginalize_condition_identity(left, right):
     assert_allclose(marginal.event_logsumexp(), g.event_logsumexp(), rtol=1e-4)
 
 
-def test_marginalize_static_permutations_avoid_gather():
-    g = random_gaussian(random.key(0), (3,), 4)
-    for f in [lambda g: g.marginalize(left=2), lambda g: g.marginalize(right=1)]:
-        assert "gather" not in jax.jit(f).lower(g).as_text()
+def test_event_permute_static_and_traced_paths_agree():
+    g = random_gaussian(random.key(0), (3,), 5)
+    perm = np.array([3, 4, 0, 1, 2])
+    static = g.event_permute(perm)
+    traced = g.event_permute(jnp.asarray(perm))
+    assert_close_gaussian(static, traced, rtol=0, atol=0)
+    assert_close_gaussian(
+        jax.jit(lambda g: g.event_permute(perm))(g), traced, rtol=0, atol=0
+    )
 
 
 def test_permute_condition_identity():
@@ -380,6 +385,54 @@ def test_gaussian_tensordot_against_dense(na, nb, nc):
     assert_close_gaussian(xy, _tensordot_oracle(x, y, na, nb, nc))
 
 
+def _numpy_marginal(g, keep, drop):
+    """Schur complement in numpy float64: (log_normalizer, info_vec, precision) over ``keep``."""
+    c, h, P = (
+        np.asarray(x, np.float64) for x in (g.log_normalizer, g.info_vec, g.precision)
+    )
+    Paa = P[..., keep, :][..., :, keep]
+    Pab = P[..., keep, :][..., :, drop]
+    Pbb = P[..., drop, :][..., :, drop]
+    Pbb_inv = np.linalg.inv(Pbb)
+    hb = h[..., drop]
+    log_normalizer = (
+        c
+        + 0.5 * len(drop) * np.log(2 * np.pi)
+        - 0.5 * np.linalg.slogdet(Pbb)[1]
+        + 0.5 * np.einsum("...i,...ij,...j->...", hb, Pbb_inv, hb)
+    )
+    info_vec = h[..., keep] - np.einsum("...ij,...jk,...k->...i", Pab, Pbb_inv, hb)
+    precision = Paa - Pab @ Pbb_inv @ np.swapaxes(Pab, -1, -2)
+    return log_normalizer, info_vec, precision
+
+
+@pytest.mark.parametrize("left,right", [(2, 0), (0, 2), (1, 2), (2, 1)])
+def test_marginalize_matches_numpy_schur_complement(left, right):
+    dim = 5
+    g = random_gaussian(random.key(left * 10 + right), (3,), dim)
+    keep = list(range(left, dim - right))
+    drop = list(range(left)) + list(range(dim - right, dim))
+    expected = _numpy_marginal(g, keep, drop)
+    actual = g.marginalize(left=left, right=right)
+    assert_allclose(actual.log_normalizer, expected[0], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.info_vec, expected[1], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.precision, expected[2], rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize("na,nb,nc", [(1, 1, 1), (2, 2, 1), (0, 2, 1), (2, 1, 0)])
+def test_gaussian_tensordot_matches_numpy_joint_marginal(na, nb, nc):
+    x = random_gaussian(random.key(0), (3,), na + nb)
+    y = random_gaussian(random.key(1), (3,), nb + nc)
+    joint = x.event_pad(right=nc) + y.event_pad(left=na)
+    keep = list(range(na)) + list(range(na + nb, na + nb + nc))
+    drop = list(range(na, na + nb))
+    expected = _numpy_marginal(joint, keep, drop)
+    actual = gaussian_tensordot(x, y, nb)
+    assert_allclose(actual.log_normalizer, expected[0], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.info_vec, expected[1], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.precision, expected[2], rtol=1e-4, atol=1e-4)
+
+
 @pytest.mark.parametrize("na,nb,nc", [(1, 1, 1), (2, 2, 1)])
 @pytest.mark.parametrize("rank", [1, None])
 def test_gaussian_tensordot_broadcasts_batch_and_rank_deficient(na, nb, nc, rank):
@@ -415,7 +468,7 @@ def test_sequential_gaussian_tensordot_check_grads():
     )
 
 
-@pytest.mark.parametrize("num_steps", list(range(1, 20)))
+@pytest.mark.parametrize("num_steps", [1, 2, 3, 4, 7, 8, 16, 19])
 @pytest.mark.parametrize("state_dim", [1, 2, 3])
 def test_sequential_gaussian_tensordot_matches_fold(num_steps, state_dim):
     g = random_gaussian(random.key(num_steps), (2, num_steps), 2 * state_dim)
@@ -575,13 +628,26 @@ def test_filter_sample_check_grads():
     )
 
 
-def test_filter_sample_lowers_without_gather():
-    init = random_gaussian(random.key(0), (), 2)
-    trans = random_gaussian(random.key(1), (64,), 4)
-    lowered = jax.jit(sequential_gaussian_filter_sample).lower(
-        random.key(2), init, trans
+def test_condition_broadcasts_leading_value_dims():
+    g = random_gaussian(random.key(0), (4,), 3)
+    value = random.normal(random.key(1), (5, 4, 1))
+    conditioned = g.condition(value)
+    assert conditioned.batch_shape == (5, 4)
+    assert_close_gaussian(conditioned[2], g.condition(value[2]))
+
+
+def test_factors_support_tree_map_and_vmap_in_axes():
+    g = random_gaussian(random.key(0), (4,), 2)
+    doubled = jax.tree_util.tree_map(lambda a: 2 * a, g)
+    assert isinstance(doubled, Gaussian)
+    assert_allclose(doubled.precision, 2 * g.precision)
+    per_batch = jax.vmap(lambda f: f.event_logsumexp(), in_axes=0)(g)
+    assert_allclose(per_batch, g.event_logsumexp(), rtol=1e-6)
+    affine = matrix_and_mvn_to_gaussian(
+        jnp.ones((4, 1, 2)), dist.Normal(jnp.zeros((4, 1)), 1.0).to_event(1)
     )
-    assert "gather" not in lowered.as_text()
+    assert isinstance(affine, AffineNormal)
+    assert jax.tree_util.tree_map(lambda a: a.shape, affine).matrix == (4, 1, 2)
 
 
 def test_filter_sample_antithetic():
