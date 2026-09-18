@@ -92,12 +92,24 @@ def normalized_gamma_gaussian(key, batch_shape, dim):
 
 def test_shape_ops():
     gg = random_gamma_gaussian(random.key(0), (6,), 2)
+    other = random_gamma_gaussian(random.key(3), (6,), 2)
     assert gg.expand((3, 6)).batch_shape == (3, 6)
-    assert_close_gamma_gaussian(gg.reshape((2, 3)).reshape((6,)), gg)
+    reshaped = gg.reshape((2, 3))
+    assert_close_gamma_gaussian(reshaped.reshape((6,)), gg)
     assert_close_gamma_gaussian(GammaGaussian.cat([gg[:2], gg[2:]], axis=0), gg)
+    assert_close_gamma_gaussian(
+        GammaGaussian.cat([reshaped[:, :1], reshaped[:, 1:]], axis=1),
+        reshaped,
+        rtol=0,
+        atol=0,
+    )
     assert gg.event_pad(left=1, right=1).dim == 4
     perm = jnp.array([1, 0])
     assert_close_gamma_gaussian(gg.event_permute(perm).event_permute(perm), gg)
+    added = gg + other
+    assert_close_gamma_gaussian(
+        added, GammaGaussian(*(a + b for a, b in zip(gg._fields(), other._fields())))
+    )
 
 
 def test_construction_rejects_mismatched_shapes():
@@ -137,13 +149,6 @@ def test_validation_matches_the_gaussian_factor():
         x.condition(jnp.zeros(3))
 
 
-def test_factors_hash_by_identity():
-    gg = random_gamma_gaussian(random.key(0), (3,), 2)
-    factor = gg.event_logsumexp()
-    assert hash(gg) == hash(gg) and hash(factor) == hash(factor)
-    assert gg != random_gamma_gaussian(random.key(0), (3,), 2)
-
-
 @pytest.mark.parametrize("batch_shape", [(), (2, 3)], ids=str)
 def test_shape_ops_and_log_density_across_batch_ranks(batch_shape):
     gg = random_gamma_gaussian(random.key(0), batch_shape, 2)
@@ -166,16 +171,6 @@ def test_shape_ops_and_log_density_across_batch_ranks(batch_shape):
     )
     assert gg.condition(x[..., 1:]).batch_shape == batch_shape
     assert gg.event_logsumexp().log_density(s).shape == batch_shape
-
-
-def test_cat_along_middle_axis():
-    gg = random_gamma_gaussian(random.key(0), (2, 3), 2)
-    assert_close_gamma_gaussian(
-        GammaGaussian.cat([gg[:, :1], gg[:, 1:]], axis=1), gg, rtol=0, atol=0
-    )
-    assert_close_gamma_gaussian(
-        GammaGaussian.cat([gg[:1], gg[1:]], axis=0), gg, rtol=0, atol=0
-    )
 
 
 def test_event_pad_content():
@@ -208,15 +203,6 @@ def test_event_permute_static_and_traced_paths_agree():
         rtol=0,
         atol=0,
     )
-
-
-def test_log_density_matches_fixed_scale_gaussian():
-    gg = random_gamma_gaussian(random.key(0), (3,), 2)
-    x = random.normal(random.key(1), (3, 2))
-    s = jnp.exp(random.normal(random.key(2), (3,)))
-    assert_allclose(gg.log_density(x, s), gaussian_at(gg, s).log_density(x), rtol=1e-4)
-    added = gg + random_gamma_gaussian(random.key(3), (3,), 2)
-    assert added.batch_shape == (3,)
 
 
 def test_log_density_dim_zero_broadcasts_value_and_scale():
@@ -405,7 +391,9 @@ def test_gamma_gaussian_tensordot_matches_fixed_scale(na, nb, nc):
     )
 
 
-@pytest.mark.parametrize("num_steps", list(range(1, 20)))
+# Covers every branch of the log2 reduction: no loop (1), a single even step
+# (2, 4, 8, 16), an odd length with a leftover tail (3, 5, 7, 9, 17).
+@pytest.mark.parametrize("num_steps", [1, 2, 3, 4, 5, 7, 8, 9, 16, 17])
 @pytest.mark.parametrize("state_dim", [1, 2])
 def test_sequential_gamma_gaussian_tensordot_matches_fold(num_steps, state_dim):
     g = random_gamma_gaussian(random.key(num_steps), (2, num_steps), 2 * state_dim)

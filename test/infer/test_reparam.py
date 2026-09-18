@@ -726,12 +726,16 @@ def test_linear_hmm_reparam_student_t_nuts_smoke():
         model, config={"x": LinearHMMReparam(trans=StudentTReparam())}
     )
     mcmc = MCMC(
-        NUTS(reparam_model), num_warmup=100, num_samples=100, progress_bar=False
+        NUTS(reparam_model), num_warmup=200, num_samples=200, progress_bar=False
     )
     mcmc.run(random.key(2), data)
     samples = mcmc.get_samples()
-    assert samples["x_trans_gamma"].shape == (100, T, n)
+    assert samples["x_trans_gamma"].shape == (200, T, n)
     assert jnp.isfinite(samples["scale"]).all()
+    # Measured posterior mean of scale on this data: 0.52 with posterior sd 0.15
+    # (MCSE 0.010, truth 0.5); the prior mean is exp(0.125) = 1.13, so a wrong
+    # likelihood that ignores the data drifts outside this band.
+    assert 0.3 < float(samples["scale"].mean()) < 0.7
 
 
 def test_linear_hmm_reparam_transforms_and_independent():
@@ -992,3 +996,34 @@ def test_linear_hmm_reparam_to_event_site():
             handlers.seed(model, 0)()
     assert tr["x"]["fn"].event_shape == (2, T, m)
     assert tr["x_trans_gamma"]["value"].shape == (2, T, n)
+
+
+def test_linear_hmm_reparam_predictive():
+    from numpyro.infer import Predictive
+
+    T, n, m = 4, 1, 1
+    init, A, trans, H, obs = _components(T, n, m, random.key(0), noise="student")
+
+    def model(data=None):
+        numpyro.sample("x", LinearHMM(init, A, trans, H, obs), obs=data)
+
+    reparam_model = handlers.reparam(
+        model, config={"x": LinearHMMReparam(trans=StudentTReparam())}
+    )
+    prior = Predictive(reparam_model, num_samples=3)(random.key(1))
+    assert prior["x"].shape == (3, T, m) and prior["x_trans_gamma"].shape == (3, T, n)
+    posterior_samples = {"x_trans_gamma": jnp.ones((5, T, n))}
+    predictive = Predictive(reparam_model, posterior_samples)(random.key(2))
+    assert predictive["x"].shape == (5, T, m)
+
+
+def test_is_gaussian_noise():
+    from numpyro.ops.gaussian import is_gaussian_noise
+
+    assert is_gaussian_noise(dist.Normal(jnp.zeros(2), 1.0).to_event(1))
+    assert is_gaussian_noise(dist.Normal(0.0, 1.0).expand((3, 2)).to_event(1))
+    assert is_gaussian_noise(
+        dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2)).expand((3,))
+    )
+    assert not is_gaussian_noise(dist.StudentT(3.0, jnp.zeros(2), 1.0).to_event(1))
+    assert not is_gaussian_noise(dist.Normal(jnp.zeros((2, 2)), 1.0).to_event(2))
