@@ -349,7 +349,10 @@ def _kalman_filter(
         )
         K = mt(cho_solve((L, True), mm(C, cov_pred)))
         loc_new = loc_pred + mv(K, r)
-        cov_new = cov_pred - mm(mm(K, S), mt(K))
+        # Joseph form: stays positive definite in float32 where
+        # cov_pred - K S K^T does not.
+        I_KC = jnp.eye(hidden_dim, dtype=cov_pred.dtype) - mm(K, C)
+        cov_new = mm(mm(I_KC, cov_pred), mt(I_KC)) + mm(mm(K, R), mt(K))
         cov_new = 0.5 * (cov_new + mt(cov_new))
         return (loc_new, cov_new), ll
 

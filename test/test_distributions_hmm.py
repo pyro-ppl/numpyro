@@ -856,7 +856,9 @@ def test_gaussian_hmm_sequential_matches_parallel(layout):
 
 
 def test_gaussian_hmm_sequential_float32_small_noise_is_accurate():
-    # The parallel information form is off by about 1.7 nats here (review.md 3.1); the sequential path must not be.
+    # Measured: sequential float32 is 7.6e-6 nats from the float32 reference
+    # and 5.4e-6 from float64; the parallel information form is off by 1.65
+    # nats (review.md 3.1).
     T, obs_sd = 64, 0.001
     x, (m0, P0, A, Q, C, R) = _small_noise_model(T, obs_sd, jnp.float32)
     hmm = GaussianHMM(
@@ -870,6 +872,28 @@ def test_gaussian_hmm_sequential_float32_small_noise_is_accurate():
     )
     reference = kalman_log_prob(x, m0, P0, A, Q, C, R)
     assert_allclose(hmm.log_prob(x), reference, rtol=1e-5, atol=1e-3)
+
+
+def test_gaussian_hmm_sequential_filter_is_positive_definite_at_tiny_noise():
+    # With the update cov_pred - K S K^T the float32 filtered covariance at
+    # obs_sd=1e-4 had eigenvalues [-7.5e-9, 5.2e-8] (not positive definite);
+    # with the Joseph form they are [6.1e-9, 1.6e-8].
+    T, obs_sd = 64, 1e-4
+    x, (m0, P0, A, Q, C, R) = _small_noise_model(T, obs_sd, jnp.float32)
+    hmm = GaussianHMM(
+        dist.MultivariateNormal(m0, P0),
+        A,
+        dist.MultivariateNormal(jnp.zeros(2, jnp.float32), Q),
+        C,
+        dist.MultivariateNormal(jnp.zeros(2, jnp.float32), R),
+        num_steps=T,
+        sequential=True,
+        validate_args=True,
+    )
+    posterior = hmm.filter(x)
+    assert jnp.isfinite(posterior.scale_tril).all()
+    assert jnp.linalg.eigvalsh(posterior.covariance_matrix).min() > 0
+    assert jnp.isfinite(hmm.prefix_condition(x[:32]).sample(random.key(0))).all()
 
 
 def test_gaussian_hmm_sequential_derived_models():
