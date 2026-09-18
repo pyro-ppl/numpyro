@@ -327,7 +327,19 @@ class Gaussian(_FactorShapeOps):
             self.log_normalizer + other, self.info_vec, self.precision
         )._broadcast()
 
-    def __sub__(self, other: Union[Array, float]) -> Gaussian:
+    def __sub__(self, other: Union[Gaussian, AffineNormal, Array, float]) -> Gaussian:
+        """
+        Subtract a scalar or a factor; the difference of two factors is a factor
+        that is not necessarily normalizable.
+        """
+        if isinstance(other, AffineNormal):
+            other = other.to_gaussian()
+        if isinstance(other, Gaussian):
+            return Gaussian(
+                self.log_normalizer - other.log_normalizer,
+                self.info_vec - other.info_vec,
+                self.precision - other.precision,
+            )._broadcast()
         return Gaussian(
             self.log_normalizer - other, self.info_vec, self.precision
         )._broadcast()

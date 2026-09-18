@@ -377,8 +377,11 @@ class HiddenMarkovModel(Distribution):
     chain marginalized by factor reduction.
 
     Subclasses store three factors: ``_init`` over ``z_0``, ``_trans`` over
-    ``(z_{t-1}, z_t)`` and ``_obs`` over ``(z_t, x_t)``. Time is the rightmost
-    batch axis of the per-step factors (size 1 when time-homogeneous).
+    ``(z_{t-1}, z_t)`` and ``_obs`` over ``(z_t, x_t)``. ``_obs`` is always a
+    normalized conditional over ``x_t`` given ``z_t``; any factor over ``z_t``
+    alone (such as the marginal of a conjugate likelihood) lives in ``_trans``.
+    Time is the rightmost batch axis of the per-step factors (size 1 when
+    time-homogeneous).
     :meth:`Distribution.__init__` is not called because ``batch_shape`` and
     ``event_shape`` are properties derived from the factor leaves instead of
     stored metadata, so instances built under :func:`jax.vmap` or carried
@@ -714,7 +717,10 @@ class GaussianHMM(HiddenMarkovModel):
         return self._reduce(self._obs.condition(value))
 
     def _normalized_posterior(self, value: Array) -> Gaussian:
-        """Normalized factor over ``z_T`` given ``value`` of exactly ``batch_shape + (num_steps, obs_dim)``."""
+        """
+        Normalized factor over ``z_T`` given ``value`` of exactly
+        ``batch_shape + (num_steps, obs_dim)``.
+        """
         g = self._posterior(value)
         return g - g.event_logsumexp()
 
@@ -805,7 +811,12 @@ class GaussianHMM(HiddenMarkovModel):
                 f"got {tuple(other.event_shape)}"
             )
         per_step = mvn_to_gaussian(_peel_event(other, 1))
-        new = self._replace(_obs=self._obs + per_step.event_pad(left=self.hidden_dim))
+        full = self._obs + per_step.event_pad(left=self.hidden_dim)
+        r = full.marginalize(right=self.obs_dim)
+        new = self._replace(
+            _trans=self._trans + r.event_pad(left=self.hidden_dim),
+            _obs=full - r.event_pad(right=self.obs_dim),
+        )
         log_normalizer = new._reduce(
             new._obs.marginalize(right=self.obs_dim)
         ).event_logsumexp()
@@ -841,11 +852,10 @@ class GaussianHMM(HiddenMarkovModel):
         head = self._replace(
             _trans=trans_head, _obs=obs_head, _moments=head_moments, num_steps=t
         )
-        value, extra = head._lead_and_extra(data)
-        init = _vmap_leading(head._normalized_posterior, extra)(value)
         moments = None
         if self._moments is not None:
             posterior = head.filter(data)
+            init = mvn_to_gaussian(posterior)
             tail_moments = self._moments.time_slice(t, self.num_steps)
             lead = posterior.batch_shape
             moments = _Moments(
@@ -858,6 +868,9 @@ class GaussianHMM(HiddenMarkovModel):
                     )
                 ),
             )
+        else:
+            value, extra = head._lead_and_extra(data)
+            init = _vmap_leading(head._normalized_posterior, extra)(value)
         return self._replace(
             _init=init,
             _trans=trans_tail,
@@ -872,9 +885,10 @@ class GaussianHMM(HiddenMarkovModel):
         obs_factor: Optional[Gaussian] = None,
         sample_shape: tuple[int, ...] = (),
     ) -> Array:
-        # Pyro also adds ``_obs.marginalize(right=obs_dim)`` here; that term is
-        # exactly zero for a normalized conditional (``AffineNormal.marginalize``
-        # returns an exact zero factor), so it is omitted.
+        # Every stored ``_obs`` is a normalized conditional over ``x_t`` given
+        # ``z_t`` (``conjugate_update`` folds the likelihood's ``z_t`` marginal
+        # into ``_trans``), so Pyro's ``_obs.marginalize(right=obs_dim)`` term
+        # is exactly zero and omitted.
         trans = self._trans
         if obs_factor is not None:
             trans = trans + obs_factor.event_pad(left=self.hidden_dim)

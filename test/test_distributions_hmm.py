@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.hmm import GaussianHMM, HiddenMarkovModel, IndependentHMM
+from numpyro.ops.gaussian import mvn_to_gaussian
 
 
 def _spd(key, n, scale=1.0):
@@ -565,6 +566,29 @@ def test_gaussian_hmm_conjugate_update_identity(other_kind):
     assert updated.sample(random.key(4)).shape == (3, T, m)
 
 
+def test_gaussian_hmm_sample_after_conjugate_update_matches_closed_form():
+    T, n, m = 2, 1, 1
+    init, A, trans, H, obs = _layout_params(
+        random.key(0), n, m, (), (T,), (T,), (T,), (T,)
+    )
+    hmm = GaussianHMM(init, A, trans, H, obs)
+    x0 = random.normal(random.key(1), (T, m))
+    sd = 0.7
+    updated, _ = hmm.conjugate_update(dist.Normal(x0, sd).to_event(2))
+    mean, cov = dense_reference(init, A, trans, H, obs, T)
+    nz = (T + 1) * n
+    Sigma, mu = cov[nz:, nz:], mean[nz:]
+    cov_upd = jnp.linalg.inv(jnp.linalg.inv(Sigma) + jnp.eye(T * m) / sd**2)
+    mean_upd = cov_upd @ (jnp.linalg.solve(Sigma, mu) + x0.ravel() / sd**2)
+    N = 20000
+    x = updated.sample(random.key(2), (N,)).reshape(N, T * m)
+    se = jnp.sqrt(jnp.diag(cov_upd) / N)
+    assert (jnp.abs(x.mean(0) - mean_upd) < 5 * se).all()
+    d = jnp.diag(cov_upd)
+    cov_se = jnp.sqrt(2.0 / N) * jnp.sqrt(jnp.outer(d, d))
+    assert (jnp.abs(jnp.cov(x.T) - cov_upd) < 5 * cov_se).all()
+
+
 def test_gaussian_hmm_prefix_condition_chain_rule():
     T, n, m, t = 9, 3, 2, 4
     ks = random.split(random.key(5), 6)
@@ -636,12 +660,16 @@ def test_hidden_markov_model_base_is_abstract():
 
 def test_prefix_condition_initial_factor_is_normalized_posterior():
     T, n, m, t = 6, 2, 1, 3
-    hmm = _hmm(random.key(1), T, n, m)
+    hmm = _hmm(random.key(1), T, n, m, homogeneous=True)
+    head = _hmm(random.key(1), t, n, m, homogeneous=True)
     x = hmm.sample(random.key(2))
     tail = hmm.prefix_condition(x[:t])
     assert_allclose(tail._init.event_logsumexp(), 0.0, atol=1e-5)
-    posterior = _hmm(random.key(1), T, n, m).prefix_condition(x[:t])._init
-    assert_allclose(posterior.precision, tail._init.precision, rtol=1e-6)
+    # Information-form posterior vs the moment path; float32 agreement measured at
+    # 6e-8 (precision) and 3e-8 (info_vec).
+    expected = mvn_to_gaussian(head.filter(x[:t]))
+    assert_allclose(tail._init.precision, expected.precision, rtol=1e-4, atol=1e-4)
+    assert_allclose(tail._init.info_vec, expected.info_vec, rtol=1e-4, atol=1e-4)
 
 
 def test_gaussian_hmm_reshape_batch():
