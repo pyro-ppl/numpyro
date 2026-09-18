@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import warnings
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -900,6 +901,64 @@ def test_linear_hmm_reparam_propagates_validate_args():
         with handlers.trace() as tr:
             handlers.seed(model, 0)()
     assert tr["x"]["fn"]._validate_args is False
+
+    # The IndependentHMM branch parameterizes the wrapper from the wrapper and
+    # the inner GaussianHMM from the wrapped LinearHMM.
+    A = jnp.broadcast_to(jnp.eye(n), (m, T, n, n))
+    H = jnp.ones((m, T, 1, n))
+    init = dist.Normal(jnp.zeros((m, n)), 1.0).to_event(1)
+    trans = dist.StudentT(4.0, jnp.zeros((m, T, n)), 0.5).to_event(1)
+    obs = dist.Normal(jnp.zeros((m, T, 1)), 0.3).to_event(1)
+    independent = IndependentHMM(
+        LinearHMM(init, A, trans, H, obs, validate_args=False), validate_args=False
+    )
+
+    def independent_model():
+        numpyro.sample("x", independent)
+
+    with handlers.reparam(config={"x": LinearHMMReparam(trans=StudentTReparam())}):
+        with handlers.trace() as tr:
+            handlers.seed(independent_model, 0)()
+    fn = tr["x"]["fn"]
+    assert isinstance(fn, IndependentHMM) and fn._validate_args is False
+    assert isinstance(fn.base_dist, GaussianHMM)
+    assert fn.base_dist._validate_args is False
+
+
+def test_linear_hmm_reparam_propagates_validate_args_through_transforms():
+    T, n, m = 3, 1, 1
+    init, A, trans, _, _ = _components(T, n, m, random.key(0), noise="student")
+    H = jnp.ones((T, m, n))
+    obs = dist.LogNormal(jnp.zeros((T, m)), 0.3).to_event(1)
+
+    def reparameterized(validate_args):
+        hmm = LinearHMM(init, A, trans, H, obs, validate_args=validate_args)
+
+        def model():
+            numpyro.sample("x", hmm)
+
+        with handlers.reparam(config={"x": LinearHMMReparam(trans=StudentTReparam())}):
+            with handlers.trace() as tr:
+                handlers.seed(model, 0)()
+        return tr["x"]["fn"]
+
+    # The observation transform makes the site a TransformedDistribution whose
+    # log_prob is @validate_sample-decorated, so the setting has to reach it.
+    off = reparameterized(False)
+    assert isinstance(off, dist.TransformedDistribution)
+    assert off._validate_args is False
+    negative = -jnp.ones((T, m))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        log_prob = off.log_prob(negative)
+    assert not jnp.any(log_prob == -jnp.inf)
+
+    # Contrast: left at the default the same value warns and is masked.
+    on = reparameterized(None)
+    assert on._validate_args is True
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        assert on.log_prob(negative) == -jnp.inf
+    assert_allclose(off.log_prob(jnp.ones((T, m))), on.log_prob(jnp.ones((T, m))))
 
 
 def test_linear_hmm_reparam_rejects_non_linear_hmm_site():

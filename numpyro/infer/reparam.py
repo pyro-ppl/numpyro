@@ -676,5 +676,7 @@ class LinearHMMReparam(Reparam):
             validate_args=fn._validate_args,
         )
         if fn.transforms:
-            hmm = dist.TransformedDistribution(hmm, fn.transforms)
+            hmm = dist.TransformedDistribution(
+                hmm, fn.transforms, validate_args=fn._validate_args
+            )
         return hmm

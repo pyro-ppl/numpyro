@@ -114,6 +114,16 @@ def test_construction_rejects_non_broadcastable_alpha_beta():
     zero = jnp.zeros(())
     with pytest.raises(ValueError, match="alpha and beta"):
         GammaGaussian(zero, jnp.zeros(2), jnp.eye(2), jnp.ones(3), jnp.ones(4))
+    # Here alpha and beta agree with each other; the batch shape of the
+    # Gaussian fields is the term that fails to broadcast.
+    with pytest.raises(ValueError, match="alpha and beta"):
+        GammaGaussian(
+            jnp.zeros(2),
+            jnp.zeros((2, 3)),
+            jnp.zeros((2, 3, 3)),
+            jnp.ones(4),
+            jnp.ones(4),
+        )
 
 
 def test_validation_matches_the_gaussian_factor():
