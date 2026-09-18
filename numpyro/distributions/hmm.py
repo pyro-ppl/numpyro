@@ -33,9 +33,10 @@ from numpyro.distributions.distribution import (
     ExpandedDistribution,
     Independent,
     TransformedDistribution,
+    _peel_event,
 )
 from numpyro.distributions.transforms import Transform
-from numpyro.distributions.util import _peel_event, validate_sample
+from numpyro.distributions.util import validate_sample
 from numpyro.ops.gamma_gaussian import (
     GammaGaussian,
     gamma_and_mvn_to_gamma_gaussian,
@@ -46,6 +47,7 @@ from numpyro.ops.gamma_gaussian import (
 from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
+    _type_name,
     gaussian_tensordot,
     loc_and_scale_tril,
     matrix_and_mvn_to_gaussian,
@@ -1059,9 +1061,7 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
             else scale_dist
         )
         if not isinstance(base_scale, Gamma):
-            raise TypeError(
-                f"scale_dist must be a Gamma, got {type(scale_dist).__name__}"
-            )
+            raise TypeError(f"scale_dist must be a Gamma, got {_type_name(scale_dist)}")
         transition_matrix = jnp.asarray(transition_matrix)
         observation_matrix = jnp.asarray(observation_matrix)
         _, _, num_steps = _resolve_layout(
@@ -1409,6 +1409,11 @@ class LinearHMM(Distribution):
     ``log_prob`` is not available; use
     :class:`~numpyro.infer.reparam.LinearHMMReparam` for inference.
 
+    ``LinearHMM`` is not a :class:`HiddenMarkovModel` subclass: it stores
+    component distributions rather than factors, so
+    :meth:`IndependentHMM.reshape_batch` does not accept it as a base;
+    :meth:`IndependentHMM.expand` does.
+
     .. note:: Matrices act on the left and ``num_steps`` is required for
         time-homogeneous parameters; see the note in :class:`GaussianHMM`.
 
@@ -1459,8 +1464,13 @@ class LinearHMM(Distribution):
             ("transition_dist", transition_dist),
             ("observation_dist", observation_dist),
         ):
-            if not d.has_rsample or d.event_dim != 1:
-                raise TypeError(f"{name} must be reparameterized with event_dim == 1")
+            if d.event_dim != 1:
+                raise TypeError(f"{name} must have event_dim == 1, got {d.event_dim}")
+            if not d.has_rsample:
+                raise TypeError(
+                    f"{name} must be reparameterized (has_rsample), "
+                    f"got {type(d).__name__}"
+                )
         batch_shape, time, num_steps = _resolve_layout(
             initial_dist,
             transition_matrix,
@@ -1496,6 +1506,10 @@ class LinearHMM(Distribution):
         self.num_steps = num_steps
         if validate_args is not None:
             self._validate_args = validate_args
+
+    @property
+    def has_rsample(self) -> bool:
+        return True
 
     @property
     def batch_shape(self) -> tuple[int, ...]:

@@ -1617,3 +1617,29 @@ def test_gaussian_mrf_block_diagonal_reduces_to_independent_observations():
         .sum()
     )
     assert_allclose(mrf.log_prob(x), expected, rtol=1e-4, atol=1e-4)
+
+
+def test_linear_hmm_error_messages():
+    n, m = 2, 1
+    init = dist.Normal(jnp.zeros(n), 1.0).to_event(1)
+    obs = dist.Normal(jnp.zeros(m), 1.0).to_event(1)
+    H = jnp.ones((m, n))
+    with pytest.raises(TypeError, match="event_dim == 1"):
+        dist.LinearHMM(init, jnp.eye(n), dist.Normal(0.0, 1.0), H, obs, num_steps=2)
+    with pytest.raises(TypeError, match="reparameterized"):
+        dist.LinearHMM(
+            init, jnp.eye(n), dist.Poisson(jnp.ones(n)).to_event(1), H, obs, num_steps=2
+        )
+    assert (
+        dist.LinearHMM(init, jnp.eye(n), init, H, obs, num_steps=2).has_rsample is True
+    )
+    with pytest.raises(TypeError, match="ExpandedDistribution\\(Normal\\)"):
+        dist.GammaGaussianHMM(
+            dist.Normal(1.0, 1.0).expand((2,)),
+            init,
+            jnp.eye(n),
+            init,
+            H,
+            obs,
+            num_steps=2,
+        )

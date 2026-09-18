@@ -14,7 +14,7 @@ from jax.typing import ArrayLike
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
-from numpyro.distributions.distribution import Distribution
+from numpyro.distributions.distribution import Distribution, _peel_event
 from numpyro.distributions.transforms import (
     ComposeTransform,
     DiscreteCosineTransform,
@@ -22,7 +22,6 @@ from numpyro.distributions.transforms import (
     Transform,
 )
 from numpyro.distributions.util import (
-    _peel_event,
     is_identically_one,
     safe_normalize,
     sum_rightmost,
@@ -562,6 +561,12 @@ class LinearHMMReparam(Reparam):
     :class:`~numpyro.distributions.TransformedDistribution` when the
     ``LinearHMM`` has observation transforms.
 
+    Sub-reparameterizers receive ``obs=None`` and must return a distribution
+    without a value: the observed data stays on the ``LinearHMM`` site and is
+    never forwarded to the ``obs`` sub-reparameterizer (unlike Pyro's
+    ``LinearHMMReparam``). This restricts ``obs`` to distribution-rewriting
+    reparameterizers such as :class:`StudentTReparam`.
+
     :param Optional[Reparam] init: sub-reparameterizer for the initial noise.
     :param Optional[Reparam] trans: sub-reparameterizer for the transition
         noise.
@@ -626,7 +631,8 @@ class LinearHMMReparam(Reparam):
             # The base carries obs_dim as its trailing batch dim; treat it as
             # an extra event dim so enclosing plates only see the outer batch.
             hmm = dist.IndependentHMM(
-                self._reparam_linear(name, fn.base_dist, event_dim + 1)
+                self._reparam_linear(name, fn.base_dist, event_dim + 1),
+                validate_args=fn._validate_args,
             )
         else:
             hmm = self._reparam_linear(name, fn, event_dim)
@@ -667,6 +673,7 @@ class LinearHMMReparam(Reparam):
             fn.observation_matrix,
             obs_dist,
             num_steps=fn.num_steps,
+            validate_args=fn._validate_args,
         )
         if fn.transforms:
             hmm = dist.TransformedDistribution(hmm, fn.transforms)

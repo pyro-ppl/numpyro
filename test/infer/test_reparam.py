@@ -887,3 +887,49 @@ def test_linear_hmm_reparam_single_sub_reparam(which):
     assert isinstance(fn, GaussianHMM)
     assert fn.batch_shape == () and fn.event_shape == (T, m)
     assert jnp.isfinite(fn.log_prob(tr["x"]["value"]))
+
+
+def test_linear_hmm_reparam_propagates_validate_args():
+    T, n, m = 4, 1, 1
+    init, A, trans, H, obs = _components(T, n, m, random.key(0), noise="student")
+
+    def model():
+        numpyro.sample("x", LinearHMM(init, A, trans, H, obs, validate_args=False))
+
+    with handlers.reparam(config={"x": LinearHMMReparam(trans=StudentTReparam())}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)()
+    assert tr["x"]["fn"]._validate_args is False
+
+
+def test_linear_hmm_reparam_rejects_non_linear_hmm_site():
+    def model():
+        numpyro.sample("y", dist.Normal(0.0, 1.0))
+
+    with pytest.raises(ValueError, match="expects a LinearHMM"):
+        with handlers.reparam(config={"y": LinearHMMReparam()}):
+            handlers.seed(model, 0)()
+
+
+def test_studentt_reparam_rejects_non_student_t_site():
+    def model():
+        numpyro.sample("y", dist.Normal(0.0, 1.0))
+
+    with pytest.raises(ValueError, match="expects a StudentT"):
+        with handlers.reparam(config={"y": StudentTReparam()}):
+            handlers.seed(model, 0)()
+
+
+def test_linear_hmm_reparam_to_event_site():
+    T, n, m = 3, 1, 1
+    init, A, trans, H, obs = _components(T, n, m, random.key(0), noise="student")
+    hmm = LinearHMM(init, A, trans, H, obs).expand((2,)).to_event(1)
+
+    def model():
+        numpyro.sample("x", hmm)
+
+    with handlers.reparam(config={"x": LinearHMMReparam(trans=StudentTReparam())}):
+        with handlers.trace() as tr:
+            handlers.seed(model, 0)()
+    assert tr["x"]["fn"].event_shape == (2, T, m)
+    assert tr["x_trans_gamma"]["value"].shape == (2, T, n)

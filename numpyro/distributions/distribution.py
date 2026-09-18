@@ -1043,6 +1043,33 @@ class Independent(Distribution):
         return jnp.asarray(self.base_dist.entropy()).sum(axes)
 
 
+def _peel_event(d: Distribution, n: int) -> Distribution:
+    """
+    Remove ``n`` reinterpreted batch dimensions from nested ``Independent``
+    layers, looking through an outer ``ExpandedDistribution``.
+
+    :param Distribution d: distribution with at least ``n`` reinterpreted
+        batch dimensions.
+    :param int n: number of event dimensions to turn back into batch
+        dimensions.
+    :return: distribution with ``event_dim == d.event_dim - n`` and the same
+        total shape.
+    :rtype: Distribution
+    :raises ValueError: if fewer than ``n`` ``Independent`` layers are found.
+    """
+    if n == 0:
+        return d
+    if isinstance(d, ExpandedDistribution):
+        base = _peel_event(d.base_dist, n)
+        return base.expand(d.batch_shape + tuple(d.event_shape)[:n])
+    if not isinstance(d, Independent):
+        raise ValueError(f"cannot remove {n} event dimensions from {type(d).__name__}")
+    k = min(n, d.reinterpreted_batch_ndims)
+    remaining = d.reinterpreted_batch_ndims - k
+    d = d.base_dist if remaining == 0 else Independent(d.base_dist, remaining)
+    return _peel_event(d, n - k)
+
+
 class MaskedDistribution(Distribution):
     """
     Masks a distribution by a boolean array that is broadcastable to the
