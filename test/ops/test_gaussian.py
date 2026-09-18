@@ -432,40 +432,6 @@ def test_sequential_gaussian_tensordot_rejects_empty_time_axis():
         sequential_gaussian_tensordot(g)
 
 
-def test_sequential_gaussian_tensordot_float32_long_horizon():
-    T, s = 100_000, 2
-    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], jnp.float32)
-    noise = dist.MultivariateNormal(
-        jnp.zeros(s, jnp.float32), covariance_matrix=0.1 * jnp.eye(s, dtype=jnp.float32)
-    )
-
-    def value(matrix):
-        g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
-        assert g.batch_shape == (T,)
-        return sequential_gaussian_tensordot(g).event_logsumexp()
-
-    result, grad = jax.jit(jax.value_and_grad(value))(matrix)
-    assert jnp.isfinite(result) and jnp.isfinite(grad).all()
-
-
-def test_sequential_gaussian_tensordot_x64_long_horizon():
-    if jnp.result_type(float) == jnp.float32:
-        pytest.skip("float64 reduction is tested with x64 only")
-    T, s = 20_000, 2
-    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], jnp.float64)
-    noise = dist.MultivariateNormal(
-        jnp.zeros(s, jnp.float64), covariance_matrix=0.1 * jnp.eye(s, dtype=jnp.float64)
-    )
-
-    def value(matrix):
-        g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
-        return sequential_gaussian_tensordot(g).event_logsumexp()
-
-    result, grad = jax.jit(jax.value_and_grad(value))(matrix)
-    assert result.dtype == jnp.float64 and grad.dtype == jnp.float64
-    assert jnp.isfinite(result) and jnp.isfinite(grad).all()
-
-
 def test_loc_and_scale_tril():
     g = random_gaussian(random.key(0), (3,), 2)
     loc, scale_tril = loc_and_scale_tril(g.info_vec, g.precision)

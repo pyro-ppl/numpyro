@@ -403,18 +403,21 @@ class GaussianHMM(HiddenMarkovModel):
         model needs ``num_steps``, and ``log_prob`` raises ``ValueError``
         unless ``value`` has the exact trailing shape ``(num_steps, obs_dim)``.
 
-    Precision: in float32 the information form loses accuracy when observation
-    magnitudes are large relative to the noise scales or when the noise
-    variances differ by several orders of magnitude, and the error grows with
-    the series length. Center and scale the data, and call
-    :func:`numpyro.enable_x64` for long or large-magnitude series. Every
-    Cholesky factorization adds a gradient-free jitter of
-    ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)`` to the precision
-    diagonal (see :func:`~numpyro.distributions.util.relative_jitter`), which
-    is at rounding level for well-posed problems; the factorizations inside
-    the reductions go through :func:`~numpyro.distributions.util.safe_cholesky`,
-    which clamps 1x1 blocks at the smallest positive float instead of
-    jittering them.
+    Precision: the information form subtracts large numbers when a noise
+    precision is much larger than the others, so in float32 ``log_prob`` and
+    its gradient lose accuracy as the ratio between the largest and smallest
+    precision entries and the series length grow. Measured on a two-state
+    model with unit process noise and float64 data: with observation standard
+    deviation 1.0 the float32 error is 1e-4 at ``num_steps=64``; with 0.01 it
+    is 1e-2; with 0.001 it is about 2 nats at 64 steps and 10 nats at 256
+    steps, and the gradient with respect to the observation scale is wrong by
+    orders of magnitude. For such models pass ``sequential=True``
+    (covariance-form Kalman filter, accurate to 1e-5 in float32 at the cost of
+    ``O(num_steps)`` depth) or call :func:`numpyro.enable_x64`. Every Cholesky
+    factorization in the parallel path goes through
+    :func:`~numpyro.distributions.util.safe_cholesky`, which is exact for
+    positive-definite blocks and retries with a rounding-level diagonal jitter
+    only when a factorization fails.
 
     :param Distribution initial_dist: ``MultivariateNormal`` or
         ``Independent(Normal, 1)`` over ``z_0`` with

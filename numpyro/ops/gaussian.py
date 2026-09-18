@@ -49,7 +49,7 @@ from numpyro.distributions.distribution import (
 )
 from numpyro.distributions.util import (
     cholesky_of_inverse,
-    relative_jitter,
+    jitter_if_singular,
     safe_cholesky,
 )
 
@@ -762,9 +762,10 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
     """
     Moments of the normalized Gaussian with the given information parameters.
 
-    The precision is passed through
-    :func:`~numpyro.distributions.util.relative_jitter` before the single
-    factorization, so near-singular posterior precisions yield finite moments.
+    The precision goes through
+    :func:`~numpyro.distributions.util.jitter_if_singular`, so a
+    positive-definite precision is factorized exactly and a rounding-level
+    singular one receives a diagonal jitter before the single factorization.
 
     :param Array info_vec: shape ``(..., dim)``.
     :param Array precision: shape ``(..., dim, dim)``, positive definite.
@@ -772,7 +773,7 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
         ``precision^-1``.
     :rtype: tuple[Array, Array]
     """
-    scale_tril = cholesky_of_inverse(relative_jitter(precision))
+    scale_tril = cholesky_of_inverse(jitter_if_singular(precision))
     return _mv(scale_tril, _mv(_mt(scale_tril), info_vec)), scale_tril
 
 

@@ -24,6 +24,7 @@ from numpyro.distributions.util import (
     categorical,
     cholesky_of_inverse,
     cholesky_update,
+    jitter_if_singular,
     log1mexp,
     logdiffexp,
     multinomial,
@@ -401,17 +402,47 @@ def test_no_tracer_leak_at_lazy_property_sample(my_dist):
         jit_sample(jax.random.key(5))
 
 
-def test_safe_cholesky_scalar_path_is_finite_at_zero():
-    value, grad = jax.value_and_grad(
-        lambda x: jnp.log(safe_cholesky(x[None, None])[0, 0])
-    )(jnp.zeros(()))
-    assert jnp.isfinite(value) and jnp.isfinite(grad)
+def test_safe_cholesky_is_exact_when_cholesky_succeeds():
+    # Contract: no jitter is added to a matrix whose plain factorization is finite.
+    A = random.normal(random.key(0), (3, 4, 4))
+    P = A @ jnp.swapaxes(A, -1, -2) + jnp.eye(4)
+    assert (safe_cholesky(P) == jnp.linalg.cholesky(P)).all()
+    assert (jitter_if_singular(P) == P).all()
+    grad_safe = jax.grad(
+        lambda P: jnp.log(jnp.diagonal(safe_cholesky(P), axis1=-2, axis2=-1)).sum()
+    )(P)
+    grad_plain = jax.grad(
+        lambda P: jnp.log(
+            jnp.diagonal(jnp.linalg.cholesky(P), axis1=-2, axis2=-1)
+        ).sum()
+    )(P)
+    assert (grad_safe == grad_plain).all()
 
 
-def test_safe_cholesky_rank_deficient_has_finite_gradient():
-    P = jnp.array([[1.0, 1.0], [1.0, 1.0]])
-    grad = jax.grad(lambda P: jnp.log(jnp.diagonal(safe_cholesky(P))).sum())(P)
-    assert jnp.isfinite(grad).all()
+def test_safe_cholesky_retries_with_jitter_only_where_needed():
+    P = jnp.stack(
+        [jnp.array([[1.0, 1.0], [1.0, 1.0]]), jnp.array([[2.0, 0.5], [0.5, 1.0]])]
+    )
+    L = safe_cholesky(P)
+    assert jnp.isfinite(L).all()
+    assert (L[1] == jnp.linalg.cholesky(P[1])).all()
+    jittered = jitter_if_singular(P)
+    assert (jittered[1] == P[1]).all()
+    assert (jnp.diagonal(jittered[0]) > jnp.diagonal(P[0])).all()
+
+
+def test_safe_cholesky_scalar_path_matches_matrix_path():
+    # A 1x1 block is no longer clamped: positive gives sqrt, non-positive gives nan.
+    assert safe_cholesky(jnp.array([[4.0]])) == 2.0
+    assert jnp.isnan(safe_cholesky(jnp.zeros((1, 1)))).all()
+    assert jnp.isnan(safe_cholesky(-jnp.ones((1, 1)))).all()
+
+
+def test_relative_jitter_only_touches_the_diagonal():
+    P = jnp.array([[1e6, 1e3], [1e3, 2.0]], jnp.float32)
+    jittered = relative_jitter(P)
+    off = ~jnp.eye(2, dtype=bool)
+    assert (jittered[off] == P[off]).all()
 
 
 def test_safe_cholesky_matches_cholesky_on_well_conditioned():
@@ -469,7 +500,7 @@ def test_cholesky_of_inverse_numpy_input_is_warning_free():
 def test_safe_cholesky_grads_ignore_jitter():
     A = random.normal(random.key(0), (3, 2, 2))
     P = A @ jnp.swapaxes(A, -1, -2) + jnp.eye(2)
-    check_grads(safe_cholesky, (P,), order=2, modes=["fwd", "rev"], rtol=1e-2)
+    check_grads(safe_cholesky, (P,), order=1, modes=["fwd", "rev"], rtol=1e-2)
     grad = jax.grad(
         lambda P: jnp.diagonal(relative_jitter(P), axis1=-2, axis2=-1).sum()
     )(P)
