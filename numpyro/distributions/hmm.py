@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import math
 import operator
 from typing import (
+    Any,
     Callable,
     ClassVar,
     Optional,
@@ -382,7 +383,7 @@ class HiddenMarkovModel(Distribution):
     ``event_shape`` are properties derived from the factor leaves instead of
     stored metadata, so instances built under :func:`jax.vmap` or carried
     through :func:`jax.lax.scan` report the mapped batch shape (the lazy shape
-    model proposed in issue #2271).
+    model proposed in https://github.com/pyro-ppl/numpyro/issues/2271).
 
     Subclasses set ``_sequential`` and ``_tensordot`` to the factor type's
     sequential reduction and pairwise contraction.
@@ -401,14 +402,36 @@ class HiddenMarkovModel(Distribution):
     :param int num_steps: length of the time axis.
     """
 
-    _sequential: Callable[[Gaussian], Gaussian]
-    _tensordot: Callable[[Gaussian, Gaussian, int], Gaussian]
     _moments: Optional[_Moments]
 
     arg_constraints = {}
     support = constraints.real_matrix
     pytree_data_fields = ("_init", "_trans", "_obs", "_moments")
     pytree_aux_fields = ("num_steps",)
+
+    @staticmethod
+    def _sequential(factor: Gaussian) -> Gaussian:
+        raise NotImplementedError(
+            "HiddenMarkovModel is abstract; use a subclass such as GaussianHMM"
+        )
+
+    @staticmethod
+    def _tensordot(x: Gaussian, y: Gaussian, dims: int) -> Gaussian:
+        raise NotImplementedError(
+            "HiddenMarkovModel is abstract; use a subclass such as GaussianHMM"
+        )
+
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> Array:
+        raise NotImplementedError(
+            "HiddenMarkovModel is abstract; use a subclass such as GaussianHMM"
+        )
+
+    def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        raise NotImplementedError(
+            "HiddenMarkovModel is abstract; use a subclass such as GaussianHMM"
+        )
 
     def __init__(
         self,
@@ -448,7 +471,7 @@ class HiddenMarkovModel(Distribution):
     def _replace(self, **fields) -> Self:
         new = copy.copy(self)
         for name, value in fields.items():
-            object.__setattr__(new, name, value)
+            setattr(new, name, value)
         new._init, new._trans, new._obs = _align(new._init, new._trans, new._obs)
         return new
 
@@ -552,6 +575,12 @@ class GaussianHMM(HiddenMarkovModel):
     :meth:`filter` and sampling run in ``O(log num_steps)`` parallel depth,
     following Sarkka and Garcia-Fernandez, "Temporal parallelization of
     Bayesian smoothers" (IEEE TAC 2021, arXiv:1905.13002).
+
+    ``mean`` and ``variance`` are not implemented; the marginal moments of
+    ``x_{1:T}`` follow from :meth:`sample` with zero noise and from the
+    recursion in :class:`~numpyro.distributions.GaussianStateSpace`. This is a
+    deliberate omission to keep the class focused on marginal likelihoods and
+    filtering.
 
     .. note:: This class deviates from Pyro's ``GaussianHMM`` in two ways.
 
@@ -684,6 +713,11 @@ class GaussianHMM(HiddenMarkovModel):
         """Factor over ``z_T`` given ``value`` of shape ``batch_shape + (num_steps, obs_dim)``."""
         return self._reduce(self._obs.condition(value))
 
+    def _normalized_posterior(self, value: Array) -> Gaussian:
+        """Normalized factor over ``z_T`` given ``value`` of exactly ``batch_shape + (num_steps, obs_dim)``."""
+        g = self._posterior(value)
+        return g - g.event_logsumexp()
+
     @validate_sample
     def log_prob(self, value: Array) -> Array:
         """
@@ -807,9 +841,11 @@ class GaussianHMM(HiddenMarkovModel):
         head = self._replace(
             _trans=trans_head, _obs=obs_head, _moments=head_moments, num_steps=t
         )
-        posterior = head.filter(data)
+        value, extra = head._lead_and_extra(data)
+        init = _vmap_leading(head._normalized_posterior, extra)(value)
         moments = None
         if self._moments is not None:
+            posterior = head.filter(data)
             tail_moments = self._moments.time_slice(t, self.num_steps)
             lead = posterior.batch_shape
             moments = _Moments(
@@ -823,7 +859,7 @@ class GaussianHMM(HiddenMarkovModel):
                 ),
             )
         return self._replace(
-            _init=mvn_to_gaussian(posterior),
+            _init=init,
             _trans=trans_tail,
             _obs=obs_tail,
             _moments=moments,
@@ -836,6 +872,9 @@ class GaussianHMM(HiddenMarkovModel):
         obs_factor: Optional[Gaussian] = None,
         sample_shape: tuple[int, ...] = (),
     ) -> Array:
+        # Pyro also adds ``_obs.marginalize(right=obs_dim)`` here; that term is
+        # exactly zero for a normalized conditional (``AffineNormal.marginalize``
+        # returns an exact zero factor), so it is omitted.
         trans = self._trans
         if obs_factor is not None:
             trans = trans + obs_factor.event_pad(left=self.hidden_dim)
@@ -906,6 +945,12 @@ class IndependentHMM(Distribution):
     ``event_shape == (num_steps, obs_dim)``. :meth:`reshape_batch` requires a
     :class:`HiddenMarkovModel` base and :meth:`prefix_condition` a
     :class:`GaussianHMM` base.
+
+    Unlike Pyro, this class is not a :class:`HiddenMarkovModel` subclass: it
+    stores a base distribution rather than factors, so
+    ``isinstance(d, HiddenMarkovModel)`` is ``False`` and nesting
+    ``IndependentHMM(IndependentHMM(...))`` is not supported by
+    :meth:`reshape_batch`.
 
     :param Distribution base_dist: batched distribution with a trailing batch
         dimension of size ``obs_dim`` and ``event_shape == (num_steps, 1)``.

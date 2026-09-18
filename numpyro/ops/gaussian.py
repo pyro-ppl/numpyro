@@ -21,9 +21,14 @@ A factor over ``(x, y)`` stores ``x`` first. Pyro's factories use
 ``y = x @ matrix`` with ``matrix`` of shape ``(..., x_dim, y_dim)``, so a
 matrix taken from a Pyro model must be transposed.
 
-The fields of a factor must broadcast to one batch shape and never carry
-sample dimensions; callers handle extra leading dimensions with
-:func:`jax.vmap`. Shape operations (``__getitem__``, ``reshape``, ``cat``)
+The fields of a factor must broadcast to one batch shape. Factor fields never
+carry sample dimensions; :meth:`Gaussian.condition`,
+:meth:`Gaussian.left_condition` and their :class:`AffineNormal` counterparts
+accept a ``value`` with leading dimensions beyond ``batch_shape`` and return a
+factor whose batch shape is the broadcast of the two (the conditioned blocks
+are materialized once per leading element). Every other operation expects
+inputs already aligned to ``batch_shape``; use :func:`jax.vmap` for additional
+leading dimensions. Shape operations (``__getitem__``, ``reshape``, ``cat``)
 broadcast the fields to that shape first, and every factory and operation in
 this module already returns broadcast fields via ``_broadcast()``.
 """

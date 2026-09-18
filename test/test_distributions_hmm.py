@@ -625,6 +625,25 @@ def test_gaussian_hmm_homogeneous_prefix_condition_chain_rule():
     )
 
 
+def test_hidden_markov_model_base_is_abstract():
+    hmm = _hmm(random.key(0), 3, 2, 1, homogeneous=True)
+    base = HiddenMarkovModel(hmm._init, hmm._trans, hmm._obs, hmm.num_steps)
+    with pytest.raises(NotImplementedError, match="subclass"):
+        base.log_prob(jnp.zeros((3, 1)))
+    with pytest.raises(NotImplementedError, match="subclass"):
+        base.sample(random.key(0))
+
+
+def test_prefix_condition_initial_factor_is_normalized_posterior():
+    T, n, m, t = 6, 2, 1, 3
+    hmm = _hmm(random.key(1), T, n, m)
+    x = hmm.sample(random.key(2))
+    tail = hmm.prefix_condition(x[:t])
+    assert_allclose(tail._init.event_logsumexp(), 0.0, atol=1e-5)
+    posterior = _hmm(random.key(1), T, n, m).prefix_condition(x[:t])._init
+    assert_allclose(posterior.precision, tail._init.precision, rtol=1e-6)
+
+
 def test_gaussian_hmm_reshape_batch():
     hmm = _hmm(random.key(0), 4, 2, 1, batch=(3,), homogeneous=True)
     reshaped = hmm.reshape_batch((3, 1))
