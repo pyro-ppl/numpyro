@@ -96,3 +96,21 @@ Discrete Cosine Transform
     :show-inheritance:
     :member-order: bysource
     :special-members: __call__
+
+Student-t Scale Mixture
+-----------------------
+.. autoclass:: numpyro.infer.reparam.StudentTReparam
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    :special-members: __call__
+
+Linear Hidden Markov Models
+---------------------------
+.. autoclass:: numpyro.infer.reparam.LinearHMMReparam
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    :special-members: __call__

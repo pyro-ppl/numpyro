@@ -21,9 +21,14 @@ A factor over ``(x, y)`` stores ``x`` first. Pyro's factories use
 ``y = x @ matrix`` with ``matrix`` of shape ``(..., x_dim, y_dim)``, so a
 matrix taken from a Pyro model must be transposed.
 
-The fields of a factor must broadcast to one batch shape and never carry
-sample dimensions; callers handle extra leading dimensions with
-:func:`jax.vmap`. Shape operations (``__getitem__``, ``reshape``, ``cat``)
+The fields of a factor must broadcast to one batch shape. Factor fields never
+carry sample dimensions; :meth:`Gaussian.condition`,
+:meth:`Gaussian.left_condition` and their :class:`AffineNormal` counterparts
+accept a ``value`` with leading dimensions beyond ``batch_shape`` and return a
+factor whose batch shape is the broadcast of the two (the conditioned blocks
+are materialized once per leading element). Every other operation expects
+inputs already aligned to ``batch_shape``; use :func:`jax.vmap` for additional
+leading dimensions. Shape operations (``__getitem__``, ``reshape``, ``cat``)
 broadcast the fields to that shape first, and every factory and operation in
 this module already returns broadcast fields via ``_broadcast()``.
 """
@@ -32,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Callable, ClassVar, Optional, Sequence, Union
+from typing import Callable, ClassVar, Optional, Self, Sequence, TypeVar, Union
 
 import numpy as np
 
@@ -49,7 +54,7 @@ from numpyro.distributions.distribution import (
 )
 from numpyro.distributions.util import (
     cholesky_of_inverse,
-    relative_jitter,
+    jitter_if_singular,
     safe_cholesky,
 )
 
@@ -57,9 +62,11 @@ __all__ = [
     "AffineNormal",
     "Gaussian",
     "gaussian_tensordot",
+    "is_gaussian_noise",
     "loc_and_scale_tril",
     "matrix_and_gaussian_to_gaussian",
     "matrix_and_mvn_to_gaussian",
+    "mvn_moments",
     "mvn_to_gaussian",
     "sequential_gaussian_filter_sample",
     "sequential_gaussian_tensordot",
@@ -134,9 +141,116 @@ def _noise(
     return noise
 
 
+class _FactorShapeOps:
+    """
+    Batch-shape operations shared by the factor dataclasses.
+
+    A subclass is a frozen dataclass whose fields are arrays with, for field
+    ``i``, ``event_ndims[i]`` trailing event dimensions; the leading
+    dimensions broadcast to ``batch_shape``. The mixin adds no dataclass
+    fields and rebuilds instances positionally from ``_fields()``, which must
+    return the fields in declaration order.
+    """
+
+    event_ndims: ClassVar[tuple[int, ...]]
+
+    def _fields(self) -> tuple[Array, ...]:
+        raise NotImplementedError
+
+    @property
+    def dim(self) -> int:
+        """Event dimension of the factor."""
+        raise NotImplementedError
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        return lax.broadcast_shapes(
+            *(x.shape[: x.ndim - k] for x, k in zip(self._fields(), self.event_ndims))
+        )
+
+    def _map(self, fn: Callable[[Array, int], Array]) -> Self:
+        return type(self)(*(fn(x, k) for x, k in zip(self._fields(), self.event_ndims)))
+
+    def _broadcast(self) -> Self:
+        return self.expand(self.batch_shape)
+
+    def expand(self, batch_shape: Sequence[int]) -> Self:
+        """Broadcast every field to ``batch_shape``."""
+        return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
+
+    def reshape(self, batch_shape: Sequence[int]) -> Self:
+        """Reshape the batch dimensions of every field to ``batch_shape``."""
+        return self._broadcast()._map(
+            lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
+        )
+
+    def __getitem__(self, index: Union[int, slice, tuple]) -> Self:
+        index = index if isinstance(index, tuple) else (index,)
+        return self._broadcast()._map(lambda x, k: x[index + (slice(None),) * k])
+
+    @classmethod
+    def cat(cls, parts: Sequence[Self], axis: int = 0) -> Self:
+        """Concatenate factors along a batch axis."""
+        if not parts:
+            raise ValueError("cat requires at least one factor")
+        parts = [p._broadcast() for p in parts]
+        if not parts[0].batch_shape:
+            raise ValueError("cannot concatenate factors without batch dimensions")
+        axis = axis % len(parts[0].batch_shape)
+        return cls(
+            *(
+                jnp.concatenate(fields, axis)
+                for fields in zip(*(p._fields() for p in parts))
+            )
+        )
+
+
+F = TypeVar("F", bound=_FactorShapeOps)
+
+
+def _schur_marginalize(
+    precision: Array, info_vec: Array, left: int, right: int
+) -> tuple[Array, Array, Array, Array]:
+    """
+    Schur complement of the ``left`` leading and ``right`` trailing
+    coordinates, shared by the ``marginalize`` methods.
+
+    One-sided calls index with static slices; only the two-sided case gathers
+    with index arrays.
+
+    :return: the reduced precision, the reduced information vector,
+        ``b_tmp = L^-1 info_vec[drop]`` and ``sum(log(diag(L)))`` with ``L``
+        the Cholesky factor of the dropped block, which must be positive
+        definite.
+    :rtype: tuple[Array, Array, Array, Array]
+    """
+    n = precision.shape[-1]
+    if left and right:
+        keep = np.arange(left, n - right)
+        drop = np.concatenate([np.arange(left), np.arange(n - right, n)])
+        P_aa = precision[..., keep[:, None], keep]
+        P_ba = precision[..., drop[:, None], keep]
+        P_bb = precision[..., drop[:, None], drop]
+    else:
+        keep = slice(left, n - right)
+        drop = slice(0, left) if left else slice(n - right, n)
+        P_aa = precision[..., keep, keep]
+        P_ba = precision[..., drop, keep]
+        P_bb = precision[..., drop, drop]
+    chol = safe_cholesky(P_bb)
+    P_a = solve_triangular(chol, P_ba, lower=True)
+    b_tmp = solve_triangular(chol, info_vec[..., drop][..., None], lower=True)[..., 0]
+    return (
+        P_aa - _mt(P_a) @ P_a,
+        info_vec[..., keep] - _mv(_mt(P_a), b_tmp),
+        b_tmp,
+        _log_diag_sum(chol),
+    )
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True, eq=False)
-class Gaussian:
+class Gaussian(_FactorShapeOps):
     """
     Unnormalized log-quadratic factor
     ``log_normalizer + x . info_vec - 0.5 x^T precision x``.
@@ -171,44 +285,8 @@ class Gaussian:
     def dim(self) -> int:
         return self.info_vec.shape[-1]
 
-    @property
-    def batch_shape(self) -> tuple[int, ...]:
-        return lax.broadcast_shapes(
-            self.log_normalizer.shape,
-            self.info_vec.shape[:-1],
-            self.precision.shape[:-2],
-        )
-
-    def _map(self, fn: Callable[[Array, int], Array]) -> Gaussian:
-        fields = (self.log_normalizer, self.info_vec, self.precision)
-        return Gaussian(*(fn(x, k) for x, k in zip(fields, self.event_ndims)))
-
-    def expand(self, batch_shape: Sequence[int]) -> Gaussian:
-        """Broadcast every field to ``batch_shape``."""
-        return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
-
-    def reshape(self, batch_shape: Sequence[int]) -> Gaussian:
-        """Reshape the batch dimensions of every field to ``batch_shape``."""
-        return self._broadcast()._map(
-            lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
-        )
-
-    def __getitem__(self, index: Union[int, slice, tuple]) -> Gaussian:
-        index = index if isinstance(index, tuple) else (index,)
-        return self._broadcast()._map(lambda x, k: x[index + (slice(None),) * k])
-
-    @staticmethod
-    def cat(parts: Sequence[Gaussian], axis: int = 0) -> Gaussian:
-        """Concatenate factors along a batch axis."""
-        parts = [p._broadcast() for p in parts]
-        if not parts[0].batch_shape:
-            raise ValueError("cannot concatenate factors without batch dimensions")
-        axis = axis % len(parts[0].batch_shape)
-        return Gaussian(
-            jnp.concatenate([p.log_normalizer for p in parts], axis),
-            jnp.concatenate([p.info_vec for p in parts], axis),
-            jnp.concatenate([p.precision for p in parts], axis),
-        )
+    def _fields(self) -> tuple[Array, ...]:
+        return (self.log_normalizer, self.info_vec, self.precision)
 
     def event_pad(self, left: int = 0, right: int = 0) -> Gaussian:
         """Embed the factor into a larger event space with zero coupling."""
@@ -225,6 +303,8 @@ class Gaussian:
         A static ``numpy`` permutation lowers to slices and concatenations;
         a traced permutation gathers.
         """
+        if self.dim == 0:
+            return self
         if isinstance(perm, np.ndarray):
             runs = _static_runs(perm)
             info_vec = jnp.concatenate([self.info_vec[..., s] for s in runs], -1)
@@ -234,9 +314,6 @@ class Gaussian:
             info_vec = self.info_vec[..., perm]
             precision = self.precision[..., perm, :][..., :, perm]
         return Gaussian(self.log_normalizer, info_vec, precision)
-
-    def _broadcast(self) -> Gaussian:
-        return self.expand(self.batch_shape)
 
     def __add__(self, other: Union[Gaussian, AffineNormal, Array, float]) -> Gaussian:
         if isinstance(other, AffineNormal):
@@ -251,7 +328,19 @@ class Gaussian:
             self.log_normalizer + other, self.info_vec, self.precision
         )._broadcast()
 
-    def __sub__(self, other: Union[Array, float]) -> Gaussian:
+    def __sub__(self, other: Union[Gaussian, AffineNormal, Array, float]) -> Gaussian:
+        """
+        Subtract a scalar or a factor; the difference of two factors is a factor
+        that is not necessarily normalizable.
+        """
+        if isinstance(other, AffineNormal):
+            other = other.to_gaussian()
+        if isinstance(other, Gaussian):
+            return Gaussian(
+                self.log_normalizer - other.log_normalizer,
+                self.info_vec - other.info_vec,
+                self.precision - other.precision,
+            )._broadcast()
         return Gaussian(
             self.log_normalizer - other, self.info_vec, self.precision
         )._broadcast()
@@ -279,6 +368,11 @@ class Gaussian:
             ``g.log_density(concat([a, b])) == g.condition(b).log_density(a)``.
         :rtype: Gaussian
         """
+        if value.shape[-1] > self.dim:
+            raise ValueError(
+                f"value may condition at most {self.dim} coordinates, "
+                f"got {value.shape[-1]}"
+            )
         n = self.dim - value.shape[-1]
         info_a, info_b = self.info_vec[..., :n], self.info_vec[..., n:]
         P_aa = self.precision[..., :n, :n]
@@ -321,35 +415,16 @@ class Gaussian:
         """
         if left == 0 and right == 0:
             return self
-        n = self.dim
-        if left and right:
-            keep = np.arange(left, n - right)
-            drop = np.concatenate([np.arange(left), np.arange(n - right, n)])
-            P_aa = self.precision[..., keep[:, None], keep]
-            P_ba = self.precision[..., drop[:, None], keep]
-            P_bb = self.precision[..., drop[:, None], drop]
-        else:
-            keep = slice(left, n - right)
-            drop = slice(0, left) if left else slice(n - right, n)
-            P_aa = self.precision[..., keep, keep]
-            P_ba = self.precision[..., drop, keep]
-            P_bb = self.precision[..., drop, drop]
-        chol = safe_cholesky(P_bb)
-        P_a = solve_triangular(chol, P_ba, lower=True)
-        b_tmp = solve_triangular(chol, self.info_vec[..., drop][..., None], lower=True)[
-            ..., 0
-        ]
+        precision, info_vec, b_tmp, log_diag = _schur_marginalize(
+            self.precision, self.info_vec, left, right
+        )
         log_normalizer = (
             self.log_normalizer
             + 0.5 * (left + right) * _LOG_2PI
-            - _log_diag_sum(chol)
+            - log_diag
             + 0.5 * (b_tmp * b_tmp).sum(-1)
         )
-        return Gaussian(
-            log_normalizer,
-            self.info_vec[..., keep] - _mv(_mt(P_a), b_tmp),
-            P_aa - _mt(P_a) @ P_a,
-        )._broadcast()
+        return Gaussian(log_normalizer, info_vec, precision)._broadcast()
 
     def event_logsumexp(self) -> Array:
         """Integrate the factor over all coordinates; requires positive-definite precision."""
@@ -397,18 +472,40 @@ class Gaussian:
         return draw(noise)
 
 
-def _diag_normal_params(d: Distribution) -> Optional[tuple[Array, Array]]:
-    """Return ``(loc, scale)`` of an ``Independent(Normal, 1)``, else ``None``."""
-    shape = d.batch_shape + d.event_shape
+def _diag_normal_base(d: Distribution) -> Optional[Normal]:
+    """Return the ``Normal`` inside an ``Independent(Normal, 1)``, else ``None``."""
     if isinstance(d, ExpandedDistribution):
         d = d.base_dist
     if not isinstance(d, Independent) or d.reinterpreted_batch_ndims != 1:
         return None
     base = d.base_dist
     base = base.base_dist if isinstance(base, ExpandedDistribution) else base
-    if not isinstance(base, Normal):
+    return base if isinstance(base, Normal) else None
+
+
+def _diag_normal_params(d: Distribution) -> Optional[tuple[Array, Array]]:
+    """Return ``(loc, scale)`` of an ``Independent(Normal, 1)``, else ``None``."""
+    base = _diag_normal_base(d)
+    if base is None:
         return None
+    shape = d.batch_shape + d.event_shape
     return jnp.broadcast_to(base.loc, shape), jnp.broadcast_to(base.scale, shape)
+
+
+def is_gaussian_noise(d: Distribution) -> bool:
+    """
+    Whether :func:`mvn_to_gaussian` and :func:`matrix_and_mvn_to_gaussian`
+    accept ``d``.
+
+    :param Distribution d: candidate noise distribution.
+    :return: ``True`` for a ``MultivariateNormal`` or ``Independent(Normal, 1)``,
+        either possibly wrapped in ``ExpandedDistribution``.
+    :rtype: bool
+    """
+    if _diag_normal_base(d) is not None:
+        return True
+    base = d.base_dist if isinstance(d, ExpandedDistribution) else d
+    return isinstance(base, MultivariateNormal)
 
 
 def _type_name(d: Distribution) -> str:
@@ -430,6 +527,25 @@ def _mvn_params(d: Distribution) -> tuple[Array, Array]:
         jnp.broadcast_to(base.loc, shape),
         jnp.broadcast_to(base.scale_tril, shape + shape[-1:]),
     )
+
+
+def mvn_moments(d: Distribution) -> tuple[Array, Array]:
+    """
+    Mean and covariance of a Gaussian distribution, broadcast to its full shape.
+
+    :param Distribution d: ``MultivariateNormal`` or ``Independent(Normal, 1)``,
+        possibly wrapped in ``ExpandedDistribution``.
+    :return: ``loc`` of shape ``d.batch_shape + d.event_shape`` and
+        ``covariance`` of shape ``d.batch_shape + d.event_shape * 2``.
+    :rtype: tuple[Array, Array]
+    :raises TypeError: if ``d`` is not a supported Gaussian distribution.
+    """
+    diag = _diag_normal_params(d)
+    if diag is not None:
+        loc, scale = diag
+        return loc, jnp.eye(loc.shape[-1], dtype=loc.dtype) * (scale**2)[..., None]
+    loc, scale_tril = _mvn_params(d)
+    return loc, scale_tril @ _mt(scale_tril)
 
 
 def _sqrt_form(scale_tril: Array, loc: Array, matrix: Array) -> Gaussian:
@@ -560,8 +676,11 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
     :return: factor over ``(a, c)`` with the broadcast batch shape of ``x``
         and ``y``.
     :rtype: Gaussian
-    :raises ValueError: if ``dims`` exceeds the event dimension of a factor.
+    :raises ValueError: if ``dims`` is negative or exceeds the event dimension
+        of a factor.
     """
+    if dims < 0:
+        raise ValueError(f"dims must be non-negative, got {dims}")
     na, nb, nc = x.dim - dims, dims, y.dim - dims
     if na < 0 or nc < 0:
         raise ValueError("dims exceeds the event dimension of a factor")
@@ -577,9 +696,7 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
     info_vec = _pad_event(xa, 1, 0, nc) + _pad_event(yc, 1, na, 0)
     log_normalizer = x.log_normalizer + y.log_normalizer
     if nb > 0:
-        B = jnp.pad(Pba, [(0, 0)] * (Pba.ndim - 1) + [(0, nc)]) + jnp.pad(
-            Qbc, [(0, 0)] * (Qbc.ndim - 1) + [(na, 0)]
-        )
+        B = _pad_event(Pba, 1, 0, nc) + _pad_event(Qbc, 1, na, 0)
         b = xb + yb
         chol = safe_cholesky(Pbb + Qbb)
         LinvB = solve_triangular(chol, B, lower=True)
@@ -595,6 +712,30 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
     return Gaussian(log_normalizer, info_vec, precision)._broadcast()
 
 
+def _sequential_tensordot(factor: F, tensordot: Callable[[F, F, int], F]) -> F:
+    """
+    Reduce pairwise factors over the last batch axis with ``log2(T)`` batched
+    contractions of ``tensordot`` over ``dim // 2`` shared coordinates.
+
+    :raises ValueError: if the time axis is empty or the event dimension is odd.
+    """
+    if factor.batch_shape[-1] == 0:
+        raise ValueError("cannot reduce over an empty time axis")
+    if factor.dim % 2:
+        raise ValueError(
+            f"pairwise factors need an even event dimension, got {factor.dim}"
+        )
+    state_dim = factor.dim // 2
+    while factor.batch_shape[-1] > 1:
+        num_steps = factor.batch_shape[-1]
+        even = num_steps // 2 * 2
+        contracted = tensordot(factor[..., 0:even:2], factor[..., 1:even:2], state_dim)
+        if num_steps > even:
+            contracted = type(factor).cat([contracted, factor[..., -1:]], axis=-1)
+        factor = contracted
+    return factor[..., 0]
+
+
 def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
     """
     Reduce a time series of pairwise factors to one factor over ``(z_0, z_T)``.
@@ -605,18 +746,9 @@ def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
         ``gaussian.batch_shape[:-1]``, computed with ``log2(T)`` batched
         contractions.
     :rtype: Gaussian
+    :raises ValueError: if the time axis is empty or the event dimension is odd.
     """
-    state_dim = gaussian.dim // 2
-    while gaussian.batch_shape[-1] > 1:
-        num_steps = gaussian.batch_shape[-1]
-        even = num_steps // 2 * 2
-        contracted = gaussian_tensordot(
-            gaussian[..., 0:even:2], gaussian[..., 1:even:2], state_dim
-        )
-        if num_steps > even:
-            contracted = Gaussian.cat([contracted, gaussian[..., -1:]], axis=-1)
-        gaussian = contracted
-    return gaussian[..., 0]
+    return _sequential_tensordot(gaussian, gaussian_tensordot)
 
 
 def sequential_gaussian_filter_sample(
@@ -638,13 +770,18 @@ def sequential_gaussian_filter_sample(
         ``sample_shape + batch_shape + (T + 1, state_dim)``. ``zeros`` yields
         the posterior mean and ``[n, 0, -n]`` an antithetic triple;
         ``sample(key)`` equals ``sample(noise=random.normal(key, ...))``.
+        Fresh draws use the promoted dtype of ``init`` and ``trans``.
     :return: state paths of shape
         ``sample_shape + batch_shape + (T + 1, state_dim)`` including ``z_0``.
     :rtype: Array
-    :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
-        ``noise`` has the wrong shape.
+    :raises ValueError: if ``trans.dim != 2 * init.dim``, if neither ``key``
+        nor ``noise`` is given, or if ``noise`` has the wrong shape.
     """
     state_dim = init.dim
+    if trans.dim != 2 * state_dim:
+        raise ValueError(
+            f"trans.dim must equal 2 * init.dim = {2 * state_dim}, got {trans.dim}"
+        )
     num_steps = trans.batch_shape[-1]
     batch_shape = lax.broadcast_shapes(trans.batch_shape[:-1], init.batch_shape)
     trans = trans.expand(batch_shape + (num_steps,))
@@ -672,7 +809,7 @@ def sequential_gaussian_filter_sample(
     final = gaussian[..., 0] + init.expand(batch_shape).event_pad(right=state_dim)
 
     shape = tuple(sample_shape) + batch_shape + (num_steps + 1, state_dim)
-    noise = _noise(noise, key, shape, init.precision.dtype)
+    noise = _noise(noise, key, shape, jnp.result_type(init.precision, trans.precision))
 
     def backward(eps: Array) -> Array:
         result = final.sample(
@@ -704,9 +841,15 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
     """
     Moments of the normalized Gaussian with the given information parameters.
 
-    The precision is passed through
-    :func:`~numpyro.distributions.util.relative_jitter` before the single
-    factorization, so near-singular posterior precisions yield finite moments.
+    :func:`~numpyro.distributions.util.cholesky_of_inverse` factorizes the
+    reversed precision, so that is the ordering handed to
+    :func:`~numpyro.distributions.util.jitter_if_singular`: a positive-definite
+    precision is factorized exactly and one that is singular at rounding level
+    receives a diagonal jitter before the single factorization. Probing the
+    natural ordering instead would leave the factorized ordering unjittered
+    whenever only the latter fails. The jitter is relative to the diagonal,
+    which the reversal only permutes, so jittering before or after the reversal
+    gives the same matrix.
 
     :param Array info_vec: shape ``(..., dim)``.
     :param Array precision: shape ``(..., dim, dim)``, positive definite.
@@ -714,13 +857,14 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
         ``precision^-1``.
     :rtype: tuple[Array, Array]
     """
-    scale_tril = cholesky_of_inverse(relative_jitter(precision))
+    reversed_precision = jitter_if_singular(precision[..., ::-1, ::-1])
+    scale_tril = cholesky_of_inverse(reversed_precision[..., ::-1, ::-1])
     return _mv(scale_tril, _mv(_mt(scale_tril), info_vec)), scale_tril
 
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True, eq=False)
-class AffineNormal:
+class AffineNormal(_FactorShapeOps):
     """
     Conditional ``y | x ~ Normal(matrix @ x + loc, scale)`` standing in for a
     joint factor over ``(x, y)``.
@@ -734,6 +878,8 @@ class AffineNormal:
     matrix: Array
     loc: Array
     scale: Array
+
+    event_ndims: ClassVar[tuple[int, int, int]] = (2, 1, 1)
 
     def __post_init__(self) -> None:
         fields = (self.matrix, self.loc, self.scale)
@@ -755,26 +901,8 @@ class AffineNormal:
     def dim(self) -> int:
         return self.matrix.shape[-1] + self.matrix.shape[-2]
 
-    @property
-    def batch_shape(self) -> tuple[int, ...]:
-        return self.matrix.shape[:-2]
-
-    def _map(self, fn: Callable[[Array, int], Array]) -> AffineNormal:
-        return AffineNormal(fn(self.matrix, 2), fn(self.loc, 1), fn(self.scale, 1))
-
-    def expand(self, batch_shape: Sequence[int]) -> AffineNormal:
-        """Broadcast every field to ``batch_shape``."""
-        return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
-
-    def reshape(self, batch_shape: Sequence[int]) -> AffineNormal:
-        """Reshape the batch dimensions of every field to ``batch_shape``."""
-        return self._map(
-            lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
-        )
-
-    def __getitem__(self, index: Union[int, slice, tuple]) -> AffineNormal:
-        index = index if isinstance(index, tuple) else (index,)
-        return self._map(lambda x, k: x[index + (slice(None),) * k])
+    def _fields(self) -> tuple[Array, ...]:
+        return (self.matrix, self.loc, self.scale)
 
     def to_gaussian(self) -> Gaussian:
         """Promote to a full :class:`Gaussian` over ``(x, y)``."""
