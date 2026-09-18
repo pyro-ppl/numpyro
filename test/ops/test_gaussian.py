@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from jax.test_util import check_grads
 
 import numpyro.distributions as dist
+from numpyro.distributions.util import safe_cholesky
 from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
@@ -541,6 +542,30 @@ def test_loc_and_scale_tril_x64_keeps_dtype():
         g.info_vec.astype(jnp.float32), g.precision.astype(jnp.float32)
     )
     assert loc.dtype == jnp.float32 and scale_tril.dtype == jnp.float32
+
+
+def test_loc_and_scale_tril_jitters_the_ordering_it_factorizes():
+    """A precision that is singular only at rounding level must still give
+    finite moments, even when it is the reversed ordering that fails.
+
+    ``P = outer(v, v)`` with ``v = [0.1, 2.3]`` in float32 is singular in exact
+    arithmetic, and the rounding of the outer product lands on the side where
+    ``cholesky(P)`` succeeds (last pivot ``4.2567e-4``) while
+    ``cholesky(P[::-1, ::-1])`` is ``nan``. Because
+    :func:`~numpyro.ops.gaussian.loc_and_scale_tril` factorizes the reversed
+    ordering, probing the natural one added no jitter and both outputs measured
+    ``nan`` before the fix, on a precision whose ``Gaussian.log_prob`` is
+    finite.
+    """
+    v = jnp.array([0.1, 2.3], dtype=jnp.float32)
+    precision = jnp.outer(v, v)
+    info_vec = jnp.array([1.0, -2.0], dtype=jnp.float32)
+    assert jnp.isfinite(safe_cholesky(precision)).all()
+
+    loc, scale_tril = loc_and_scale_tril(info_vec, precision)
+
+    assert jnp.isfinite(loc).all()
+    assert jnp.isfinite(scale_tril).all()
 
 
 def _posterior_marginals(init, trans):

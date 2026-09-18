@@ -818,10 +818,15 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
     """
     Moments of the normalized Gaussian with the given information parameters.
 
-    The precision goes through
-    :func:`~numpyro.distributions.util.jitter_if_singular`, so a
-    positive-definite precision is factorized exactly and a rounding-level
-    singular one receives a diagonal jitter before the single factorization.
+    :func:`~numpyro.distributions.util.cholesky_of_inverse` factorizes the
+    reversed precision, so that is the ordering handed to
+    :func:`~numpyro.distributions.util.jitter_if_singular`: a positive-definite
+    precision is factorized exactly and one that is singular at rounding level
+    receives a diagonal jitter before the single factorization. Probing the
+    natural ordering instead would leave the factorized ordering unjittered
+    whenever only the latter fails. The jitter is relative to the diagonal,
+    which the reversal only permutes, so jittering before or after the reversal
+    gives the same matrix.
 
     :param Array info_vec: shape ``(..., dim)``.
     :param Array precision: shape ``(..., dim, dim)``, positive definite.
@@ -829,7 +834,8 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
         ``precision^-1``.
     :rtype: tuple[Array, Array]
     """
-    scale_tril = cholesky_of_inverse(jitter_if_singular(precision))
+    reversed_precision = jitter_if_singular(precision[..., ::-1, ::-1])
+    scale_tril = cholesky_of_inverse(reversed_precision[..., ::-1, ::-1])
     return _mv(scale_tril, _mv(_mt(scale_tril), info_vec)), scale_tril
 
 

@@ -613,11 +613,16 @@ class GaussianHMM(HiddenMarkovModel):
     steps, and the gradient with respect to the observation scale is wrong by
     orders of magnitude. For such models pass ``sequential=True``
     (covariance-form Kalman filter, accurate to 1e-5 in float32 at the cost of
-    ``O(num_steps)`` depth) or call :func:`numpyro.enable_x64`. Every Cholesky
-    factorization in the parallel path goes through
+    ``O(num_steps)`` depth) or call :func:`numpyro.enable_x64`. The parallel
+    reductions factorize their blocks with
     :func:`~numpyro.distributions.util.safe_cholesky`, which is exact for
     positive-definite blocks and retries with a rounding-level diagonal jitter
-    only when a factorization fails.
+    only when a factorization fails; :meth:`filter` and
+    :func:`~numpyro.ops.gaussian.loc_and_scale_tril` apply the same
+    retry-on-failure jitter and then factorize through
+    :func:`~numpyro.distributions.util.cholesky_of_inverse`. The sequential
+    path instead factorizes the innovation covariance directly and yields
+    ``nan`` when it is not positive definite.
 
     :param Distribution initial_dist: ``MultivariateNormal`` or
         ``Independent(Normal, 1)`` over ``z_0`` with
