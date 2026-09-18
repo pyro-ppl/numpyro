@@ -15,7 +15,9 @@ Student-t. The same pairwise reduction as :mod:`numpyro.ops.gaussian` applies.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Union
+
+import numpy as np
 
 import jax
 from jax import Array, lax
@@ -29,6 +31,7 @@ from numpyro.distributions.util import safe_cholesky
 from numpyro.ops.gaussian import (
     _LOG_2PI,
     AffineNormal,
+    Gaussian,
     _FactorShapeOps,
     _log_diag_sum,
     _mv,
@@ -116,7 +119,8 @@ class GammaGaussian(_FactorShapeOps):
     :param Array alpha: shape ``batch_shape``.
     :param Array beta: shape ``batch_shape``.
     :raises ValueError: if the trailing shapes of ``info_vec`` and
-        ``precision`` disagree.
+        ``precision`` disagree, or if ``alpha`` and ``beta`` do not broadcast
+        with the batch shape.
     """
 
     log_normalizer: Array
@@ -138,6 +142,17 @@ class GammaGaussian(_FactorShapeOps):
                 f"precision must have trailing shape {(dim, dim)}, "
                 f"got {self.precision.shape[-2:]}"
             )
+        if hasattr(self.alpha, "shape") and hasattr(self.beta, "shape"):
+            try:
+                jnp.broadcast_shapes(
+                    self.alpha.shape, self.beta.shape, self.info_vec.shape[:-1]
+                )
+            except ValueError as e:
+                raise ValueError(
+                    "alpha and beta must broadcast with the batch shape, got "
+                    f"{self.alpha.shape}, {self.beta.shape} and "
+                    f"{self.info_vec.shape[:-1]}"
+                ) from e
 
     @property
     def dim(self) -> int:
@@ -162,14 +177,15 @@ class GammaGaussian(_FactorShapeOps):
             self.beta,
         )
 
-    def event_permute(self, perm: Array) -> GammaGaussian:
-        """Permute event coordinates."""
+    def event_permute(self, perm: Union[Array, np.ndarray]) -> GammaGaussian:
+        """
+        Permute event coordinates; a static ``numpy`` permutation lowers to
+        slices (see :meth:`Gaussian.event_permute`).
+        """
+        g = Gaussian(self.log_normalizer, self.info_vec, self.precision)
+        g = g.event_permute(perm)
         return GammaGaussian(
-            self.log_normalizer,
-            self.info_vec[..., perm],
-            self.precision[..., perm, :][..., :, perm],
-            self.alpha,
-            self.beta,
+            g.log_normalizer, g.info_vec, g.precision, self.alpha, self.beta
         )
 
     def __add__(self, other: GammaGaussian) -> GammaGaussian:
@@ -390,8 +406,8 @@ def gamma_gaussian_tensordot(
     na, nb, nc = x.dim - dims, dims, y.dim - dims
     if na < 0 or nc < 0:
         raise ValueError("dims exceeds the event dimension of a factor")
-    perm = jnp.concatenate(
-        [jnp.arange(na), jnp.arange(x.dim, x.dim + nc), jnp.arange(na, x.dim)]
+    perm = np.concatenate(
+        [np.arange(na), np.arange(x.dim, x.dim + nc), np.arange(na, x.dim)]
     )
     joint = x.event_pad(right=nc) + y.event_pad(left=na)
     return joint.event_permute(perm).marginalize(right=nb)
@@ -406,6 +422,6 @@ def sequential_gamma_gaussian_tensordot(gaussian: GammaGaussian) -> GammaGaussia
     :return: the contraction ``g[..., 0] @ g[..., 1] @ ... @ g[..., T - 1]``
         over each intermediate state, computed in ``log2(T)`` batched steps.
     :rtype: GammaGaussian
-    :raises ValueError: if the time axis is empty.
+    :raises ValueError: if the time axis is empty or the event dimension is odd.
     """
     return _sequential_tensordot(gaussian, gamma_gaussian_tensordot)

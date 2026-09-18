@@ -3,6 +3,7 @@
 
 import math
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -109,6 +110,12 @@ def test_construction_rejects_mismatched_shapes():
         GammaFactor(zero, jnp.ones(2), jnp.ones(3))
 
 
+def test_construction_rejects_non_broadcastable_alpha_beta():
+    zero = jnp.zeros(())
+    with pytest.raises(ValueError, match="alpha and beta"):
+        GammaGaussian(zero, jnp.zeros(2), jnp.eye(2), jnp.ones(3), jnp.ones(4))
+
+
 def test_validation_matches_the_gaussian_factor():
     # Without these guards a negative ``dims`` or an oversize conditioning
     # value silently slices the wrong blocks and returns a finite result.
@@ -177,6 +184,20 @@ def test_event_pad_content():
     pad = random.normal(random.key(3), (3, 3))
     value = jnp.concatenate([pad[:, :1], x, pad[:, 1:]], -1)
     assert_allclose(padded.log_density(value, s), gg.log_density(x, s), rtol=1e-5)
+
+
+def test_event_permute_static_and_traced_paths_agree():
+    gg = random_gamma_gaussian(random.key(0), (3,), 4)
+    perm = np.array([2, 3, 0, 1])
+    assert_close_gamma_gaussian(
+        gg.event_permute(perm), gg.event_permute(jnp.asarray(perm)), rtol=0, atol=0
+    )
+    assert_close_gamma_gaussian(
+        jax.jit(lambda g: g.event_permute(perm))(gg),
+        gg.event_permute(jnp.asarray(perm)),
+        rtol=0,
+        atol=0,
+    )
 
 
 def test_log_density_matches_fixed_scale_gaussian():

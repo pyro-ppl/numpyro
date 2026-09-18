@@ -1017,6 +1017,11 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
     where ``scale(mvn, s)`` multiplies the precision by ``s``. Only
     ``log_prob`` and :meth:`filter` are provided.
 
+    Precision: the same float32 caveats as :class:`GaussianHMM` apply; there is
+    no sequential covariance-form path for this class, so use
+    :func:`numpyro.enable_x64` when noise precisions differ by orders of
+    magnitude.
+
     .. note:: Matrices act on the left and ``num_steps`` is required for
         time-homogeneous parameters; see the note in :class:`GaussianHMM`.
 
@@ -1149,7 +1154,14 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
     ``transition_dist`` is a joint Gaussian over ``(z_{t-1}, z_t)`` and
     ``observation_dist`` a joint Gaussian over ``(z_t, x_t)``;
     ``initial_dist`` is over ``z_0``. ``log_prob`` is
-    ``log p(x) = log \int f(z, x) dz - log \int\int f(z, x) dz dx``.
+    ``log p(x) = log \int f(z, x) dz - log \int\int f(z, x) dz dx``. Only
+    ``log_prob`` is provided; sampling is not supported.
+
+    Precision: the same float32 caveats as :class:`GaussianHMM` apply; there is
+    no sequential covariance-form path for this class, so use
+    :func:`numpyro.enable_x64` when noise precisions differ by orders of
+    magnitude. ``log_prob`` is the difference of two reductions, so
+    cancellation is more severe than for :class:`GaussianHMM`.
 
     :param Distribution initial_dist: ``MultivariateNormal`` or
         ``Independent(Normal, 1)`` with ``event_shape == (hidden_dim,)``.
