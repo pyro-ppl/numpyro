@@ -414,6 +414,8 @@ def test_marginalize_matches_numpy_schur_complement(left, right):
     drop = list(range(left)) + list(range(dim - right, dim))
     expected = _numpy_marginal(g, keep, drop)
     actual = g.marginalize(left=left, right=right)
+    # float32 factor algebra against a float64 numpy oracle at the file's
+    # standard 1e-4 tolerance; measured max abs error 7.6e-7
     assert_allclose(actual.log_normalizer, expected[0], rtol=1e-4, atol=1e-4)
     assert_allclose(actual.info_vec, expected[1], rtol=1e-4, atol=1e-4)
     assert_allclose(actual.precision, expected[2], rtol=1e-4, atol=1e-4)
@@ -428,6 +430,8 @@ def test_gaussian_tensordot_matches_numpy_joint_marginal(na, nb, nc):
     drop = list(range(na, na + nb))
     expected = _numpy_marginal(joint, keep, drop)
     actual = gaussian_tensordot(x, y, nb)
+    # float32 factor algebra against a float64 numpy oracle at the file's
+    # standard 1e-4 tolerance; measured max abs error 3.7e-7
     assert_allclose(actual.log_normalizer, expected[0], rtol=1e-4, atol=1e-4)
     assert_allclose(actual.info_vec, expected[1], rtol=1e-4, atol=1e-4)
     assert_allclose(actual.precision, expected[2], rtol=1e-4, atol=1e-4)

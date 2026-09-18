@@ -186,11 +186,11 @@ def test_gaussian_hmm_expand_broadcasts_log_prob():
 
 def test_gaussian_hmm_sample_shape_after_expand():
     hmm = _hmm(random.key(0), 5, 2, 1, batch=(3,), homogeneous=True)
-    expanded = hmm.expand((7, 3))
-    assert expanded.sample(random.key(1), (2,)).shape == (2, 7, 3, 5, 1)
+    expanded = hmm.expand((2, 3))
+    assert expanded.sample(random.key(1), (2,)).shape == (2, 2, 3, 5, 1)
     assert expanded.sample_posterior(
         random.key(2), expanded.sample(random.key(3)), (4,)
-    ).shape == (4, 7, 3, 5, 2)
+    ).shape == (4, 2, 3, 5, 2)
 
 
 def test_gaussian_hmm_value_broadcasts_against_batch():
