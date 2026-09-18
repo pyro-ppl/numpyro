@@ -11,6 +11,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
 
 import numpyro.distributions as dist
+from numpyro.distributions.util import cholesky_of_inverse
 from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple("AdaptWindow", ["start", "end"])
@@ -225,12 +226,10 @@ def welford_covariance(diagonal=True):
             else:
                 cov = scaled_cov + shrinkage * jnp.identity(mean.shape[0])
         if jnp.ndim(cov) == 2:
-            # copy the implementation of distributions.util.cholesky_of_inverse here
+            cov_inv_sqrt = cholesky_of_inverse(cov)
             tril_inv = jnp.swapaxes(
                 jnp.linalg.cholesky(cov[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1
             )
-            identity = jnp.identity(cov.shape[-1])
-            cov_inv_sqrt = solve_triangular(tril_inv, identity, lower=True)
         else:
             tril_inv = jnp.sqrt(cov)
             cov_inv_sqrt = jnp.reciprocal(tril_inv)
