@@ -419,11 +419,14 @@ class HiddenMarkovModel(Distribution, Generic[Z]):
     chain marginalized by factor reduction.
 
     Subclasses store three factors: ``_init`` over ``z_0``, ``_trans`` over
-    ``(z_{t-1}, z_t)`` and ``_obs`` over ``(z_t, x_t)``. ``_obs`` is always a
-    normalized conditional over ``x_t`` given ``z_t``; any factor over ``z_t``
-    alone (such as the marginal of a conjugate likelihood) lives in ``_trans``.
-    Time is the rightmost batch axis of the per-step factors (size 1 when
-    time-homogeneous).
+    ``(z_{t-1}, z_t)`` and ``_obs`` coupling ``z_t`` with ``x_t``. How ``_obs``
+    is normalized is a subclass contract: :class:`GaussianHMM` and
+    :class:`GammaGaussianHMM` keep it a normalized conditional over ``x_t``
+    given ``z_t`` and fold any factor over ``z_t`` alone (such as the marginal
+    of a conjugate likelihood) into ``_trans``, while :class:`GaussianMRF`
+    stores an unnormalized joint over ``(z_t, x_t)`` and divides out the
+    normalizer in its own ``log_prob``. Time is the rightmost batch axis of the
+    per-step factors (size 1 when time-homogeneous).
     :meth:`Distribution.__init__` is not called because ``batch_shape`` and
     ``event_shape`` are properties derived from the factor leaves instead of
     stored metadata, so instances built under :func:`jax.vmap` or carried
@@ -1067,8 +1070,8 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
         )
         if not isinstance(base_scale, Gamma):
             raise TypeError(f"scale_dist must be a Gamma, got {_type_name(scale_dist)}")
-        transition_matrix = jnp.asarray(transition_matrix)
-        observation_matrix = jnp.asarray(observation_matrix)
+        transition_matrix = _as_float(transition_matrix)
+        observation_matrix = _as_float(observation_matrix)
         _, _, num_steps = _resolve_layout(
             initial_dist,
             transition_matrix,
@@ -1157,6 +1160,11 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
     ``log p(x) = log \int f(z, x) dz - log \int\int f(z, x) dz dx``. Only
     ``log_prob`` is provided; sampling is not supported.
 
+    Unlike :class:`GaussianHMM`, the stored ``_obs`` is that joint factor over
+    ``(z_t, x_t)`` rather than a normalized conditional over ``x_t`` given
+    ``z_t``, so the base class' normalization contract does not hold here; the
+    missing normalizer is the second reduction that ``log_prob`` subtracts.
+
     Precision: the same float32 caveats as :class:`GaussianHMM` apply; there is
     no sequential covariance-form path for this class, so use
     :func:`numpyro.enable_x64` when noise precisions differ by orders of
@@ -1193,6 +1201,11 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
         num_steps: Optional[int] = None,
         validate_args: Optional[bool] = None,
     ) -> None:
+        if len(initial_dist.event_shape) != 1:
+            raise ValueError(
+                "initial_dist must have event_shape (hidden_dim,), got "
+                f"{tuple(initial_dist.event_shape)}"
+            )
         hidden_dim = initial_dist.event_shape[0]
         if tuple(transition_dist.event_shape) != (2 * hidden_dim,):
             raise ValueError(
@@ -1469,8 +1482,8 @@ class LinearHMM(Distribution):
         num_steps: Optional[int] = None,
         validate_args: Optional[bool] = None,
     ) -> None:
-        transition_matrix = jnp.asarray(transition_matrix)
-        observation_matrix = jnp.asarray(observation_matrix)
+        transition_matrix = _as_float(transition_matrix)
+        observation_matrix = _as_float(observation_matrix)
         for name, d in (
             ("initial_dist", initial_dist),
             ("transition_dist", transition_dist),
@@ -1558,7 +1571,7 @@ class LinearHMM(Distribution):
         """
         Draw observation sequences by simulating the generative model.
 
-        :param Optional[Array] key: PRNG key.
+        :param Optional[Array] key: PRNG key; ``None`` raises ``ValueError``.
         :param tuple sample_shape: leading sample dimensions, drawn by mapping
             over split keys so that the component distributions' static batch
             shapes need not know about batch axes added by :func:`jax.vmap`.
@@ -1566,7 +1579,8 @@ class LinearHMM(Distribution):
             ``sample_shape + batch_shape + (num_steps, obs_dim)``.
         :rtype: Array
         """
-        assert key is not None
+        if key is None:
+            raise ValueError("LinearHMM.sample requires a PRNG key")
         if sample_shape:
             keys = random.split(key, math.prod(sample_shape))
             keys = keys.reshape(tuple(sample_shape) + keys.shape[1:])

@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -1080,17 +1081,17 @@ def test_gaussian_hmm_sequential_derived_models():
     assert jax.tree_util.tree_unflatten(treedef, leaves).sequential
 
 
-def test_gaussian_hmm_sample_requires_key():
+def test_hmm_sample_requires_key():
     hmm = _hmm(random.key(0), 3, 2, 1, homogeneous=True)
     with pytest.raises(ValueError, match="PRNG key"):
         hmm.sample(None)
     with pytest.raises(ValueError, match="PRNG key"):
         IndependentHMM(hmm.expand((2,))).sample(None)
+    with pytest.raises(ValueError, match="PRNG key"):
+        _linear_hmm(random.key(1), 3, 2, 1).sample(None)
 
 
 def test_gaussian_hmm_coerces_integer_matrices_to_float():
-    import numpy as np
-
     n, m = 2, 1
     hmm = GaussianHMM(
         dist.Normal(jnp.zeros(n), 1.0).to_event(1),
@@ -1102,6 +1103,39 @@ def test_gaussian_hmm_coerces_integer_matrices_to_float():
     )
     assert hmm._trans.matrix.dtype == jnp.result_type(float)
     assert hmm._obs.matrix.dtype == jnp.result_type(float)
+
+
+def test_gamma_gaussian_hmm_coerces_integer_matrices_to_float():
+    # float16 noise makes the coercion observable without x64: an integer
+    # matrix left as is keeps the factors at the noise dtype, measured float16
+    # before the fix, instead of the default float dtype.
+    n, m = 2, 1
+    half = jnp.float16
+    hmm = GammaGaussianHMM(
+        dist.Gamma(4.0, 3.0),
+        dist.Normal(jnp.zeros(n, half), half(1.0)).to_event(1),
+        np.eye(n, dtype=np.int64),
+        dist.Normal(jnp.zeros(n, half), half(1.0)).to_event(1),
+        np.ones((m, n), dtype=np.int32),
+        dist.Normal(jnp.zeros(m, half), half(0.3)).to_event(1),
+        num_steps=3,
+    )
+    assert hmm._trans.precision.dtype == jnp.result_type(float)
+    assert hmm._obs.precision.dtype == jnp.result_type(float)
+
+
+def test_linear_hmm_coerces_integer_matrices_to_float():
+    n, m = 2, 1
+    hmm = LinearHMM(
+        dist.Normal(jnp.zeros(n), 1.0).to_event(1),
+        np.eye(n, dtype=np.int64),
+        dist.Normal(jnp.zeros(n), 1.0).to_event(1),
+        np.ones((m, n), dtype=np.int32),
+        dist.StudentT(5.0, jnp.zeros(m), 0.3).to_event(1),
+        num_steps=3,
+    )
+    assert hmm.transition_matrix.dtype == jnp.result_type(float)
+    assert hmm.observation_matrix.dtype == jnp.result_type(float)
 
 
 def test_gaussian_hmm_reports_non_broadcastable_value_batch():
@@ -1557,6 +1591,17 @@ def test_gaussian_mrf_shapes(batch):
     with pytest.raises(ValueError, match="num_steps"):
         GaussianMRF(*homogeneous)
     assert GaussianMRF(*homogeneous, num_steps=T).log_prob(x[0]).shape == batch
+
+
+def test_gaussian_mrf_rejects_scalar_event_initial_dist():
+    n, m = 2, 1
+    with pytest.raises(ValueError, match=r"initial_dist must have event_shape"):
+        GaussianMRF(
+            dist.Normal(0.0, 1.0),
+            dist.MultivariateNormal(jnp.zeros(2 * n), jnp.eye(2 * n)),
+            dist.MultivariateNormal(jnp.zeros(n + m), jnp.eye(n + m)),
+            num_steps=3,
+        )
 
 
 # The oracle builds the dense joint precision of (z_{0:T}, x_{1:T}) from the
