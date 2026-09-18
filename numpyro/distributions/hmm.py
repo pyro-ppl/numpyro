@@ -1137,6 +1137,9 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
             ),
         )
 
+    def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        raise NotImplementedError(f"{type(self).__name__} does not support sampling")
+
 
 class GaussianMRF(HiddenMarkovModel[Gaussian]):
     r"""
@@ -1229,6 +1232,9 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
             lambda v: self._reduce(self._obs.condition(v)).event_logsumexp(), extra
         )(value)
         return log_joint - log_normalizer
+
+    def sample(self, key: Optional[Array], sample_shape: tuple[int, ...] = ()) -> Array:
+        raise NotImplementedError(f"{type(self).__name__} does not support sampling")
 
 
 class IndependentHMM(Distribution):
