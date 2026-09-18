@@ -627,3 +627,60 @@ def test_affine_normal_batch_shape_broadcasts_all_fields():
     assert affine.marginalize(right=2).batch_shape == (4,)
     assert affine.marginalize(right=2).log_normalizer.shape == (4,)
     assert affine.expand((5, 4)).batch_shape == (5, 4)
+
+
+def test_gaussian_tensordot_rejects_negative_dims():
+    x = random_gaussian(random.key(0), (), 2)
+    y = random_gaussian(random.key(1), (), 1)
+    with pytest.raises(ValueError, match="dims must be non-negative"):
+        gaussian_tensordot(x, y, -1)
+
+
+def test_event_permute_dim_zero_is_identity():
+    g = random_gaussian(random.key(0), (3,), 2).marginalize(right=2)
+    assert g.dim == 0
+    for perm in (np.array([], dtype=int), jnp.array([], dtype=int)):
+        permuted = g.event_permute(perm)
+        assert permuted.dim == 0
+        assert_allclose(permuted.log_normalizer, g.log_normalizer)
+    assert g.left_condition(jnp.zeros((3, 0))).dim == 0
+
+
+def test_cat_rejects_empty_parts():
+    with pytest.raises(ValueError, match="at least one factor"):
+        Gaussian.cat([])
+
+
+def test_sequential_gaussian_tensordot_rejects_odd_dim():
+    g = random_gaussian(random.key(0), (4,), 3)
+    with pytest.raises(ValueError, match="even event dimension"):
+        sequential_gaussian_tensordot(g)
+
+
+def test_filter_sample_rejects_mismatched_state_dim():
+    init = random_gaussian(random.key(0), (), 2)
+    trans = random_gaussian(random.key(1), (5,), 6)
+    with pytest.raises(ValueError, match="2 \\* init.dim"):
+        sequential_gaussian_filter_sample(random.key(2), init, trans)
+
+
+def test_condition_rejects_oversized_value():
+    g = random_gaussian(random.key(0), (), 2)
+    with pytest.raises(ValueError, match="at most 2"):
+        g.condition(jnp.zeros(3))
+
+
+def test_filter_sample_noise_dtype_is_promoted_from_both_factors():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("dtype promotion between float32 and float64 needs x64")
+    init = random_gaussian(random.key(0), (), 2)
+    init = Gaussian(
+        init.log_normalizer.astype(jnp.float32),
+        init.info_vec.astype(jnp.float32),
+        init.precision.astype(jnp.float32),
+    )
+    trans = random_gaussian(random.key(1), (3,), 4)
+    assert (
+        sequential_gaussian_filter_sample(random.key(2), init, trans).dtype
+        == jnp.float64
+    )

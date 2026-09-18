@@ -185,6 +185,8 @@ class _FactorShapeOps:
     @classmethod
     def cat(cls, parts: Sequence[Self], axis: int = 0) -> Self:
         """Concatenate factors along a batch axis."""
+        if not parts:
+            raise ValueError("cat requires at least one factor")
         parts = [p._broadcast() for p in parts]
         if not parts[0].batch_shape:
             raise ValueError("cannot concatenate factors without batch dimensions")
@@ -295,6 +297,8 @@ class Gaussian(_FactorShapeOps):
         A static ``numpy`` permutation lowers to slices and concatenations;
         a traced permutation gathers.
         """
+        if self.dim == 0:
+            return self
         if isinstance(perm, np.ndarray):
             runs = _static_runs(perm)
             info_vec = jnp.concatenate([self.info_vec[..., s] for s in runs], -1)
@@ -346,6 +350,11 @@ class Gaussian(_FactorShapeOps):
             ``g.log_density(concat([a, b])) == g.condition(b).log_density(a)``.
         :rtype: Gaussian
         """
+        if value.shape[-1] > self.dim:
+            raise ValueError(
+                f"value may condition at most {self.dim} coordinates, "
+                f"got {value.shape[-1]}"
+            )
         n = self.dim - value.shape[-1]
         info_a, info_b = self.info_vec[..., :n], self.info_vec[..., n:]
         P_aa = self.precision[..., :n, :n]
@@ -627,8 +636,11 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
     :return: factor over ``(a, c)`` with the broadcast batch shape of ``x``
         and ``y``.
     :rtype: Gaussian
-    :raises ValueError: if ``dims`` exceeds the event dimension of a factor.
+    :raises ValueError: if ``dims`` is negative or exceeds the event dimension
+        of a factor.
     """
+    if dims < 0:
+        raise ValueError(f"dims must be non-negative, got {dims}")
     na, nb, nc = x.dim - dims, dims, y.dim - dims
     if na < 0 or nc < 0:
         raise ValueError("dims exceeds the event dimension of a factor")
@@ -644,9 +656,7 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
     info_vec = _pad_event(xa, 1, 0, nc) + _pad_event(yc, 1, na, 0)
     log_normalizer = x.log_normalizer + y.log_normalizer
     if nb > 0:
-        B = jnp.pad(Pba, [(0, 0)] * (Pba.ndim - 1) + [(0, nc)]) + jnp.pad(
-            Qbc, [(0, 0)] * (Qbc.ndim - 1) + [(na, 0)]
-        )
+        B = _pad_event(Pba, 1, 0, nc) + _pad_event(Qbc, 1, na, 0)
         b = xb + yb
         chol = safe_cholesky(Pbb + Qbb)
         LinvB = solve_triangular(chol, B, lower=True)
@@ -667,10 +677,14 @@ def _sequential_tensordot(factor: F, tensordot: Callable[[F, F, int], F]) -> F:
     Reduce pairwise factors over the last batch axis with ``log2(T)`` batched
     contractions of ``tensordot`` over ``dim // 2`` shared coordinates.
 
-    :raises ValueError: if the time axis is empty.
+    :raises ValueError: if the time axis is empty or the event dimension is odd.
     """
     if factor.batch_shape[-1] == 0:
         raise ValueError("cannot reduce over an empty time axis")
+    if factor.dim % 2:
+        raise ValueError(
+            f"pairwise factors need an even event dimension, got {factor.dim}"
+        )
     state_dim = factor.dim // 2
     while factor.batch_shape[-1] > 1:
         num_steps = factor.batch_shape[-1]
@@ -692,7 +706,7 @@ def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
         ``gaussian.batch_shape[:-1]``, computed with ``log2(T)`` batched
         contractions.
     :rtype: Gaussian
-    :raises ValueError: if the time axis is empty.
+    :raises ValueError: if the time axis is empty or the event dimension is odd.
     """
     return _sequential_tensordot(gaussian, gaussian_tensordot)
 
@@ -716,13 +730,18 @@ def sequential_gaussian_filter_sample(
         ``sample_shape + batch_shape + (T + 1, state_dim)``. ``zeros`` yields
         the posterior mean and ``[n, 0, -n]`` an antithetic triple;
         ``sample(key)`` equals ``sample(noise=random.normal(key, ...))``.
+        Fresh draws use the promoted dtype of ``init`` and ``trans``.
     :return: state paths of shape
         ``sample_shape + batch_shape + (T + 1, state_dim)`` including ``z_0``.
     :rtype: Array
-    :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
-        ``noise`` has the wrong shape.
+    :raises ValueError: if ``trans.dim != 2 * init.dim``, if neither ``key``
+        nor ``noise`` is given, or if ``noise`` has the wrong shape.
     """
     state_dim = init.dim
+    if trans.dim != 2 * state_dim:
+        raise ValueError(
+            f"trans.dim must equal 2 * init.dim = {2 * state_dim}, got {trans.dim}"
+        )
     num_steps = trans.batch_shape[-1]
     batch_shape = lax.broadcast_shapes(trans.batch_shape[:-1], init.batch_shape)
     trans = trans.expand(batch_shape + (num_steps,))
@@ -750,7 +769,7 @@ def sequential_gaussian_filter_sample(
     final = gaussian[..., 0] + init.expand(batch_shape).event_pad(right=state_dim)
 
     shape = tuple(sample_shape) + batch_shape + (num_steps + 1, state_dim)
-    noise = _noise(noise, key, shape, init.precision.dtype)
+    noise = _noise(noise, key, shape, jnp.result_type(init.precision, trans.precision))
 
     def backward(eps: Array) -> Array:
         result = final.sample(
