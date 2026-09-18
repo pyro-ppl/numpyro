@@ -210,7 +210,14 @@ class GammaGaussian(_FactorShapeOps):
             conditioned quadratic folded into ``beta``, so
             ``g.log_density(concat([a, b]), s) == g.condition(b).log_density(a, s)``.
         :rtype: GammaGaussian
+        :raises ValueError: if ``value`` conditions more than ``dim``
+            coordinates.
         """
+        if value.shape[-1] > self.dim:
+            raise ValueError(
+                f"value may condition at most {self.dim} coordinates, "
+                f"got {value.shape[-1]}"
+            )
         n = self.dim - value.shape[-1]
         info_a, info_b = self.info_vec[..., :n], self.info_vec[..., n:]
         P_aa = self.precision[..., :n, :n]
@@ -274,9 +281,10 @@ class GammaGaussian(_FactorShapeOps):
         Marginal over ``s`` of the normalized joint.
 
         The moments come from :func:`~numpyro.ops.gaussian.loc_and_scale_tril`,
-        which adds the rounding-level diagonal jitter of
-        :func:`~numpyro.distributions.util.relative_jitter` before factorizing
-        ``precision``.
+        which factorizes a positive-definite ``precision`` exactly and adds the
+        rounding-level diagonal jitter of
+        :func:`~numpyro.distributions.util.jitter_if_singular` only when the
+        plain factorization fails.
 
         :return: Student-t with ``2 (alpha - dim / 2 + 1)`` degrees of freedom.
         :rtype: MultivariateStudentT
@@ -374,8 +382,11 @@ def gamma_gaussian_tensordot(
     :return: factor over ``(a, c)`` with the broadcast batch shape of ``x``
         and ``y``.
     :rtype: GammaGaussian
-    :raises ValueError: if ``dims`` exceeds the event dimension of a factor.
+    :raises ValueError: if ``dims`` is negative or exceeds the event dimension
+        of a factor.
     """
+    if dims < 0:
+        raise ValueError(f"dims must be non-negative, got {dims}")
     na, nb, nc = x.dim - dims, dims, y.dim - dims
     if na < 0 or nc < 0:
         raise ValueError("dims exceeds the event dimension of a factor")

@@ -109,6 +109,17 @@ def test_construction_rejects_mismatched_shapes():
         GammaFactor(zero, jnp.ones(2), jnp.ones(3))
 
 
+def test_validation_matches_the_gaussian_factor():
+    # Without these guards a negative ``dims`` or an oversize conditioning
+    # value silently slices the wrong blocks and returns a finite result.
+    x = random_gamma_gaussian(random.key(0), (), 2)
+    y = random_gamma_gaussian(random.key(1), (), 1)
+    with pytest.raises(ValueError, match="dims must be non-negative"):
+        gamma_gaussian_tensordot(x, y, -1)
+    with pytest.raises(ValueError, match="at most 2 coordinates"):
+        x.condition(jnp.zeros(3))
+
+
 def test_factors_hash_by_identity():
     gg = random_gamma_gaussian(random.key(0), (3,), 2)
     factor = gg.event_logsumexp()
