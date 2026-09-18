@@ -835,3 +835,87 @@ def test_gaussian_hmm_float32_small_observation_noise_matches_kalman():
     )
     reference = kalman_log_prob(x, m0, P0, A, Q, C, R)
     assert abs(float(hmm.log_prob(x)) - float(reference)) < 3e-2
+
+
+@pytest.mark.parametrize("layout", _LAYOUTS, ids=[str(s) for s in _LAYOUTS])
+def test_gaussian_hmm_sequential_matches_parallel(layout):
+    T, n, m = _T, 2, 1
+    init, A, trans, H, obs = _layout_params(random.key(7), n, m, *layout)
+    parallel = GaussianHMM(init, A, trans, H, obs, num_steps=T)
+    sequential = GaussianHMM(init, A, trans, H, obs, num_steps=T, sequential=True)
+    assert sequential.sequential and not parallel.sequential
+    assert sequential.batch_shape == parallel.batch_shape
+    x = random.normal(random.key(8), (3,) + parallel.batch_shape + (T, m))
+    assert_allclose(sequential.log_prob(x), parallel.log_prob(x), rtol=1e-4, atol=1e-4)
+    assert_allclose(
+        jax.jit(sequential.log_prob)(x), parallel.log_prob(x), rtol=1e-4, atol=1e-4
+    )
+    a, b = sequential.filter(x), parallel.filter(x)
+    assert_allclose(a.mean, b.mean, rtol=1e-3, atol=1e-3)
+    assert_allclose(a.covariance_matrix, b.covariance_matrix, rtol=1e-3, atol=1e-3)
+
+
+def test_gaussian_hmm_sequential_float32_small_noise_is_accurate():
+    # The parallel information form is off by about 1.7 nats here (review.md 3.1); the sequential path must not be.
+    T, obs_sd = 64, 0.001
+    x, (m0, P0, A, Q, C, R) = _small_noise_model(T, obs_sd, jnp.float32)
+    hmm = GaussianHMM(
+        dist.MultivariateNormal(m0, P0),
+        A,
+        dist.MultivariateNormal(jnp.zeros(2, jnp.float32), Q),
+        C,
+        dist.MultivariateNormal(jnp.zeros(2, jnp.float32), R),
+        num_steps=T,
+        sequential=True,
+    )
+    reference = kalman_log_prob(x, m0, P0, A, Q, C, R)
+    assert_allclose(hmm.log_prob(x), reference, rtol=1e-5, atol=1e-3)
+
+
+def test_gaussian_hmm_sequential_derived_models():
+    T, n, m, t = 6, 2, 1, 2
+    seq = GaussianHMM(
+        dist.MultivariateNormal(jnp.zeros(n), jnp.eye(n)),
+        jnp.eye(n),
+        dist.Normal(jnp.zeros(n), 0.5).to_event(1),
+        jnp.ones((m, n)),
+        dist.Normal(jnp.zeros(m), 0.3).to_event(1),
+        num_steps=T,
+        sequential=True,
+    )
+    x = seq.sample(random.key(10), (2,))
+    assert seq.expand((4,)).sequential and seq.expand((4,)).log_prob(x[0]).shape == (4,)
+    assert seq.reshape_batch((1,)).log_prob(x[:, None]).shape == (2, 1)
+    tail = seq.prefix_condition(x[:, :t])
+    assert tail.sequential and tail.batch_shape == (2,)
+    head = GaussianHMM(
+        dist.MultivariateNormal(jnp.zeros(n), jnp.eye(n)),
+        jnp.eye(n),
+        dist.Normal(jnp.zeros(n), 0.5).to_event(1),
+        jnp.ones((m, n)),
+        dist.Normal(jnp.zeros(m), 0.3).to_event(1),
+        num_steps=t,
+        sequential=True,
+    )
+    assert_allclose(
+        seq.log_prob(x),
+        head.log_prob(x[:, :t]) + tail.log_prob(x[:, t:]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+    with pytest.raises(NotImplementedError, match="sequential"):
+        seq.conjugate_update(dist.Normal(x[0], 0.7).to_event(2))
+    mapped = jax.vmap(
+        lambda s: GaussianHMM(
+            dist.MultivariateNormal(jnp.zeros(n), jnp.eye(n)),
+            jnp.eye(n),
+            dist.Normal(jnp.zeros(n), s).to_event(1),
+            jnp.ones((m, n)),
+            dist.Normal(jnp.zeros(m), 0.3).to_event(1),
+            num_steps=T,
+            sequential=True,
+        )
+    )(jnp.array([0.5, 1.0]))
+    assert mapped.batch_shape == (2,) and mapped.log_prob(x[0]).shape == (2,)
+    leaves, treedef = jax.tree_util.tree_flatten(seq)
+    assert jax.tree_util.tree_unflatten(treedef, leaves).sequential

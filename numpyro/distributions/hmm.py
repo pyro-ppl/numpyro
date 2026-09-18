@@ -4,12 +4,24 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass
+import math
 import operator
-from typing import Callable, Optional, Protocol, Self, Sequence, TypeVar, Union
+from typing import (
+    Callable,
+    ClassVar,
+    Optional,
+    Protocol,
+    Self,
+    Sequence,
+    TypeVar,
+    Union,
+)
 
 import jax
 from jax import Array, lax, random
 import jax.numpy as jnp
+from jax.scipy.linalg import cho_solve, solve_triangular
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import MultivariateNormal
@@ -25,6 +37,7 @@ from numpyro.ops.gaussian import (
     gaussian_tensordot,
     loc_and_scale_tril,
     matrix_and_mvn_to_gaussian,
+    mvn_moments,
     mvn_to_gaussian,
     sequential_gaussian_filter_sample,
     sequential_gaussian_tensordot,
@@ -217,6 +230,133 @@ def _check_expand(old: tuple[int, ...], new: Sequence[int]) -> tuple[int, ...]:
     return new
 
 
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class _Moments:
+    """
+    Moment-form parameters of a :class:`GaussianHMM` for the sequential path.
+
+    ``loc0``/``cov0`` have shape ``batch_shape + (hidden_dim,)`` /
+    ``+ (hidden_dim, hidden_dim)``; the per-step fields carry a time axis of
+    size 1 or ``num_steps`` after the batch dimensions.
+    """
+
+    loc0: Array
+    cov0: Array
+    A: Array
+    b: Array
+    Q: Array
+    C: Array
+    d: Array
+    R: Array
+
+    _event_ndims: ClassVar[tuple[int, ...]] = (1, 2, 3, 2, 3, 3, 2, 3)
+
+    def _fields(self) -> tuple[Array, ...]:
+        return (self.loc0, self.cov0, self.A, self.b, self.Q, self.C, self.d, self.R)
+
+    def _map(self, fn: Callable[[Array, int], Array]) -> _Moments:
+        return _Moments(*(fn(x, k) for x, k in zip(self._fields(), self._event_ndims)))
+
+    @property
+    def num_time(self) -> int:
+        return self.A.shape[-3]
+
+    def expand(self, batch_shape: tuple[int, ...]) -> _Moments:
+        """
+        Broadcast the batch dimensions (everything before the time axis for
+        per-step fields) to ``batch_shape``.
+        """
+        return self._map(
+            lambda x, k: jnp.broadcast_to(x, tuple(batch_shape) + x.shape[x.ndim - k :])
+        )
+
+    def reshape(self, batch_shape: tuple[int, ...]) -> _Moments:
+        return self._map(
+            lambda x, k: x.reshape(tuple(batch_shape) + x.shape[x.ndim - k :])
+        )
+
+    def time_slice(self, start: int, stop: int) -> _Moments:
+        """
+        Slice the time axis of the per-step fields; a size-1 time axis is kept
+        as is.
+        """
+        if self.num_time == 1:
+            return self
+        sl = slice(start, stop)
+        return _Moments(
+            self.loc0,
+            self.cov0,
+            self.A[..., sl, :, :],
+            self.b[..., sl, :],
+            self.Q[..., sl, :, :],
+            self.C[..., sl, :, :],
+            self.d[..., sl, :],
+            self.R[..., sl, :, :],
+        )
+
+
+def _kalman_filter(
+    m: _Moments, value: Array, num_steps: int
+) -> tuple[Array, Array, Array]:
+    """
+    Covariance-form Kalman filter over ``value`` of shape
+    ``batch_shape + (num_steps, obs_dim)``.
+
+    :return: ``(log_prob, loc_T, cov_T)`` with shapes ``batch_shape``,
+        ``batch_shape + (hidden_dim,)`` and
+        ``batch_shape + (hidden_dim, hidden_dim)``.
+    :rtype: tuple[Array, Array, Array]
+    """
+    batch_shape = value.shape[:-2]
+    obs_dim = value.shape[-1]
+    hidden_dim = m.loc0.shape[-1]
+
+    def per_step(x: Array, k: int) -> Array:
+        x = jnp.broadcast_to(x, batch_shape + (num_steps,) + x.shape[x.ndim - k + 1 :])
+        return jnp.moveaxis(x, len(batch_shape), 0)
+
+    mv = lambda M, v: jnp.einsum("...ij,...j->...i", M, v)  # noqa: E731
+    mm = lambda X, Y: jnp.matmul(X, Y)  # noqa: E731
+    mt = lambda X: jnp.swapaxes(X, -1, -2)  # noqa: E731
+    xs = (
+        per_step(m.A, 3),
+        per_step(m.b, 2),
+        per_step(m.Q, 3),
+        per_step(m.C, 3),
+        per_step(m.d, 2),
+        per_step(m.R, 3),
+        jnp.moveaxis(value, len(batch_shape), 0),
+    )
+    loc0 = jnp.broadcast_to(m.loc0, batch_shape + (hidden_dim,))
+    cov0 = jnp.broadcast_to(m.cov0, batch_shape + (hidden_dim, hidden_dim))
+
+    def step(
+        carry: tuple[Array, Array], inputs: tuple[Array, ...]
+    ) -> tuple[tuple[Array, Array], Array]:
+        loc, cov = carry
+        A, b, Q, C, d, R, x = inputs
+        loc_pred = mv(A, loc) + b
+        cov_pred = mm(mm(A, cov), mt(A)) + Q
+        S = mm(mm(C, cov_pred), mt(C)) + R
+        L = jnp.linalg.cholesky(S)
+        r = x - mv(C, loc_pred) - d
+        u = solve_triangular(L, r[..., None], lower=True)[..., 0]
+        ll = (
+            -0.5 * (u * u).sum(-1)
+            - jnp.log(jnp.einsum("...ii->...i", L)).sum(-1)
+            - 0.5 * obs_dim * math.log(2 * math.pi)
+        )
+        K = mt(cho_solve((L, True), mm(C, cov_pred)))
+        loc_new = loc_pred + mv(K, r)
+        cov_new = cov_pred - mm(mm(K, S), mt(K))
+        cov_new = 0.5 * (cov_new + mt(cov_new))
+        return (loc_new, cov_new), ll
+
+    (loc_T, cov_T), lls = lax.scan(step, (loc0, cov0), xs)
+    return lls.sum(0), loc_T, cov_T
+
+
 class HiddenMarkovModel(Distribution):
     """
     Base class for distributions over observation sequences with the latent
@@ -250,10 +390,11 @@ class HiddenMarkovModel(Distribution):
 
     _sequential: Callable[[Gaussian], Gaussian]
     _tensordot: Callable[[Gaussian, Gaussian, int], Gaussian]
+    _moments: Optional[_Moments]
 
     arg_constraints = {}
     support = constraints.real_matrix
-    pytree_data_fields = ("_init", "_trans", "_obs")
+    pytree_data_fields = ("_init", "_trans", "_obs", "_moments")
     pytree_aux_fields = ("num_steps",)
 
     def __init__(
@@ -265,6 +406,7 @@ class HiddenMarkovModel(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        self._moments = None
         self._init, self._trans, self._obs = _align(init, trans, obs)
         self.num_steps = num_steps
         if validate_args is not None:
@@ -313,7 +455,8 @@ class HiddenMarkovModel(Distribution):
             ``batch_shape``.
         """
         batch_shape = _check_expand(self.batch_shape, batch_shape)
-        return self._replace(_init=self._init.expand(batch_shape))
+        moments = None if self._moments is None else self._moments.expand(batch_shape)
+        return self._replace(_init=self._init.expand(batch_shape), _moments=moments)
 
     def reshape_batch(self, batch_shape: Sequence[int]) -> Self:
         """
@@ -331,12 +474,18 @@ class HiddenMarkovModel(Distribution):
         full = self.batch_shape
         trans_time = self._trans.batch_shape[-1:]
         obs_time = self._obs.batch_shape[-1:]
+        moments = (
+            None
+            if self._moments is None
+            else self._moments.expand(full).reshape(batch_shape)
+        )
         return self._replace(
             _init=self._init.expand(full).reshape(batch_shape),
             _trans=self._trans.expand(full + trans_time).reshape(
                 batch_shape + trans_time
             ),
             _obs=self._obs.expand(full + obs_time).reshape(batch_shape + obs_time),
+            _moments=moments,
         )
 
     def _time_expanded(self, factor: F) -> F:
@@ -432,6 +581,12 @@ class GaussianHMM(HiddenMarkovModel):
         ``event_shape == (obs_dim,)``.
     :param Optional[int] num_steps: length of the time axis; required when
         every per-step parameter is time-homogeneous.
+    :param bool sequential: use a covariance-form Kalman filter with
+        ``O(num_steps)`` depth for ``log_prob`` and :meth:`filter` instead of
+        the ``O(log num_steps)`` information-form reduction. Numerically
+        robust in float32 when noise precisions differ by orders of magnitude;
+        see the precision note. Sampling always uses the information form, and
+        :meth:`conjugate_update` is not available.
     :raises ValueError: if event shapes disagree, the batch shapes do not
         broadcast, or ``num_steps`` is missing or conflicts with the
         parameters' time axis.
@@ -451,11 +606,12 @@ class GaussianHMM(HiddenMarkovModel):
         observation_dist: Distribution,
         *,
         num_steps: Optional[int] = None,
+        sequential: bool = False,
         validate_args: Optional[bool] = None,
     ) -> None:
         transition_matrix = jnp.asarray(transition_matrix)
         observation_matrix = jnp.asarray(observation_matrix)
-        _, _, num_steps = _resolve_layout(
+        batch_shape, time, num_steps = _resolve_layout(
             initial_dist,
             transition_matrix,
             transition_dist,
@@ -470,6 +626,36 @@ class GaussianHMM(HiddenMarkovModel):
             num_steps,
             validate_args=validate_args,
         )
+        if sequential:
+            hidden_dim, obs_dim = (
+                transition_matrix.shape[-1],
+                observation_matrix.shape[-2],
+            )
+            loc0, cov0 = mvn_moments(initial_dist)
+            b, Q = mvn_moments(transition_dist)
+            d, R = mvn_moments(observation_dist)
+            self._moments = _Moments(
+                jnp.broadcast_to(loc0, batch_shape + (hidden_dim,)),
+                jnp.broadcast_to(cov0, batch_shape + (hidden_dim, hidden_dim)),
+                jnp.broadcast_to(
+                    transition_matrix, batch_shape + (time, hidden_dim, hidden_dim)
+                ),
+                jnp.broadcast_to(b, batch_shape + (time, hidden_dim)),
+                jnp.broadcast_to(Q, batch_shape + (time, hidden_dim, hidden_dim)),
+                jnp.broadcast_to(
+                    observation_matrix, batch_shape + (time, obs_dim, hidden_dim)
+                ),
+                jnp.broadcast_to(d, batch_shape + (time, obs_dim)),
+                jnp.broadcast_to(R, batch_shape + (time, obs_dim, obs_dim)),
+            )
+
+    @property
+    def sequential(self) -> bool:
+        """
+        Whether ``log_prob`` and :meth:`filter` use the covariance-form
+        sequential Kalman filter.
+        """
+        return self._moments is not None
 
     @property
     def has_rsample(self) -> bool:
@@ -487,13 +673,20 @@ class GaussianHMM(HiddenMarkovModel):
         :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
             the result has shape equal to the broadcast of the leading
             dimensions with ``batch_shape``; dimensions beyond ``batch_shape``
-            are mapped with :func:`jax.vmap`.
+            are mapped with :func:`jax.vmap`. With ``sequential=True`` the
+            result comes from a covariance-form Kalman filter with
+            ``O(num_steps)`` depth.
         :return: log density with the broadcast shape.
         :rtype: Array
         :raises ValueError: if ``value`` does not have trailing shape
             ``(num_steps, obs_dim)``.
         """
         value, extra = self._lead_and_extra(value)
+        if self._moments is not None:
+            m = self._moments
+            return _vmap_leading(
+                lambda v: _kalman_filter(m, v, self.num_steps)[0], extra
+            )(value)
         return _vmap_leading(lambda v: self._posterior(v).event_logsumexp(), extra)(
             value
         )
@@ -505,7 +698,9 @@ class GaussianHMM(HiddenMarkovModel):
         :param Array value: observations of shape ``(..., num_steps, obs_dim)``;
             the result has batch shape equal to the broadcast of the leading
             dimensions with ``batch_shape``; dimensions beyond ``batch_shape``
-            are mapped with :func:`jax.vmap`.
+            are mapped with :func:`jax.vmap`. With ``sequential=True`` the
+            result comes from a covariance-form Kalman filter with
+            ``O(num_steps)`` depth.
         :return: posterior with the broadcast batch shape; usable as
             ``initial_dist`` of a follow-on model.
         :rtype: MultivariateNormal
@@ -513,6 +708,14 @@ class GaussianHMM(HiddenMarkovModel):
             ``(num_steps, obs_dim)``.
         """
         value, extra = self._lead_and_extra(value)
+        if self._moments is not None:
+            m = self._moments
+            loc, cov = _vmap_leading(
+                lambda v: _kalman_filter(m, v, self.num_steps)[1:], extra
+            )(value)
+            return MultivariateNormal(
+                loc, covariance_matrix=cov, validate_args=self._validate_args
+            )
 
         def moments(v: Array) -> tuple[Array, Array]:
             g = self._posterior(v)
@@ -535,7 +738,14 @@ class GaussianHMM(HiddenMarkovModel):
         :rtype: tuple[GaussianHMM, Array]
         :raises ValueError: if ``other.event_shape`` differs from
             ``event_shape``.
+        :raises NotImplementedError: if the model was built with
+            ``sequential=True``.
         """
+        if self._moments is not None:
+            raise NotImplementedError(
+                "conjugate_update is not available for sequential=True; "
+                "construct the model with sequential=False"
+            )
         if tuple(other.event_shape) != self.event_shape:
             raise ValueError(
                 f"other must have event_shape {self.event_shape}, "
@@ -572,11 +782,32 @@ class GaussianHMM(HiddenMarkovModel):
 
         trans_head, trans_tail = split(self._trans)
         obs_head, obs_tail = split(self._obs)
-        head = self._replace(_trans=trans_head, _obs=obs_head, num_steps=t)
+        head_moments = None
+        if self._moments is not None:
+            head_moments = self._moments.time_slice(0, t)
+        head = self._replace(
+            _trans=trans_head, _obs=obs_head, _moments=head_moments, num_steps=t
+        )
+        posterior = head.filter(data)
+        moments = None
+        if self._moments is not None:
+            tail_moments = self._moments.time_slice(t, self.num_steps)
+            lead = posterior.batch_shape
+            moments = _Moments(
+                posterior.mean,
+                jnp.asarray(posterior.covariance_matrix),
+                *(
+                    jnp.broadcast_to(x, lead + x.shape[x.ndim - k :])
+                    for x, k in zip(
+                        tail_moments._fields()[2:], _Moments._event_ndims[2:]
+                    )
+                ),
+            )
         return self._replace(
-            _init=mvn_to_gaussian(head.filter(data)),
+            _init=mvn_to_gaussian(posterior),
             _trans=trans_tail,
             _obs=obs_tail,
+            _moments=moments,
             num_steps=self.num_steps - t,
         )
 

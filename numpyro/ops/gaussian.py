@@ -60,6 +60,7 @@ __all__ = [
     "loc_and_scale_tril",
     "matrix_and_gaussian_to_gaussian",
     "matrix_and_mvn_to_gaussian",
+    "mvn_moments",
     "mvn_to_gaussian",
     "sequential_gaussian_filter_sample",
     "sequential_gaussian_tensordot",
@@ -477,6 +478,25 @@ def _mvn_params(d: Distribution) -> tuple[Array, Array]:
         jnp.broadcast_to(base.loc, shape),
         jnp.broadcast_to(base.scale_tril, shape + shape[-1:]),
     )
+
+
+def mvn_moments(d: Distribution) -> tuple[Array, Array]:
+    """
+    Mean and covariance of a Gaussian distribution, broadcast to its full shape.
+
+    :param Distribution d: ``MultivariateNormal`` or ``Independent(Normal, 1)``,
+        possibly wrapped in ``ExpandedDistribution``.
+    :return: ``loc`` of shape ``d.batch_shape + d.event_shape`` and
+        ``covariance`` of shape ``d.batch_shape + d.event_shape * 2``.
+    :rtype: tuple[Array, Array]
+    :raises TypeError: if ``d`` is not a supported Gaussian distribution.
+    """
+    diag = _diag_normal_params(d)
+    if diag is not None:
+        loc, scale = diag
+        return loc, jnp.eye(loc.shape[-1], dtype=loc.dtype) * (scale**2)[..., None]
+    loc, scale_tril = _mvn_params(d)
+    return loc, scale_tril @ _mt(scale_tril)
 
 
 def _sqrt_form(scale_tril: Array, loc: Array, matrix: Array) -> Gaussian:
