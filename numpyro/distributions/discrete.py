@@ -1237,8 +1237,9 @@ class MultinomialProbs(Distribution):
         r"""Draw count-vector samples from the Multinomial distribution.
 
         This method delegates to :func:`~numpyro.distributions.util.multinomial`,
-        which internally relies on :func:`~jax.random.categorical` to run the
-        :attr:`total_count` trials over the log-probabilities of :attr:`probs`.
+        which draws :attr:`total_count` category indices with
+        :func:`~numpyro.distributions.util.categorical` (an inverse-CDF sampler
+        over :attr:`probs`) and accumulates them into counts.
 
         :param key: A JAX random number generator key (PRNG state).
         :param sample_shape: Desired sample dimensions to prepend to the batch shape.
@@ -1395,8 +1396,10 @@ class MultinomialLogits(Distribution):
         r"""Draw count-vector samples from the Multinomial distribution.
 
         This method delegates to :func:`~numpyro.distributions.util.multinomial`,
-        which internally relies on :func:`~jax.random.categorical` to run the
-        :attr:`total_count` trials over :attr:`logits` directly.
+        which draws :attr:`total_count` category indices with
+        :func:`~numpyro.distributions.util.categorical` (an inverse-CDF sampler
+        over :attr:`probs`, the softmax of :attr:`logits`) and accumulates them
+        into counts.
 
         :param key: A JAX random number generator key (PRNG state).
         :param sample_shape: Desired sample dimensions to prepend to the batch shape.
