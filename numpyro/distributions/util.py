@@ -305,10 +305,13 @@ def cholesky_of_inverse(matrix):
     # which is more numerically stable.
     # Refer to:
     # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
+    matrix = jnp.asarray(matrix)
     tril_inv = jnp.swapaxes(
         jnp.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1
     )
-    identity = jnp.broadcast_to(jnp.identity(matrix.shape[-1]), tril_inv.shape)
+    identity = jnp.broadcast_to(
+        jnp.identity(matrix.shape[-1], dtype=matrix.dtype), tril_inv.shape
+    )
     return solve_triangular(tril_inv, identity, lower=True)
 
 
@@ -834,3 +837,66 @@ def add_diag(matrix: Array, diag: ArrayLike) -> Array:
     """
     idx = jnp.arange(matrix.shape[-1])
     return matrix.at[..., idx, idx].add(diag)
+
+
+CHOLESKY_RELATIVE_JITTER = 4.0
+"""Multiple of machine epsilon used by :func:`relative_jitter` and :func:`safe_cholesky`."""
+
+
+def relative_jitter(matrix: ArrayLike) -> Array:
+    """
+    Add a gradient-free relative jitter to the diagonal of a symmetric matrix.
+
+    The jitter is ``CHOLESKY_RELATIVE_JITTER * eps * abs(diagonal)``, so it is
+    at rounding level for every diagonal entry regardless of the off-diagonal
+    magnitude. A zero diagonal entry receives no jitter.
+
+    :param ArrayLike matrix: symmetric matrices of shape ``(..., n, n)``.
+    :return: ``matrix`` with the jitter added to each diagonal entry, where the
+        jitter is detached from the gradient.
+    :rtype: Array
+    """
+    matrix = jnp.asarray(matrix)
+    eps = jnp.asarray(
+        CHOLESKY_RELATIVE_JITTER * jnp.finfo(matrix.dtype).eps, matrix.dtype
+    )
+    diagonal = jnp.einsum("...ii->...i", matrix)
+    return add_diag(matrix, lax.stop_gradient(eps * jnp.abs(diagonal)))
+
+
+def jitter_if_singular(matrix: ArrayLike) -> Array:
+    """
+    Return ``matrix`` unchanged when its Cholesky factorization is finite,
+    otherwise :func:`relative_jitter` of it.
+
+    The probe factorization runs under ``stop_gradient`` and only selects
+    between the two candidates, so for a positive-definite input the result
+    and its gradient are bit-identical to the input.
+
+    :param ArrayLike matrix: symmetric matrices of shape ``(..., n, n)``.
+    :return: matrices of the same shape.
+    :rtype: Array
+    """
+    matrix = jnp.asarray(matrix)
+    probe = jnp.linalg.cholesky(lax.stop_gradient(matrix))
+    failed = jnp.isnan(probe).any(axis=(-2, -1), keepdims=True)
+    return jnp.where(failed, relative_jitter(matrix), matrix)
+
+
+def safe_cholesky(matrix: ArrayLike) -> Array:
+    """
+    Lower Cholesky factor that retries with a rounding-level diagonal jitter
+    when the plain factorization fails.
+
+    For positive-definite input the result equals
+    ``jnp.linalg.cholesky(matrix)`` exactly. Input that is only positive
+    semi-definite up to rounding is factorized after :func:`relative_jitter`.
+    Input that is indefinite beyond rounding, or has a zero diagonal entry,
+    yields ``nan`` for every ``n`` including ``n == 1``; callers see the
+    failure instead of a finite wrong factor.
+
+    :param ArrayLike matrix: symmetric matrices of shape ``(..., n, n)``.
+    :return: lower triangular factors.
+    :rtype: Array
+    """
+    return jnp.linalg.cholesky(jitter_if_singular(matrix))
