@@ -31,11 +31,26 @@ def _log_beta_1(alpha, value):
 
 
 class BetaBinomial(Distribution):
-    r"""
-    Compound distribution comprising of a beta-binomial pair. The probability of
-    success (``probs`` for the :class:`~numpyro.distributions.Binomial` distribution)
-    is unknown and randomly drawn from a :class:`~numpyro.distributions.Beta` distribution
-    prior to a certain number of Bernoulli trials given by ``total_count``.
+    r"""A Beta-Binomial compound distribution: the probability of success
+    (``probs`` for the :class:`~numpyro.distributions.Binomial` distribution)
+    is unknown and randomly drawn from a :class:`~numpyro.distributions.Beta`
+    distribution prior to a certain number of Bernoulli trials given by
+    ``total_count``. Marginalizing out the success probability yields a
+    discrete distribution on :math:`\{0, 1, \dots, n\}` that is useful for
+    modeling overdispersed binomial count data.
+
+    The Probability Mass Function (PMF) of the Beta-Binomial distribution is
+    defined as:
+
+    .. math::
+        P(X = k \mid \alpha, \beta, n) =
+        \binom{n}{k} \frac{\mathrm{B}(k + \alpha,\ n - k + \beta)}
+        {\mathrm{B}(\alpha, \beta)},
+        \quad k \in \{0, 1, \dots, n\}
+
+    where :math:`\alpha` is :attr:`concentration1`, :math:`\beta` is
+    :attr:`concentration0`, :math:`n` is :attr:`total_count`, and
+    :math:`\mathrm{B}` is the beta function.
 
     :param numpy.ndarray concentration1: 1st concentration parameter (alpha) for the
         Beta distribution.
@@ -75,6 +90,25 @@ class BetaBinomial(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        sampling procedure is:
+
+        .. math::
+            \begin{align*}
+                p &\sim \mathrm{Beta}(\alpha, \beta) \\
+                X \mid p &\sim \mathrm{Binomial}(n, p)
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Beta` to generate
+        samples from the Beta distribution and
+        :class:`~numpyro.distributions.discrete.BinomialProbs` to generate
+        samples from the Binomial distribution.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples in :math:`\{0, 1, \dots, n\}` drawn from
+            the Beta-Binomial distribution.
+        """
         assert key is not None
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
@@ -85,6 +119,22 @@ class BetaBinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        log probability mass function is:
+
+        .. math::
+            \ln P(X = k) =
+            \ln\Gamma(n + 1) - \ln\Gamma(k + 1) - \ln\Gamma(n - k + 1)
+            + \ln\mathrm{B}(k + \alpha,\ n - k + \beta)
+            - \ln\mathrm{B}(\alpha, \beta)
+
+        To ensure differentiability, the binomial coefficient is computed using
+        gamma functions, and the beta-function terms are evaluated with
+        :func:`~jax.scipy.special.betaln`.
+
+        :param value: Number of successes :math:`k \in \{0, 1, \dots, n\}` to score.
+        :return: Log probability scores evaluated under the Beta-Binomial PMF.
+        """
         return (
             -_log_beta_1(self.total_count - value + 1, value)
             + betaln(
@@ -96,10 +146,24 @@ class BetaBinomial(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        mean is:
+
+        .. math::
+            \mathbb{E}[X] = \frac{n\alpha}{\alpha + \beta}
+        """
         return self._beta.mean * self.total_count
 
     @property
     def variance(self) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        variance is:
+
+        .. math::
+            \mathrm{Var}[X] =
+            \frac{n\,\alpha\beta\,(\alpha + \beta + n)}
+            {(\alpha + \beta)^{2}\,(\alpha + \beta + 1)}
+        """
         return (
             self._beta.variance
             * self.total_count
@@ -108,6 +172,9 @@ class BetaBinomial(Distribution):
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> Constraint:
+        r"""The support of the Beta-Binomial distribution is the set of integers
+        :math:`\{0, 1, \dots, n\}`, where :math:`n` is :attr:`total_count`.
+        """
         return constraints.integer_interval(0, self.total_count)
 
 
@@ -247,12 +314,30 @@ class BetaNegativeBinomial(Distribution):
 
 
 class DirichletMultinomial(Distribution):
-    r"""
-    Compound distribution comprising of a dirichlet-multinomial pair. The probability of
-    classes (``probs`` for the :class:`~numpyro.distributions.Multinomial` distribution)
-    is unknown and randomly drawn from a :class:`~numpyro.distributions.Dirichlet`
+    r"""A Dirichlet-Multinomial compound distribution: the class probabilities
+    (``probs`` for the :class:`~numpyro.distributions.Multinomial` distribution)
+    are unknown and randomly drawn from a :class:`~numpyro.distributions.Dirichlet`
     distribution prior to a certain number of Categorical trials given by
-    ``total_count``.
+    ``total_count``. Marginalizing out the probability vector yields a discrete
+    distribution over count vectors that is useful for modeling overdispersed
+    multinomial count data.
+
+    The Probability Mass Function (PMF) of the Dirichlet-Multinomial
+    distribution is defined as:
+
+    .. math::
+        P(X = \mathbf{x} \mid \boldsymbol{\alpha}, n) =
+        \frac{n!}{\prod_{k=0}^{K-1} x_k!}
+        \frac{\mathrm{B}(\boldsymbol{\alpha} + \mathbf{x})}
+        {\mathrm{B}(\boldsymbol{\alpha})}
+
+    where :math:`\boldsymbol{\alpha} = (\alpha_0, \alpha_1, \dots, \alpha_{K-1})`
+    is the concentration vector (:attr:`concentration`), :math:`n` is the number
+    of trials (:attr:`total_count`),
+    :math:`\mathrm{B}(\boldsymbol{\alpha}) = \prod_k \Gamma(\alpha_k) /
+    \Gamma\!\bigl(\sum_k \alpha_k\bigr)` is the multivariate beta function, and
+    the count vector :math:`\mathbf{x}` satisfies
+    :math:`\sum_{k=0}^{K-1} x_k = n`.
 
     :param numpy.ndarray concentration: concentration parameter (alpha) for the
         Dirichlet distribution.
@@ -298,6 +383,26 @@ class DirichletMultinomial(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the sampling procedure is:
+
+        .. math::
+            \begin{align*}
+                \mathbf{p} &\sim \mathrm{Dirichlet}(\boldsymbol{\alpha}) \\
+                X \mid \mathbf{p} &\sim \mathrm{Multinomial}(n, \mathbf{p})
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Dirichlet` to generate
+        samples from the Dirichlet distribution and
+        :class:`~numpyro.distributions.discrete.MultinomialProbs` to generate
+        samples from the Multinomial distribution.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer count vectors :math:`\mathbf{x}` with
+            :math:`\sum_{k=0}^{K-1} x_k =` :attr:`total_count`, drawn from the
+            Dirichlet-Multinomial distribution.
+        """
         assert key is not None
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
@@ -310,6 +415,27 @@ class DirichletMultinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the log probability mass function is:
+
+        .. math::
+            \ln P(X = \mathbf{x}) =
+            \ln\Gamma(n + 1) + \ln\Gamma(A) - \ln\Gamma(n + A)
+            - \sum_{k=0}^{K-1} \left[
+                \ln\Gamma(x_k + 1) + \ln\Gamma(\alpha_k)
+                - \ln\Gamma(x_k + \alpha_k)
+            \right]
+
+        where :math:`n` is :attr:`total_count` and
+        :math:`A = \sum_{k=0}^{K-1} \alpha_k`. To ensure differentiability, the
+        factorial terms are computed using
+        :func:`~jax.scipy.special.gammaln`.
+
+        :param value: Count vector :math:`\mathbf{x}` whose last dimension has
+            size :math:`K` and sums to :attr:`total_count`.
+        :return: Log probability scores evaluated under the
+            Dirichlet-Multinomial PMF.
+        """
         alpha = self.concentration
         return _log_beta_1(jnp.sum(alpha, -1), jnp.sum(value, -1)) - jnp.sum(
             _log_beta_1(alpha, value), -1
@@ -317,10 +443,30 @@ class DirichletMultinomial(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the mean is:
+
+        .. math::
+            \mathbb{E}[X_k] = n\,\frac{\alpha_k}{A},
+            \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`A = \sum_{k=0}^{K-1} \alpha_k`.
+        """
         return self._dirichlet.mean * jnp.expand_dims(self.total_count, -1)
 
     @property
     def variance(self) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the variance is:
+
+        .. math::
+            \mathrm{Var}[X_k] =
+            n\,\frac{\alpha_k}{A}\left(1 - \frac{\alpha_k}{A}\right)
+            \frac{n + A}{1 + A},
+            \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`A = \sum_{k=0}^{K-1} \alpha_k`.
+        """
         n = jnp.expand_dims(self.total_count, -1)
         alpha = self.concentration
         alpha_sum = self.concentration.sum(-1, keepdims=True)
@@ -329,6 +475,10 @@ class DirichletMultinomial(Distribution):
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
     def support(self) -> Constraint:
+        r"""The support of the Dirichlet-Multinomial distribution is the set of
+        count vectors :math:`\mathbf{x} \in \{0, 1, \dots, n\}^K` whose entries
+        sum to :attr:`total_count` :math:`n`.
+        """
         return constraints.multinomial(self.total_count)
 
     @classmethod
