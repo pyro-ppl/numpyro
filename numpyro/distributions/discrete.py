@@ -1534,14 +1534,20 @@ def Multinomial(
 
 class Poisson(Distribution):
     r"""
-    Creates a Poisson distribution parameterized by rate, the rate parameter.
+    Creates a Poisson distribution parameterized by ``rate``, the rate parameter.
 
-    Samples are nonnegative integers, with a pmf given by
+    The Poisson distribution models the number of events occurring in a fixed
+    interval given a constant average rate :math:`\lambda > 0`. Samples are
+    nonnegative integers :math:`k \in \{0, 1, 2, \dots\}`, with a probability
+    mass function (PMF) given by
 
     .. math::
-      \mathrm{rate}^k \frac{e^{-\mathrm{rate}}}{k!}
+      P(X = k \mid \lambda) = \frac{\lambda^k e^{-\lambda}}{k!}
 
-    :param numpy.ndarray rate: The rate parameter
+    where :math:`\lambda` is the ``rate`` parameter. A defining property of the
+    distribution is that its mean and variance are both equal to :math:`\lambda`.
+
+    :param numpy.ndarray rate: The rate parameter :math:`\lambda \ge 0`.
     :param bool is_sparse: Whether to assume value is mostly zero when computing
         :meth:`log_prob`, which can speed up computation when data is sparse.
     """
@@ -1564,12 +1570,34 @@ class Poisson(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples from the Poisson distribution using
+        :func:`~jax.random.poisson`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Nonnegative integer samples of shape ``sample_shape + batch_shape``.
+        :rtype: Array
+        """
         assert is_prng_key(key)
         assert key is not None
         return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculate the log of the probability mass function.
+
+        .. math::
+            \log P(X = k \mid \lambda) = k \log \lambda - \log(k!) - \lambda
+
+        where :math:`\log(k!)` is evaluated as :math:`\log \Gamma(k + 1)` for
+        numerical stability. When ``is_sparse`` is set, entries with
+        :math:`k = 0` reduce to :math:`-\lambda` and only the nonzero entries
+        incur the full computation.
+
+        :param value: Values at which to evaluate the log PMF.
+        :return: Log probability mass.
+        :rtype: Array
+        """
         # Using an integer vs. floating-point `rate` leads to differing results.
         # To ensure consistent behavior, `rate` is explicitly cast to a floating-point type.
         # See: https://github.com/pyro-ppl/numpyro/issues/2181
@@ -1596,13 +1624,34 @@ class Poisson(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""Analytical mean of the Poisson distribution.
+
+        .. math:: E[X] = \lambda
+        """
         return jnp.asarray(self.rate)
 
     @property
     def variance(self) -> Array:
+        r"""Analytical variance of the Poisson distribution.
+
+        .. math:: \operatorname{Var}(X) = \lambda
+        """
         return jnp.asarray(self.rate)
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function evaluated at ``value``.
+
+        For a nonnegative integer :math:`k = \lfloor x \rfloor`, the CDF equals
+        the regularized upper incomplete gamma function
+
+        .. math::
+            P(X \le x) = Q(\lfloor x \rfloor + 1, \lambda)
+            = \frac{\Gamma(\lfloor x \rfloor + 1, \lambda)}{\lfloor x \rfloor !}
+
+        :param value: Value to evaluate.
+        :return: Cumulative probability.
+        :rtype: Array
+        """
         k = jnp.floor(value) + 1
         return gammaincc(k, self.rate)
 
