@@ -1571,7 +1571,7 @@ class Poisson(Distribution):
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
         r"""Draw samples from the Poisson distribution using
-        :func:`jax.random.poisson`.
+        :func:`~jax.random.poisson`.
 
         :param key: A JAX PRNG key.
         :param sample_shape: Sample dimensions to prepend to the batch shape.
