@@ -99,6 +99,39 @@ if TYPE_CHECKING:
 
 
 class AsymmetricLaplace(Distribution):
+    r"""Asymmetric Laplace distribution on :math:`\mathbb{R}` with location
+    :math:`\mu`, scale :math:`\sigma > 0` and asymmetry :math:`\kappa > 0`.
+    It generalizes :class:`Laplace` by using different exponential decay rates
+    on either side of the location: the left and right scales are
+    :math:`\sigma \kappa` and :math:`\sigma / \kappa`, so :math:`\kappa = 1`
+    recovers :class:`Laplace` while larger :math:`\kappa` puts more spread
+    (and more mass) below :math:`\mu`.
+
+    The Probability Density Function (PDF) of the Asymmetric Laplace
+    distribution is defined as:
+
+    .. math::
+        f(x \mid \mu, \sigma, \kappa) =
+        \frac{\kappa}{\sigma (1 + \kappa^2)}
+        \begin{cases}
+            \exp\bigl(-|x - \mu| / (\sigma \kappa)\bigr) & x < \mu, \\
+            \exp\bigl(-\kappa |x - \mu| / \sigma\bigr) & x \geq \mu,
+        \end{cases}
+
+    where :math:`\mu` is :attr:`loc` (the mode), :math:`\sigma` is
+    :attr:`scale` and :math:`\kappa` is :attr:`asymmetry`. The probability
+    mass below :math:`\mu` is :math:`\kappa^2 / (1 + \kappa^2)`, the mean is
+    :math:`\mu + \sigma (1 / \kappa - \kappa)` and the variance is
+    :math:`\sigma^2 (\kappa^2 + \kappa^{-2})`. A draw can be represented as
+    :math:`\mu - \sigma \kappa \, U + (\sigma / \kappa) \, V` with
+    independent :math:`U, V \sim \mathrm{Exponential}(1)`.
+
+    :param loc: Location :math:`\mu \in \mathbb{R}` (the mode). Defaults to ``0.0``.
+    :param scale: Scale :math:`\sigma > 0`. Defaults to ``1.0``.
+    :param asymmetry: Asymmetry :math:`\kappa > 0`; ``1.0`` gives the symmetric
+        Laplace distribution. Defaults to ``1.0``.
+    """
+
     arg_constraints = {
         "loc": constraints.real,
         "scale": constraints.positive,
@@ -2851,6 +2884,38 @@ def _batch_mahalanobis(bL, bx):
 
 
 class MultivariateNormal(Distribution):
+    r"""Multivariate normal (Gaussian) distribution on :math:`\mathbb{R}^d`
+    with mean vector :math:`\mu` and positive definite covariance matrix
+    :math:`\Sigma`. Exactly one of :attr:`covariance_matrix`,
+    :attr:`precision_matrix` (:math:`\Sigma^{-1}`) or :attr:`scale_tril` (the
+    lower Cholesky factor :math:`L` with :math:`\Sigma = L L^\top`) must be
+    specified; internally all three are represented by :attr:`scale_tril`.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, \Sigma) =
+        \frac{1}{(2 \pi)^{d/2} \, |\Sigma|^{1/2}}
+        \exp\Bigl(-\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)\Bigr),
+        \quad x \in \mathbb{R}^d
+
+    where :math:`d` is the event size. Samples are generated as
+    :math:`\mu + L z` with :math:`z \sim \mathrm{Normal}(0, I_d)`, and the
+    quadratic form and log determinant are evaluated from :math:`L` via
+    triangular solves.
+
+    :param loc: Mean vector :math:`\mu \in \mathbb{R}^d`. A scalar is promoted
+        to a vector of length 1. Defaults to ``0.0``.
+    :param covariance_matrix: Covariance matrix :math:`\Sigma` (positive
+        definite). Mutually exclusive with :attr:`precision_matrix` and
+        :attr:`scale_tril`.
+    :param precision_matrix: Precision matrix :math:`\Sigma^{-1}` (positive
+        definite).
+    :param scale_tril: Lower Cholesky factor :math:`L` of :math:`\Sigma`.
+    :param validate_args: If True, enforce domain constraints during
+        initialization.
+    """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "covariance_matrix": constraints.positive_definite,
@@ -3189,6 +3254,41 @@ class CAR(Distribution):
 
 
 class MultivariateStudentT(Distribution):
+    r"""Multivariate Student's t-distribution on :math:`\mathbb{R}^d` with
+    degrees of freedom :math:`\nu > 0`, location vector :math:`\mu` and
+    positive definite scale matrix :math:`\Sigma = L L^\top`, given by its
+    lower Cholesky factor :attr:`scale_tril`. It is the distribution of
+    :math:`\mu + L Z / \sqrt{V / \nu}` where
+    :math:`Z \sim \mathrm{Normal}(0, I_d)` is independent of
+    :math:`V \sim \chi^2(\nu)`; equivalently, a multivariate normal with a
+    shared :math:`\chi^2` scale mixture. As :math:`\nu \to \infty` it
+    approaches :class:`MultivariateNormal`, and :math:`\nu = 1` gives the
+    multivariate Cauchy distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \nu, \mu, \Sigma) =
+        \frac{\Gamma\bigl(\tfrac{\nu + d}{2}\bigr)}
+        {\Gamma\bigl(\tfrac{\nu}{2}\bigr) (\nu \pi)^{d/2} |\Sigma|^{1/2}}
+        \left(1 + \frac{1}{\nu} (x - \mu)^\top \Sigma^{-1}
+        (x - \mu)\right)^{-\frac{\nu + d}{2}},
+        \quad x \in \mathbb{R}^d
+
+    where :math:`d` is the event size. Note that :math:`\Sigma` is a scale
+    matrix, not the covariance: the covariance is
+    :math:`\frac{\nu}{\nu - 2} \Sigma` for :math:`\nu > 2`, and the mean
+    equals :math:`\mu` only for :math:`\nu > 1`.
+
+    :param df: Degrees of freedom :math:`\nu > 0`.
+    :param loc: Location vector :math:`\mu`. A scalar is promoted to a vector
+        of length 1. Defaults to ``0.0``.
+    :param scale_tril: Lower Cholesky factor :math:`L` of the scale matrix
+        :math:`\Sigma` (required).
+    :param validate_args: If True, enforce domain constraints during
+        initialization.
+    """
+
     arg_constraints = {
         "df": constraints.positive,
         "loc": constraints.real_vector,
@@ -4298,7 +4398,7 @@ class BetaProportion(Beta):
 
 
 class AsymmetricLaplaceQuantile(Distribution):
-    """An alternative parameterization of AsymmetricLaplace commonly applied in
+    r"""An alternative parameterization of AsymmetricLaplace commonly applied in
     Bayesian quantile regression.
 
     Instead of the `asymmetry` parameter employed by AsymmetricLaplace, to
@@ -4311,6 +4411,28 @@ class AsymmetricLaplaceQuantile(Distribution):
     AsymmetricLaplace. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
     is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
     equivalent to Laplace(0,2).
+
+    Equivalently, this is an :class:`AsymmetricLaplace` with asymmetry
+    :math:`\kappa = \sqrt{q / (1 - q)}` and scale
+    :math:`\sigma' = \sigma \kappa / q`, under which :attr:`loc` is exactly
+    the :math:`q`-th quantile. The Probability Density Function (PDF) is the
+    standard asymmetric-Laplace form used in Bayesian quantile regression [1]:
+
+    .. math::
+        f(x \mid \mu, \sigma, q) =
+        \frac{q (1 - q)}{\sigma}
+        \exp\Bigl(-\frac{\rho_q(x - \mu)}{\sigma}\Bigr),
+        \qquad
+        \rho_q(u) = u \bigl(q - \mathbb{1}[u < 0]\bigr),
+
+    where :math:`q` is :attr:`quantile`, so the density decays at rate
+    :math:`(1 - q) / \sigma` below :math:`\mu` and :math:`q / \sigma` above
+    it.
+
+    **References:**
+
+    1. Yu, K. and Moyeed, R. A. (2001). Bayesian quantile regression.
+       *Statistics & Probability Letters*, 54(4), 437-447.
     """
 
     arg_constraints = {
