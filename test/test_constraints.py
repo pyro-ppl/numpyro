@@ -18,6 +18,7 @@ SINGLETON_CONSTRAINTS = {
     "complex": constraints.complex,
     "corr_cholesky": constraints.corr_cholesky,
     "corr_matrix": constraints.corr_matrix,
+    "extended_real": constraints.extended_real,
     "l1_ball": constraints.l1_ball,
     "lower_cholesky": constraints.lower_cholesky,
     "scaled_unit_lower_cholesky": constraints.scaled_unit_lower_cholesky,
@@ -33,6 +34,7 @@ SINGLETON_CONSTRAINTS = {
     "real_vector": constraints.real_vector,
     "real_matrix": constraints.real_matrix,
     "simplex": constraints.simplex,
+    "softmax_logits": constraints.softmax_logits,
     "softplus_lower_cholesky": constraints.softplus_lower_cholesky,
     "softplus_positive": constraints.softplus_positive,
     "sphere": constraints.sphere,
@@ -188,3 +190,37 @@ def test_singleton_constraint_eq(constraint):
         return c1.eq(c2)
 
     assert check_constraints(constraint, constraint)
+
+
+def test_extended_real_admits_infinities():
+    x = jnp.array([-jnp.inf, -1.0, 0.0, 1.0, jnp.inf])
+    assert jnp.all(constraints.extended_real(x))
+    assert not constraints.extended_real(jnp.array(jnp.nan))
+    assert jnp.all(constraints.extended_real.feasible_like(x) == 0.0)
+
+
+def test_softmax_logits():
+    assert constraints.softmax_logits(jnp.array([-jnp.inf, 0.0]))
+    # +inf makes the softmax normalizer inf - inf, and an all -inf vector has no
+    # normalizer at all, so both are rejected.
+    assert not constraints.softmax_logits(jnp.array([jnp.inf, 0.0]))
+    assert not constraints.softmax_logits(jnp.array([-jnp.inf, -jnp.inf]))
+    assert not constraints.softmax_logits(jnp.array([jnp.nan, 0.0]))
+    assert not constraints.softmax_logits(jnp.array([0.0, jnp.nan]))
+
+
+def test_softmax_logits_is_checked_over_the_event_dimension():
+    batched = jnp.array([[-jnp.inf, 0.0], [jnp.inf, 0.0]])
+    assert constraints.softmax_logits.event_dim == 1
+    assert (constraints.softmax_logits(batched) == jnp.array([True, False])).all()
+
+
+def test_softmax_logits_accepts_list_and_numpy_input():
+    # Issue 2282 is reported with a Python list, and CategoricalLogits stores its
+    # logits verbatim, so the constraint sees the list.
+    assert constraints.softmax_logits([-float("inf"), 0.0])
+    assert not constraints.softmax_logits(np.array([np.inf, 0.0]))
+
+
+def test_softmax_logits_rejects_empty_event_dimension():
+    assert not jnp.any(constraints.softmax_logits(jnp.zeros((2, 0))))

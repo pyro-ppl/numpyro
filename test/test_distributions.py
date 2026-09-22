@@ -57,7 +57,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.nn import AutoregressiveNN
 
 
@@ -1365,6 +1365,10 @@ def gen_values_within_bounds(constraint, size, key=None):
         return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
     elif constraint in (constraints.real, constraints.real_vector):
         return random.normal(key, size)
+    elif constraint is constraints.extended_real:
+        return random.normal(key, size)
+    elif constraint is constraints.softmax_logits:
+        return random.normal(key, size)
     elif constraint is constraints.simplex:
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1])
     elif isinstance(constraint, constraints.multinomial):
@@ -1433,6 +1437,10 @@ def gen_values_outside_bounds(constraint, size, key=None):
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.0)
     elif constraint in [constraints.real, constraints.real_vector]:
         return lax.full(size, np.nan)
+    elif constraint is constraints.extended_real:
+        return lax.full(size, np.nan)
+    elif constraint is constraints.softmax_logits:
+        return lax.full(size, np.inf)
     elif constraint is constraints.simplex:
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints.multinomial):
@@ -1889,6 +1897,92 @@ def test_entropy_categorical_zero_probability():
     )
 
 
+def test_categorical_logits_negative_infinity():
+    # https://github.com/pyro-ppl/numpyro/issues/2282: a -inf logit is a zero
+    # probability category, which CategoricalProbs already accepts.
+    logits = jnp.array([-jnp.inf, 0.0])
+    d = dist.CategoricalLogits(logits)
+    assert_allclose(d.log_prob(jnp.array([0, 1])), jnp.array([-jnp.inf, 0.0]))
+    assert_allclose(d.probs, jnp.array([0.0, 1.0]))
+    assert (d.sample(random.key(0), (100,)) == 1).all()
+
+
+def test_categorical_logits_negative_infinity_in_model():
+    # The report is a model-level one, and the argument check is skipped under jit,
+    # so pin both paths.
+    logits = jnp.array([-jnp.inf, 0.0, 0.0])
+
+    def model():
+        numpyro.sample("x", dist.Categorical(logits=logits))
+
+    draws = Predictive(model, num_samples=200)(random.key(1))["x"]
+    assert (draws != 0).all()
+    value = jnp.array([0, 1])
+    jitted = jax.jit(lambda lg, v: dist.CategoricalLogits(lg).log_prob(v))
+    assert_allclose(
+        jitted(logits, value), dist.CategoricalLogits(logits).log_prob(value)
+    )
+    assert_allclose(jitted(logits, value), jnp.array([-jnp.inf, -jnp.log(2.0)]))
+
+
+@pytest.mark.parametrize(
+    "logits",
+    [
+        np.array([np.inf, 0.0]),
+        np.array([-np.inf, -np.inf]),
+        np.array([np.nan, 0.0]),
+    ],
+    ids=["plus_inf", "all_neg_inf", "nan"],
+)
+def test_categorical_logits_invalid(logits):
+    # Regression guard, not a TDD red test: these already raise today under
+    # real_vector, and must keep raising under softmax_logits.
+    with pytest.raises(ValueError, match="got invalid logits"):
+        dist.CategoricalLogits(logits)
+
+
+def test_entropy_categorical_zero_probability_logits():
+    # The logits counterpart of test_entropy_categorical_zero_probability.
+    probs = jnp.array([0.0, 0.25, 0.75])
+    logits = jnp.array([-jnp.inf, jnp.log(0.25), jnp.log(0.75)])
+    assert_allclose(
+        dist.CategoricalLogits(logits).entropy(),
+        osp.entropy(probs),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+
+def test_multinomial_logits_negative_infinity():
+    d = dist.MultinomialLogits(jnp.array([-jnp.inf, 0.0]), total_count=3)
+    assert_allclose(d.log_prob(jnp.array([0, 3])), 0.0, atol=1e-6)
+    assert d.log_prob(jnp.array([1, 2])) == -jnp.inf
+    assert (d.sample(random.key(0), (10,))[..., 0] == 0).all()
+
+
+@pytest.mark.parametrize(
+    "logits, prob", [(-jnp.inf, 0.0), (jnp.inf, 1.0)], ids=["neg_inf", "pos_inf"]
+)
+def test_bernoulli_logits_infinite(logits, prob):
+    # +-inf logits are p = 0 and p = 1, which BernoulliProbs already accepts.
+    d = dist.BernoulliLogits(jnp.array(logits))
+    assert_allclose(d.probs, prob)
+    assert_allclose(d.entropy(), 0.0)
+    assert_allclose(d.log_prob(jnp.array(prob)), 0.0)
+    assert d.log_prob(jnp.array(1.0 - prob)) == -jnp.inf
+    assert (d.sample(random.key(0), (50,)) == prob).all()
+
+
+@pytest.mark.parametrize(
+    "logits, certain_value", [(-jnp.inf, 0), (jnp.inf, 3)], ids=["neg_inf", "pos_inf"]
+)
+def test_binomial_logits_infinite(logits, certain_value):
+    d = dist.BinomialLogits(jnp.array(logits), total_count=3)
+    assert_allclose(d.log_prob(jnp.array(certain_value)), 0.0, atol=1e-6)
+    assert d.log_prob(jnp.array(3 - certain_value)) == -jnp.inf
+    assert (d.sample(random.key(0), (20,)) == certain_value).all()
+
+
 def test_mixture_log_prob():
     gmm = dist.MixtureSameFamily(
         dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
@@ -2057,7 +2151,9 @@ def test_zero_inflated_logits_probs_agree():
     zi_logits = dist.ZeroInflatedDistribution(d, gate_logits=gate_logits)
     zi_probs = dist.ZeroInflatedDistribution(d, gate=gate_probs)
     sample = np.random.randint(0, 20, (1000, 100))
-    assert_allclose(zi_probs.log_prob(sample), zi_logits.log_prob(sample))
+    # The two parameterizations are algebraically identical, so the only difference
+    # is float32 rounding; the default rtol of 1e-7 is below float32 epsilon.
+    assert_allclose(zi_probs.log_prob(sample), zi_logits.log_prob(sample), rtol=1e-6)
 
 
 @pytest.mark.parametrize("rate", [0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 10.0])
@@ -2210,6 +2306,60 @@ def test_negative_binomial_log_prob_gradient(distribution_type):
 def test_hurdle_negative_binomial_requires_positive_mean():
     with pytest.raises(ValueError, match="mean"):
         dist.HurdleNegativeBinomial2(0.4, 0.0, 1.0, validate_args=True)
+
+
+@pytest.mark.parametrize(
+    "logits, prob", [(-jnp.inf, 0.0), (jnp.inf, 1.0)], ids=["neg_inf", "pos_inf"]
+)
+def test_negative_binomial_logits_infinite(logits, prob):
+    # The probs parameterization is the oracle; note numpyro's probs is the failure
+    # probability, so probs = 1 is the improper endpoint.
+    d = dist.NegativeBinomialLogits(3.0, jnp.array(logits))
+    probs_d = dist.NegativeBinomialProbs(3.0, jnp.array(prob))
+    value = jnp.array([0.0, 1.0, 3.0])
+    assert_allclose(d.log_prob(value), probs_d.log_prob(value), atol=1e-6)
+    assert_allclose(d.mean, probs_d.mean)
+
+
+def test_gamma_poisson_rejects_zero_rate():
+    # The internal Gamma stops validating, so GammaPoisson's own constraint must be
+    # the thing that rejects a zero rate, with its own class name in the message.
+    with pytest.raises(ValueError, match="GammaPoisson distribution got invalid rate"):
+        dist.GammaPoisson(3.0, jnp.array(0.0))
+
+
+def test_geometric_probs_certain_success():
+    # p = 1 means the first trial succeeds, so zero failures has probability one.
+    d = dist.GeometricProbs(jnp.array(1.0))
+    assert_allclose(d.log_prob(jnp.array(0.0)), 0.0)
+    assert d.log_prob(jnp.array(1.0)) == -jnp.inf
+    assert_allclose(d.entropy(), 0.0)
+
+
+def test_geometric_probs_never_succeeds():
+    # p = 0 is an improper limit: no finite number of failures has any mass.
+    d = dist.GeometricProbs(jnp.array(0.0))
+    assert jnp.all(d.log_prob(jnp.array([0.0, 1.0, 3.0])) == -jnp.inf)
+    assert d.entropy() == jnp.inf
+
+
+def test_geometric_probs_certain_success_gradient():
+    # jnp.where must sanitize the input of log1p, not its output, or the
+    # reverse-mode gradient is nan at p = 1.
+    grad = jax.grad(lambda p: dist.GeometricProbs(p).log_prob(jnp.float32(0.0)))
+    assert jnp.isfinite(grad(jnp.float32(1.0)))
+    assert jnp.isfinite(jax.vmap(grad)(jnp.array([0.3, 1.0, 0.7]))).all()
+
+
+@pytest.mark.parametrize(
+    "logits, prob", [(-jnp.inf, 0.0), (jnp.inf, 1.0)], ids=["neg_inf", "pos_inf"]
+)
+def test_geometric_logits_infinite(logits, prob):
+    d = dist.GeometricLogits(jnp.array(logits))
+    probs_d = dist.GeometricProbs(jnp.array(prob))
+    value = jnp.array([0.0, 1.0, 3.0])
+    assert_allclose(d.log_prob(value), probs_d.log_prob(value))
+    assert_allclose(d.entropy(), probs_d.entropy())
 
 
 def test_gamma_poisson_mixed_finite_and_infinite_rates():
@@ -4658,6 +4808,40 @@ def test_truncated_cdf_edge_cases():
     assert jnp.all(two_sided_cdf >= 0.0) and jnp.all(two_sided_cdf <= 1.0)
 
 
+@pytest.mark.parametrize(
+    "bounds", [{"low": -jnp.inf}, {"high": jnp.inf}], ids=["low", "high"]
+)
+def test_truncated_normal_infinite_bound(bounds):
+    # An infinite bound truncates nothing, so the object must behave exactly like
+    # its base distribution.
+    base = dist.Normal(1.0, 2.0)
+    d = dist.TruncatedNormal(1.0, 2.0, **bounds)
+    value = jnp.array([-3.0, 0.0, 4.0])
+    assert_allclose(d.log_prob(value), base.log_prob(value), atol=1e-6)
+    assert_allclose(d.variance, base.variance, atol=1e-6)
+    assert_allclose(d.mean, base.mean, atol=1e-6)
+    # An unusable support turns a latent site into "Cannot find valid initial
+    # parameters", so pin that the transform is finite.
+    assert jnp.isfinite(biject_to(d.support)(jnp.array(0.5)))
+
+
+@pytest.mark.parametrize(
+    "bounds", [{"low": jnp.nan}, {"high": jnp.nan}], ids=["low", "high"]
+)
+def test_truncated_normal_nan_bound_rejected(bounds):
+    with pytest.raises(ValueError, match="got invalid"):
+        dist.TruncatedNormal(1.0, 2.0, **bounds)
+
+
+def test_truncated_normal_infinite_bound_in_mcmc():
+    def model():
+        numpyro.sample("x", dist.TruncatedNormal(0.0, 1.0, low=-jnp.inf))
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10, progress_bar=False)
+    mcmc.run(random.key(0))
+    assert jnp.isfinite(mcmc.get_samples()["x"]).all()
+
+
 @pytest.mark.parametrize("batch_shape", [(), (3,)])
 def test_truncated_cdf_batch_shapes(batch_shape):
     """Test that CDF works correctly with batch shapes."""
@@ -5367,6 +5551,30 @@ def test_poisson_dtype_consistency(rate, value):
         assert jnp.allclose(res, ref), (
             f"Inconsistent results for rate={rate}, value={value}: {results}"
         )
+
+
+@pytest.mark.parametrize(
+    "gate_logits, gate", [(-jnp.inf, 0.0), (jnp.inf, 1.0)], ids=["neg_inf", "pos_inf"]
+)
+def test_zero_inflated_logits_infinite(gate_logits, gate):
+    base = dist.Poisson(2.0)
+    value = jnp.array([0.0, 1.0, 3.0])
+    d = dist.ZeroInflatedLogits(base, jnp.array(gate_logits))
+    assert_allclose(
+        d.log_prob(value), dist.ZeroInflatedProbs(base, jnp.array(gate)).log_prob(value)
+    )
+
+
+@pytest.mark.parametrize(
+    "gate_logits, gate", [(-jnp.inf, 0.0), (jnp.inf, 1.0)], ids=["neg_inf", "pos_inf"]
+)
+def test_hurdle_logits_infinite(gate_logits, gate):
+    base = dist.Poisson(2.0)
+    value = jnp.array([0.0, 1.0, 3.0])
+    d = dist.HurdleLogits(base, jnp.array(gate_logits))
+    assert_allclose(
+        d.log_prob(value), dist.HurdleProbs(base, jnp.array(gate)).log_prob(value)
+    )
 
 
 _HURDLE_DISCRETE_CASES = [

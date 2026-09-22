@@ -5,6 +5,8 @@
 import math
 from typing import Callable, Optional, Union, cast
 
+import numpy as np
+
 import jax
 from jax import Array, lax
 import jax.numpy as jnp
@@ -31,11 +33,11 @@ from numpyro.distributions.util import (
     promote_shapes,
     validate_sample,
 )
-from numpyro.util import is_prng_key
+from numpyro.util import is_prng_key, not_jax_tracer
 
 
 class LeftTruncatedDistribution(Distribution):
-    arg_constraints = {"low": constraints.real}
+    arg_constraints = {"low": constraints.extended_real}
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "low", "_support")
@@ -60,7 +62,12 @@ class LeftTruncatedDistribution(Distribution):
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.low,) = promote_shapes(low, shape=batch_shape)
-        self._support = constraints.greater_than_eq(cast(NumLike, low))
+        # An infinite bound truncates nothing, and greater_than_eq(-inf) has a
+        # bijector that maps every unconstrained value to -inf.
+        if not_jax_tracer(low) and np.all(np.isneginf(np.asarray(low))):
+            self._support = constraints.real
+        else:
+            self._support = constraints.greater_than_eq(cast(NumLike, low))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -78,6 +85,14 @@ class LeftTruncatedDistribution(Distribution):
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
         return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
+
+    @lazy_property
+    def _prob_at_low(self):
+        # The density at an infinite bound is zero. Evaluating log_prob there would
+        # flag an out-of-support value and feed -inf * 0 = nan into the variance.
+        is_unbounded = jnp.isneginf(self.low)
+        safe_low = jnp.where(is_unbounded, self.base_dist.loc, self.low)
+        return jnp.where(is_unbounded, 0.0, jnp.exp(self.log_prob(safe_low)))
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -124,8 +139,7 @@ class LeftTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
-            return self.base_dist.loc + low_prob * self.base_dist.scale**2
+            return self.base_dist.loc + self._prob_at_low * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -134,10 +148,10 @@ class LeftTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
+            low_prob = self._prob_at_low
             return (self.base_dist.scale**2) * (
                 1
-                + (self.low - self.base_dist.loc) * low_prob
+                + jnp.where(low_prob > 0, self.low - self.base_dist.loc, 0.0) * low_prob
                 - (low_prob * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
@@ -147,7 +161,7 @@ class LeftTruncatedDistribution(Distribution):
 
 
 class RightTruncatedDistribution(Distribution):
-    arg_constraints = {"high": constraints.real}
+    arg_constraints = {"high": constraints.extended_real}
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "high", "_support")
@@ -172,7 +186,12 @@ class RightTruncatedDistribution(Distribution):
             Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
         ] = jax.tree.map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         (self.high,) = promote_shapes(high, shape=batch_shape)
-        self._support = constraints.less_than_eq(cast(NumLike, high))
+        # An infinite bound truncates nothing, and less_than_eq(inf) has a bijector
+        # that maps every unconstrained value to inf.
+        if not_jax_tracer(high) and np.all(np.isposinf(np.asarray(high))):
+            self._support = constraints.real
+        else:
+            self._support = constraints.less_than_eq(cast(NumLike, high))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -182,6 +201,14 @@ class RightTruncatedDistribution(Distribution):
     @lazy_property
     def _cdf_at_high(self) -> Array:
         return self.base_dist.cdf(self.high)
+
+    @lazy_property
+    def _prob_at_high(self):
+        # The density at an infinite bound is zero. Evaluating log_prob there would
+        # flag an out-of-support value and feed inf * 0 = nan into the variance.
+        is_unbounded = jnp.isposinf(self.high)
+        safe_high = jnp.where(is_unbounded, self.base_dist.loc, self.high)
+        return jnp.where(is_unbounded, 0.0, jnp.exp(self.log_prob(safe_high)))
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -221,8 +248,7 @@ class RightTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            high_prob = jnp.exp(self.log_prob(self.high))
-            return self.base_dist.loc - high_prob * self.base_dist.scale**2
+            return self.base_dist.loc - self._prob_at_high * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -231,10 +257,11 @@ class RightTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            high_prob = jnp.exp(self.log_prob(self.high))
+            high_prob = self._prob_at_high
             return (self.base_dist.scale**2) * (
                 1
-                - (self.high - self.base_dist.loc) * high_prob
+                - jnp.where(high_prob > 0, self.high - self.base_dist.loc, 0.0)
+                * high_prob
                 - (high_prob * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
