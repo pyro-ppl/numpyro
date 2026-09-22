@@ -1652,10 +1652,20 @@ class Gompertz(Distribution):
     However, we call the parameter "eta" a concentration parameter and the parameter
     "b" a rate parameter (as opposed to scale parameter as in wikipedia description.)
 
-    The CDF, in terms of `concentration` (`con`) and `rate`, is
+    The Probability Density Function (PDF), in terms of ``concentration``
+    (:math:`\eta > 0`) and ``rate`` (:math:`b > 0`), is
 
     .. math::
-        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{x * rate \} - 1 \right ] \right\}
+        f(x \mid \eta, b) = b\,\eta\,\exp\!\left(\eta + b x - \eta e^{b x}\right),
+        \quad x > 0
+
+    and the corresponding Cumulative Distribution Function (CDF) is
+
+    .. math::
+        F(x \mid \eta, b) = 1 - \exp\!\left\{ -\eta \left[ e^{b x} - 1 \right] \right\}
+
+    where :math:`\eta > 0` is the concentration (:attr:`concentration`) and
+    :math:`b > 0` is the rate (:attr:`rate`).
     """
 
     arg_constraints = {
@@ -1672,6 +1682,13 @@ class Gompertz(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param concentration: Concentration parameter :math:`\eta > 0` (called
+            ``eta`` in the Wikipedia entry). Broadcasts against ``rate``.
+        :param rate: Rate parameter :math:`b > 0` (called ``b`` in the Wikipedia
+            entry). Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.concentration, self.rate = promote_shapes(concentration, rate)
         super(Gompertz, self).__init__(
             batch_shape=lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate)),
@@ -1681,6 +1698,14 @@ class Gompertz(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Positive samples from the Gompertz distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         random_shape = sample_shape + self.batch_shape + self.event_shape
@@ -1689,6 +1714,15 @@ class Gompertz(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x \mid \eta, b) = \ln \eta + \ln b + b x
+            - \eta \left( e^{b x} - 1 \right)
+
+        :param value: Positive point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Gompertz distribution.
+        """
         scaled_value = value * self.rate
         return (
             jnp.log(self.concentration)
@@ -1698,13 +1732,39 @@ class Gompertz(Distribution):
         )
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Gompertz distribution:
+
+        .. math::
+            F(x \mid \eta, b) = 1 - \exp\!\left\{ -\eta \left( e^{b x} - 1 \right) \right\}
+
+        :param value: Positive point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a Gompertz random variable is at most ``value``.
+        """
         return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q \mid \eta, b) = \frac{1}{b}
+            \ln\!\left( 1 - \frac{\ln(1 - q)}{\eta} \right)
+
+        :param q: Quantile level :math:`q \in [0, 1)`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
         return jnp.log1p(-jnp.log1p(jnp.negative(q)) / self.concentration) / self.rate
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Gompertz distribution:
+
+        .. math::
+            \mathbb{E}[X] = -\frac{1}{b}\, e^{\eta}\, \mathrm{Ei}(-\eta)
+
+        where :math:`\mathrm{Ei}` is the exponential integral, evaluated with
+        :func:`~jax.scipy.special.expi`.
+        """
         return -jnp.exp(self.concentration) * expi(-self.concentration) / self.rate
 
 
