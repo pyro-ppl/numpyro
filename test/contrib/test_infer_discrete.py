@@ -539,3 +539,29 @@ def test_single_operation_indexing_of_enumerated_value(probs_fn):
         random.PRNGKey(0)
     )
     assert_allclose(float((draws["rain"] == 1).mean()), 0.4419, atol=0.02)
+
+
+def test_unrelated_key_error_is_not_relabelled(monkeypatch):
+    """An unrelated missing key must propagate, not be blamed on the model.
+
+    The KeyError comes from a dict lookup inside funsor, so without the check on
+    which key is missing this handler would attribute every such failure to
+    chained indexing.
+    """
+    import numpyro.contrib.funsor.discrete as discrete_mod
+
+    def boom(value, name_to_dim=None):
+        raise KeyError("something_else_entirely")
+
+    monkeypatch.setattr(discrete_mod.funsor, "to_data", boom)
+
+    def model():
+        numpyro.sample(
+            "z",
+            dist.Categorical(probs=jnp.array([0.5, 0.5])),
+            infer={"enumerate": "parallel"},
+        )
+        numpyro.sample("y", dist.Normal(0.0, 1.0), obs=0.0)
+
+    with pytest.raises(KeyError, match="something_else_entirely"):
+        infer.Predictive(model, num_samples=2, infer_discrete=True)(random.PRNGKey(0))
