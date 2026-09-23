@@ -1656,13 +1656,13 @@ class Gompertz(Distribution):
     (:math:`\eta > 0`) and ``rate`` (:math:`b > 0`), is
 
     .. math::
-        f(x \mid \eta, b) = b\,\eta\,\exp\!\left(\eta + b x - \eta e^{b x}\right),
+        f(x ; \eta, b) = b\,\eta\,\exp\!\left(\eta + b x - \eta e^{b x}\right),
         \quad x > 0
 
     and the corresponding Cumulative Distribution Function (CDF) is
 
     .. math::
-        F(x \mid \eta, b) = 1 - \exp\!\left\{ -\eta \left[ e^{b x} - 1 \right] \right\}
+        F(x ; \eta, b) = 1 - \exp\!\left\{ -\eta \left[ e^{b x} - 1 \right] \right\}
 
     where :math:`\eta > 0` is the concentration (:attr:`concentration`) and
     :math:`b > 0` is the rate (:attr:`rate`).
@@ -1717,7 +1717,7 @@ class Gompertz(Distribution):
         r"""Evaluate the log probability density function at ``value``.
 
         .. math::
-            \ln f(x \mid \eta, b) = \ln \eta + \ln b + b x
+            \ln f(x ; \eta, b) = \ln \eta + \ln b + b x
             - \eta \left( e^{b x} - 1 \right)
 
         :param value: Positive point :math:`x` at which to evaluate the log PDF.
@@ -1735,7 +1735,7 @@ class Gompertz(Distribution):
         r"""Cumulative Distribution Function (CDF) of the Gompertz distribution:
 
         .. math::
-            F(x \mid \eta, b) = 1 - \exp\!\left\{ -\eta \left( e^{b x} - 1 \right) \right\}
+            F(x ; \eta, b) = 1 - \exp\!\left\{ -\eta \left( e^{b x} - 1 \right) \right\}
 
         :param value: Positive point :math:`x` at which to evaluate the CDF.
         :return: Probability that a Gompertz random variable is at most ``value``.
@@ -1747,7 +1747,7 @@ class Gompertz(Distribution):
         the inverse of :meth:`cdf`:
 
         .. math::
-            F^{-1}(q \mid \eta, b) = \frac{1}{b}
+            F^{-1}(q ; \eta, b) = \frac{1}{b}
             \ln\!\left( 1 - \frac{\ln(1 - q)}{\eta} \right)
 
         :param q: Quantile level :math:`q \in [0, 1)`.
