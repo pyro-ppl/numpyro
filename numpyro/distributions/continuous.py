@@ -5743,6 +5743,38 @@ class CirculantNormal(TransformedDistribution):
 
 
 class Dagum(Distribution):
+    r"""Dagum distribution (also known as the Mielke Beta-Kappa distribution).
+
+    A continuous distribution with support on the positive real line, commonly
+    used to model income and wealth. This implementation follows the notation of
+    the Wikipedia entry, using :math:`p` for ``concentration``, :math:`a` for
+    ``sharpness`` and :math:`b` for ``scale``. See
+    https://en.wikipedia.org/wiki/Dagum_distribution.
+
+    The Probability Density Function (PDF), in terms of ``concentration``
+    (:math:`p > 0`), ``sharpness`` (:math:`a > 0`) and ``scale``
+    (:math:`b > 0`), is
+
+    .. math::
+        f(x ; p, a, b) = \frac{a p}{x}
+        \left(\frac{(x/b)^{a p}}{\left((x/b)^{a} + 1\right)^{p + 1}}\right),
+        \quad x > 0
+
+    and the corresponding Cumulative Distribution Function (CDF) is
+
+    .. math::
+        F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
+
+    where :math:`p > 0` is the concentration (:attr:`concentration`),
+    :math:`a > 0` is the sharpness (:attr:`sharpness`) and :math:`b > 0` is the
+    scale (:attr:`scale`).
+
+    **References:**
+
+    1. Wikipedia. (n.d.). Dagum distribution. Retrieved March 31, 2025, from
+       https://en.wikipedia.org/wiki/Dagum_distribution
+    """
+
     arg_constraints = {
         "concentration": constraints.positive,
         "sharpness": constraints.positive,
@@ -5759,20 +5791,15 @@ class Dagum(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        r"""The Dagum distribution (or Mielke Beta-Kappa distribution) is a continuous
-        probability distribution defined over positive real numbers. If :math:`p`,
-        :math:`a` and :math:`b` are concentration, sharpness and scale values respectively,
-        then Dagum distribution is defined as,
-
-        .. math::
-
-            f(x\mid p,a,b):=\frac{ap}{x}
-            \left(\frac{(x/b)^{ap}}{\left((x/b)^{a}+1\right)^{p+1}}\right)
-
-        **References:**
-
-        1. Wikipedia. (n.d.). Dagum distribution. Retrieved March 31, 2025, from
-           https://en.wikipedia.org/wiki/Dagum_distribution
+        r"""
+        :param concentration: Concentration parameter :math:`p > 0` (called
+            ``p`` in the Wikipedia entry).
+        :param sharpness: Sharpness parameter :math:`a > 0` (called ``a`` in the
+            Wikipedia entry).
+        :param scale: Scale parameter :math:`b > 0` (called ``b`` in the
+            Wikipedia entry).
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
         """
         self.concentration, self.sharpness, self.scale = promote_shapes(
             concentration, sharpness, scale
@@ -5784,6 +5811,16 @@ class Dagum(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; p, a, b) = \ln a + \ln p - \ln x
+            + a p \ln\left(\frac{x}{b}\right)
+            - (p + 1) \ln\!\left(\left(\frac{x}{b}\right)^{a} + 1\right)
+
+        :param value: Positive point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Dagum distribution.
+        """
         a_ln_x_m_ln_b = xlogy(self.sharpness, value) - xlogy(self.sharpness, self.scale)
         return (
             jnp.log(self.sharpness)
@@ -5794,6 +5831,14 @@ class Dagum(Distribution):
         )
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Dagum distribution:
+
+        .. math::
+            F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
+
+        :param value: Positive point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a Dagum random variable is at most ``value``.
+        """
         return jnp.exp(
             -self.concentration
             * nn.softplus(
@@ -5802,18 +5847,44 @@ class Dagum(Distribution):
         )
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; p, a, b) = b\,\left(q^{-1/p} - 1\right)^{-1/a}
+
+        :param q: Quantile level :math:`q \in (0, 1)`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
         q_root_p = jnp.power(q, -jnp.reciprocal(self.concentration))
         return self.scale * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.sharpness))
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> jnp.ndarray:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Positive samples from the Dagum distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         return self.icdf(random.uniform(key, shape=self.shape(sample_shape)))
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Dagum distribution, finite only when :math:`a > 1`:
+
+        .. math::
+            \mathbb{E}[X] = b\,p\,\mathrm{B}\!\left(1 - \frac{1}{a},\;
+            p + \frac{1}{a}\right), \quad a > 1
+
+        where :math:`\mathrm{B}` is the Beta function; the mean is
+        :math:`+\infty` when :math:`a \le 1`.
+        """
         safe_a = jnp.where(self.sharpness > 1.0, self.sharpness, 2.0)
         return jnp.where(
             self.sharpness > 1.0,
@@ -5824,6 +5895,16 @@ class Dagum(Distribution):
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Dagum distribution, finite only when :math:`a > 2`:
+
+        .. math::
+            \mathrm{Var}[X] = b^{2}\,p\,\mathrm{B}\!\left(1 - \frac{2}{a},\;
+            p + \frac{2}{a}\right) - \left(\mathbb{E}[X]\right)^{2},
+            \quad a > 2
+
+        where :math:`\mathrm{B}` is the Beta function; the variance is
+        :math:`+\infty` when :math:`a \le 2`.
+        """
         safe_a = jnp.where(self.sharpness > 2.0, self.sharpness, 3.0)
         return jnp.where(
             self.sharpness > 2.0,
