@@ -38,6 +38,32 @@ def _get_support_value_delta(funsor_dist, name, **kwargs):
     return OrderedDict(funsor_dist.terms)[name][0]
 
 
+def _unnamed_dims(value, name_to_dim):
+    """Dimensions of an enumerated value that have no entry in `name_to_dim`."""
+    return [k for k in getattr(value, "inputs", {}) if k not in name_to_dim]
+
+
+def _unnamed_dim_message(name, missing, unnamed, name_to_dim):
+    """Explain a `to_data` failure caused by an unnamed enumeration dimension.
+
+    `funsor.to_data` raises a bare ``KeyError`` naming an internal dimension such
+    as ``_pyro_dim_3``, which gives no indication of what in the model caused it.
+    The cause is indexing an enumerated value in a way that moves or adds a batch
+    dimension, so the resulting dimension cannot be matched back to the site.
+    """
+    return (
+        f"Could not match the enumerated value of site {name!r} back to its "
+        f"dimension: {missing!r} is not among the named dimensions {name_to_dim}. "
+        f"Unnamed dimensions: {unnamed}. This means the model indexed an enumerated"
+        " sample in a way that moved or added a batch dimension. Chained indexing is"
+        " the common case: an enumerated value carries a leading enumeration"
+        " dimension, so `table[i][j]` applies `[j]` to that dimension instead of the"
+        " one intended. Index in a single operation instead -- `table[i, j]` or"
+        " `Vindex(table)[i, j]` -- or address the trailing axes explicitly, as in"
+        " `table[i][..., j, :]`."
+    )
+
+
 def _sample_posterior(
     model, first_available_dim, temperature, rng_key, *args, **kwargs
 ):
@@ -73,9 +99,19 @@ def _sample_posterior(
         if node["infer"].get("enumerate") == "parallel":
             log_measure = approx_factors[log_measures[name]]
             value = _get_support_value(log_measure, name)
-            node["value"] = funsor.to_data(
-                value, name_to_dim=node["infer"]["name_to_dim"]
-            )
+            name_to_dim = node["infer"]["name_to_dim"]
+            try:
+                node["value"] = funsor.to_data(value, name_to_dim=name_to_dim)
+            except KeyError as e:
+                missing = e.args[0] if e.args else None
+                unnamed = _unnamed_dims(value, name_to_dim)
+                if missing not in unnamed:
+                    # some other missing key: leave it alone rather than blame
+                    # the model's indexing for an unrelated failure
+                    raise
+                raise ValueError(
+                    _unnamed_dim_message(name, missing, unnamed, name_to_dim)
+                ) from e
 
     data = {
         name: site["value"]

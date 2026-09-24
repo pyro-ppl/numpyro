@@ -15,6 +15,7 @@ from numpyro import handlers, infer
 from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.distributions.util import is_identically_one
+from numpyro.ops.indexing import Vindex
 
 # put all funsor-related imports here, so test collection works without funsor
 try:
@@ -469,3 +470,98 @@ def test_distribution_masked(temperature):
             log_prob_sum(conditioned_traces[1]) > log_prob_sum(conditioned_traces[0])
         ).astype(float)
     assert_allclose(actual_z_mean, expected_z_mean, atol=1e-2)
+
+
+# a two-parent conditional probability table; the second axis is the one the model
+# means to index, which is what makes the chained form silently wrong
+# NumPy at module level: conftest asserts no JAX arrays exist before the first test
+_CPT = np.array(
+    [
+        [[0.90, 0.10], [0.70, 0.30]],
+        [[0.40, 0.60], [0.05, 0.95]],
+    ]
+)
+
+
+def _chained_two_enumerated_parents():
+    rain = numpyro.sample(
+        "rain",
+        dist.Categorical(probs=jnp.array([0.8, 0.2])),
+        infer={"enumerate": "parallel"},
+    )
+    u = numpyro.sample(
+        "u",
+        dist.Categorical(probs=jnp.array([0.5, 0.5])),
+        infer={"enumerate": "parallel"},
+    )
+    table = jnp.asarray(_CPT)
+    numpyro.sample("wet", dist.Categorical(probs=table[rain][u]), obs=1)
+
+
+def test_chained_indexing_of_enumerated_value_raises_informatively():
+    """Chained indexing leaves a dimension funsor cannot match to the site.
+
+    It used to surface as a bare ``KeyError: '_pyro_dim_3'`` from inside funsor,
+    which said nothing about the model. See gh-2252.
+    """
+    with pytest.raises(ValueError, match="Chained indexing"):
+        infer.Predictive(
+            _chained_two_enumerated_parents, num_samples=4, infer_discrete=True
+        )(random.PRNGKey(0))
+
+
+@pytest.mark.parametrize(
+    "probs_fn",
+    [
+        lambda table, i, j: table[i, j],
+        lambda table, i, j: table[i][..., j, :],
+        lambda table, i, j: Vindex(table)[i, j],
+    ],
+    ids=["single_op", "explicit_ellipsis", "vindex"],
+)
+def test_single_operation_indexing_of_enumerated_value(probs_fn):
+    """The forms that keep the enumeration dimension addressable all agree.
+
+    Exact posterior for the table above with ``u = 1`` observed wet:
+    0.2 * 0.95 / (0.8 * 0.30 + 0.2 * 0.95) = 0.4419.
+    """
+
+    def model():
+        rain = numpyro.sample(
+            "rain",
+            dist.Categorical(probs=jnp.array([0.8, 0.2])),
+            infer={"enumerate": "parallel"},
+        )
+        table = jnp.asarray(_CPT)
+        numpyro.sample("wet", dist.Categorical(probs=probs_fn(table, rain, 1)), obs=1)
+
+    draws = infer.Predictive(model, num_samples=20000, infer_discrete=True)(
+        random.PRNGKey(0)
+    )
+    assert_allclose(float((draws["rain"] == 1).mean()), 0.4419, atol=0.02)
+
+
+def test_unrelated_key_error_is_not_relabelled(monkeypatch):
+    """An unrelated missing key must propagate, not be blamed on the model.
+
+    The KeyError comes from a dict lookup inside funsor, so without the check on
+    which key is missing this handler would attribute every such failure to
+    chained indexing.
+    """
+    import numpyro.contrib.funsor.discrete as discrete_mod
+
+    def boom(value, name_to_dim=None):
+        raise KeyError("something_else_entirely")
+
+    monkeypatch.setattr(discrete_mod.funsor, "to_data", boom)
+
+    def model():
+        numpyro.sample(
+            "z",
+            dist.Categorical(probs=jnp.array([0.5, 0.5])),
+            infer={"enumerate": "parallel"},
+        )
+        numpyro.sample("y", dist.Normal(0.0, 1.0), obs=0.0)
+
+    with pytest.raises(KeyError, match="something_else_entirely"):
+        infer.Predictive(model, num_samples=2, infer_discrete=True)(random.PRNGKey(0))
