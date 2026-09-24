@@ -176,9 +176,9 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 max-line-length = 120
 
 [tool.ruff.lint.per-file-ignores]
-"!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py,distributions/distribution.py}" = [
+"!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py,distributions/distribution.py,distributions/hmm.py,ops/gaussian.py}" = [
     "ANN",
-]                                                                                                                        # require type annotations in typed modules
+]                                                                                                                                                             # require type annotations in typed modules
 
 [tool.ruff.lint.extend-per-file-ignores]
 "numpyro/contrib/tfp/distributions.py" = ["F811"]
@@ -248,6 +248,7 @@ include = [
     "numpyro/infer/mcmc.py",
     "numpyro/infer/mixed_hmc.py",
     "numpyro/infer/util.py",
+    "numpyro/ops/gaussian.py",
     "numpyro/optim.py",
     "numpyro/patch.py",
     "numpyro/primitives.py",
