@@ -4069,10 +4069,16 @@ def RelaxedBernoulli(
 
 
 class SoftLaplace(Distribution):
-    """
-    Smooth distribution with Laplace-like tail behavior.
+    r"""Smooth distribution with Laplace-like tail behavior.
 
-    This distribution corresponds to the log-convex density::
+    The Probability Density Function (PDF), in terms of location
+    :math:`\mu \in \mathbb{R}` and scale :math:`\sigma > 0`, is
+
+    .. math::
+        f(x ; \mu, \sigma) = \frac{1}{\pi\,\sigma\,\cosh\!\left(\frac{x-\mu}{\sigma}\right)},
+        \quad x \in \mathbb{R}
+
+    which is the log-convex density::
 
         z = (value - loc) / scale
         log_prob = log(2 / pi) - log(scale) - logaddexp(z, -z)
@@ -4082,8 +4088,8 @@ class SoftLaplace(Distribution):
     distribution, this distribution is infinitely differentiable everywhere,
     and is thus suitable for HMC and Laplace approximation.
 
-    :param loc: Location parameter.
-    :param scale: Scale parameter.
+    :param loc: Location parameter :math:`\mu \in \mathbb{R}`.
+    :param scale: Scale parameter :math:`\sigma > 0`.
     """
 
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -4103,12 +4109,29 @@ class SoftLaplace(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; \mu, \sigma) = \ln\frac{2}{\pi} - \ln\sigma
+            - \ln\!\left(e^{z} + e^{-z}\right), \quad z = \frac{x-\mu}{\sigma}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the SoftLaplace distribution.
+        """
         z = (value - self.loc) / self.scale
         return jnp.log(2 / jnp.pi) - jnp.log(self.scale) - jnp.logaddexp(z, -z)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the SoftLaplace distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         dtype = jnp.result_type(float)
@@ -4119,18 +4142,48 @@ class SoftLaplace(Distribution):
 
     # TODO: refactor validate_sample to only does validation check and use it here
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the SoftLaplace distribution:
+
+        .. math::
+            F(x ; \mu, \sigma) = \frac{2}{\pi}\,\arctan\!\left(e^{z}\right),
+            \quad z = \frac{x-\mu}{\sigma}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a SoftLaplace random variable is at most ``value``.
+        """
         z = (value - self.loc) / self.scale
         return jnp.arctan(jnp.exp(z)) * (2 / jnp.pi)
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; \mu, \sigma) = \mu + \sigma\,
+            \ln\!\left(\tan\!\left(\frac{\pi q}{2}\right)\right)
+
+        :param q: Quantile level :math:`q \in [0, 1]`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
         return jnp.log(jnp.tan(q * (jnp.pi / 2))) * self.scale + self.loc
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the SoftLaplace distribution, equal to the location by symmetry:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.asarray(self.loc)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the SoftLaplace distribution:
+
+        .. math::
+            \mathrm{Var}[X] = \left(\frac{\pi \sigma}{2}\right)^{2}
+            = \frac{\pi^{2} \sigma^{2}}{4}
+        """
         return jnp.asarray((jnp.pi / 2 * self.scale) ** 2)
 
 
