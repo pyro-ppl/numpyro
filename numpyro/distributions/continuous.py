@@ -5763,7 +5763,7 @@ class Dagum(Distribution):
     and the corresponding Cumulative Distribution Function (CDF) is
 
     .. math::
-        F(x ; p, a, b) = \left(1 + (x/b)^{-a}\right)^{-p}
+        F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
 
     where :math:`p > 0` is the concentration (:attr:`concentration`),
     :math:`a > 0` is the sharpness (:attr:`sharpness`) and :math:`b > 0` is the
@@ -5815,7 +5815,8 @@ class Dagum(Distribution):
 
         .. math::
             \ln f(x ; p, a, b) = \ln a + \ln p - \ln x
-            + a p \ln(x/b) - (p + 1) \ln\!\left((x/b)^{a} + 1\right)
+            + a p \ln\left(\frac{x}{b}\right)
+            - (p + 1) \ln\!\left(\left(\frac{x}{b}\right)^{a} + 1\right)
 
         :param value: Positive point :math:`x` at which to evaluate the log PDF.
         :return: Log probability density evaluated under the Dagum distribution.
@@ -5833,7 +5834,7 @@ class Dagum(Distribution):
         r"""Cumulative Distribution Function (CDF) of the Dagum distribution:
 
         .. math::
-            F(x ; p, a, b) = \left(1 + (x/b)^{-a}\right)^{-p}
+            F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
 
         :param value: Positive point :math:`x` at which to evaluate the CDF.
         :return: Probability that a Dagum random variable is at most ``value``.
@@ -5878,8 +5879,8 @@ class Dagum(Distribution):
         r"""Mean of the Dagum distribution, finite only when :math:`a > 1`:
 
         .. math::
-            \mathbb{E}[X] = b\,p\,\mathrm{B}\!\left(1 - \tfrac{1}{a},\;
-            p + \tfrac{1}{a}\right), \quad a > 1
+            \mathbb{E}[X] = b\,p\,\mathrm{B}\!\left(1 - \frac{1}{a},\;
+            p + \frac{1}{a}\right), \quad a > 1
 
         where :math:`\mathrm{B}` is the Beta function; the mean is
         :math:`+\infty` when :math:`a \le 1`.
@@ -5897,8 +5898,8 @@ class Dagum(Distribution):
         r"""Variance of the Dagum distribution, finite only when :math:`a > 2`:
 
         .. math::
-            \mathrm{Var}[X] = b^{2}\,p\,\mathrm{B}\!\left(1 - \tfrac{2}{a},\;
-            p + \tfrac{2}{a}\right) - \left(\mathbb{E}[X]\right)^{2},
+            \mathrm{Var}[X] = b^{2}\,p\,\mathrm{B}\!\left(1 - \frac{2}{a},\;
+            p + \frac{2}{a}\right) - \left(\mathbb{E}[X]\right)^{2},
             \quad a > 2
 
         where :math:`\mathrm{B}` is the Beta function; the variance is
