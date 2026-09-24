@@ -34,6 +34,7 @@ __all__ = [
     "corr_cholesky",
     "corr_matrix",
     "dependent",
+    "extended_real",
     "greater_than",
     "greater_than_eq",
     "integer_interval",
@@ -57,6 +58,7 @@ __all__ = [
     "real_matrix",
     "scaled_unit_lower_cholesky",
     "simplex",
+    "softmax_logits",
     "sphere",
     "softplus_lower_cholesky",
     "softplus_positive",
@@ -891,6 +893,27 @@ class _Real(_SingletonConstraint[NumLike]):
         return jnp.zeros_like(prototype)
 
 
+class _ExtendedReal(_SingletonConstraint[NumLike]):
+    """
+    Constrain to the extended real line ``[-inf, inf]``: any value except NaN.
+
+    Use this for parameters whose link function has a well-defined limit at infinity,
+    such as the logits of a Bernoulli distribution (``sigmoid(-inf) == 0``) or the
+    bounds of a truncated distribution. Use :data:`real` instead for a distribution's
+    support and for location parameters, where an infinite value is a mistake.
+
+    This is a parameter domain with no registered bijector; it must not be used as a
+    distribution's ``support``.
+    """
+
+    def __call__(self, x: NumLike) -> ArrayLike:
+        xp = jnp if isinstance(x, jax.Array) else np
+        return xp.equal(x, x)
+
+    def feasible_like(self, prototype: NumLike) -> NumLike:
+        return jnp.zeros_like(prototype)
+
+
 class _Simplex(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
 
@@ -900,6 +923,36 @@ class _Simplex(_SingletonConstraint[NonScalarArray]):
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.full_like(prototype, 1 / prototype.shape[-1])
+
+
+class _SoftmaxLogits(_SingletonConstraint[NonScalarArray]):
+    """
+    Constrain to vectors whose softmax is well defined.
+
+    Entries equal to ``-inf`` are allowed and map to zero probability, matching the
+    boundary that :data:`simplex` already allows on the probability scale. A ``+inf``
+    entry is rejected because the softmax normalizer becomes ``inf - inf``, and an
+    all ``-inf`` vector is rejected because it has no normalizer.
+
+    This is a parameter domain with no registered bijector; it must not be used as a
+    distribution's ``support``.
+    """
+
+    event_dim = 1
+
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
+        xp = np if isinstance(x, (np.ndarray, np.generic)) else jnp
+        x = xp.asarray(x)
+        if jnp.ndim(x) < 1:
+            raise ValueError(f"Expected value.dim() >= 1 but got {jnp.ndim(x)}")
+        if x.shape[-1] == 0:
+            return xp.zeros(x.shape[:-1], dtype=bool)
+        # A NaN entry propagates through the maximum and fails both comparisons.
+        max_logit = xp.max(x, axis=-1)
+        return xp.greater(max_logit, -float("inf")) & xp.less(max_logit, float("inf"))
+
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
+        return jnp.zeros_like(prototype)
 
 
 class _SoftplusPositive(_SingletonConstraint[NumLike], _GreaterThan):
@@ -985,6 +1038,7 @@ complex = _Complex()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent: _Dependent = _Dependent()
+extended_real = _ExtendedReal()
 greater_than = _GreaterThan
 greater_than_eq = _GreaterThanEq
 less_than = _LessThan
@@ -1010,6 +1064,7 @@ real = _Real()
 real_vector = _RealVector()
 real_matrix = _RealMatrix()
 simplex = _Simplex()
+softmax_logits = _SoftmaxLogits()
 softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()

@@ -516,7 +516,10 @@ class GammaPoisson(Distribution):
         validate_args: Optional[bool] = None,
     ):
         self.concentration, self.rate = promote_shapes(concentration, rate)
-        self._gamma = Gamma(concentration, rate)
+        # The internal Gamma is an implementation detail. Validating it reports the
+        # wrong class name and rejects boundary parameters that the public
+        # NegativeBinomial parameterizations legitimately reach.
+        self._gamma = Gamma(concentration, rate, validate_args=False)
         super(GammaPoisson, self).__init__(
             self._gamma.batch_shape, validate_args=validate_args
         )
@@ -668,7 +671,7 @@ class NegativeBinomialLogits(GammaPoisson):
 
     arg_constraints = {
         "total_count": constraints.positive,
-        "logits": constraints.real,
+        "logits": constraints.extended_real,
     }
     support = constraints.nonnegative_integer
 
@@ -694,9 +697,11 @@ class NegativeBinomialLogits(GammaPoisson):
             - k \ln(1+\exp(-\mathrm{logits}(p)))
             - \ln\Gamma(1 + k) - \ln\Gamma(\alpha) + \ln\Gamma(k + \alpha)
         """
+        # A zero count contributes nothing even when softplus(-logits) is infinite.
+        log_1mp = jnp.where(value == 0, 0.0, nn.softplus(-self.logits))
         return -(
             self.total_count * nn.softplus(self.logits)
-            + value * nn.softplus(-self.logits)
+            + value * log_1mp
             + _log_beta_1(self.total_count, value)
         )
 
