@@ -228,6 +228,24 @@ def _flat_support_sizes(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray
     return np.concatenate([np.ravel(leaf) for leaf in jax.tree.leaves(sizes)])
 
 
+def _flat_support_lows(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray:
+    """Smallest support value of each flat coordinate, in :func:`ravel_pytree` leaf order.
+
+    The discrete proposals propose the indices `0, ..., support_size - 1`; this is the
+    offset from an index to a value, e.g. `low` for
+    :class:`~numpyro.distributions.DiscreteUniform`. Built with numpy, as
+    :func:`_flat_support_sizes`.
+    """
+    lows = {
+        name: np.broadcast_to(
+            np.asarray(getattr(model_trace[name]["fn"].support, "lower_bound", 0)),
+            jnp.shape(model_trace[name]["value"]),
+        )
+        for name in sites
+    }
+    return np.concatenate([np.ravel(leaf) for leaf in jax.tree.leaves(lows)])
+
+
 def subsample_plate_sizes(model_trace: TraceT) -> dict[str, tuple[int, int]]:
     """
     Subsample plates of a trace.
@@ -1037,6 +1055,37 @@ def select_discrete_proposal(random_walk: bool, modified: bool) -> ProposalFn:
     return _discrete_gibbs_proposal
 
 
+def _offset_proposal(
+    proposal_fn: ProposalFn, support_lows_flat: np.ndarray
+) -> ProposalFn:
+    """
+    Wrap `proposal_fn`, which proposes values in `0, ..., support_size - 1`, for supports
+    that start at `support_lows_flat` instead, such as `DiscreteUniform(low, high)`.
+    """
+    if not np.any(support_lows_flat):
+        return proposal_fn
+
+    def offset_proposal_fn(rng_key, z, pe, potential_fn, idx, support_size):
+        z_flat, unravel_fn = ravel_pytree(z)
+        lows = jnp.asarray(support_lows_flat, dtype=z_flat.dtype)
+
+        def shifted_potential_fn(z_shifted):
+            return potential_fn(unravel_fn(ravel_pytree(z_shifted)[0] + lows))
+
+        rng_key, z_new, pe_new, log_accept_ratio = proposal_fn(
+            rng_key,
+            unravel_fn(z_flat - lows),
+            pe,
+            shifted_potential_fn,
+            idx,
+            support_size,
+        )
+        z_new = unravel_fn(ravel_pytree(z_new)[0] + lows)
+        return rng_key, z_new, pe_new, log_accept_ratio
+
+    return offset_proposal_fn
+
+
 def discrete_gibbs_sweep(
     rng_key: jax.Array,
     z: SiteValues,
@@ -1133,6 +1182,7 @@ class DiscreteGibbs(MCMCKernel):
         # static metadata resolved at `init`
         self._sites: tuple[str, ...] | None = None
         self._support_sizes_flat: np.ndarray | None = None
+        self._support_lows_flat: np.ndarray | None = None
         self._enum = False
         # closes over trace values, rebuilt at every `init`
         self._prepared_model: ModelT | None = None
@@ -1195,6 +1245,7 @@ class DiscreteGibbs(MCMCKernel):
             )
         self._sites = sites
         self._support_sizes_flat = _flat_support_sizes(model_trace, sites)
+        self._support_lows_flat = _flat_support_lows(model_trace, sites)
         self._enum = any(
             site["type"] == "sample"
             and not site["is_observed"]
@@ -1218,6 +1269,9 @@ class DiscreteGibbs(MCMCKernel):
         model_kwargs: ModelKwargs | None,
     ) -> DiscreteGibbsState:
         """One :func:`~numpyro.infer.gibbs.discrete_gibbs_sweep` with the selected proposal."""
+        assert self._support_lows_flat is not None, (
+            "`init` must be called before `sample`."
+        )
         rng_key, key_sweep = random.split(state.rng_key)
         z, pe = discrete_gibbs_sweep(
             key_sweep,
@@ -1225,7 +1279,7 @@ class DiscreteGibbs(MCMCKernel):
             state.potential_energy,
             self.get_potential_fn(model_args, model_kwargs),
             jnp.asarray(self._support_sizes_flat),
-            self._proposal_fn,
+            _offset_proposal(self._proposal_fn, self._support_lows_flat),
         )
         return state._replace(z=z, potential_energy=pe, rng_key=rng_key)
 
@@ -1244,6 +1298,7 @@ class DiscreteGibbs(MCMCKernel):
         kernel._model = wrapper(self._model)
         kernel._sites = None
         kernel._support_sizes_flat = None
+        kernel._support_lows_flat = None
         kernel._prepared_model = None
         return kernel
 
