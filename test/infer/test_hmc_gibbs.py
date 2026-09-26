@@ -244,6 +244,34 @@ def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
 
 
+@pytest.mark.parametrize("random_walk", [False, True])
+@pytest.mark.parametrize(
+    "kernel, inner_kernel, kwargs",
+    [
+        (MixedHMC, HMC, {"num_discrete_updates": 6}),
+        (DiscreteHMCGibbs, NUTS, {"modified": True}),
+        (DiscreteHMCGibbs, NUTS, {"modified": False}),
+    ],
+)
+def test_discrete_gibbs_discrete_uniform(random_walk, kernel, inner_kernel, kwargs):
+    # the support {3, ..., 7} does not start at 0
+    obs = np.array([4.0, 6.5])
+
+    def model():
+        x = numpyro.sample("x", dist.DiscreteUniform(3, 7).expand([2]))
+        numpyro.sample("obs", dist.Normal(x, 1.0), obs=obs)
+
+    sampler = kernel(inner_kernel(model), random_walk=random_walk, **kwargs)
+    mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)
+    mcmc.run(random.key(0))
+    samples = mcmc.get_samples()["x"]
+    support = np.arange(3, 8)
+    log_weights = -0.5 * (obs[:, None] - support) ** 2
+    expected = np.exp(log_weights - np.logaddexp.reduce(log_weights, -1, keepdims=True))
+    actual = np.mean(np.asarray(samples)[:, :, None] == support, 0)
+    assert_allclose(actual, expected, atol=0.03)
+
+
 def test_improper_uniform():
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
