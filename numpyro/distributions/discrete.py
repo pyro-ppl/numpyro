@@ -1053,12 +1053,18 @@ class DiscreteUniform(Distribution):
         of the discrete uniform distribution.
 
         .. math::
-            F^{-1}(u) = a + u\,(b - a + 1) - 1, \quad u \in [0, 1]
+            F^{-1}(u) = a + \lceil u\,(b - a + 1) \rceil - 1, \quad u \in (0, 1]
+
+        that is, the smallest :math:`k \in \{a, \dots, b\}` with
+        :math:`F(k) \ge u`. :math:`u = 0` maps to :math:`a`.
 
         :param q: Quantile level(s) :math:`u \in [0, 1]`.
         :return: The inverse CDF evaluated at ``q``.
         """
-        return jnp.asarray(self.low + q * (self.high - self.low + 1) - 1)
+        value = self.low + jnp.ceil(q * (self.high - self.low + 1)) - 1
+        # q * (b - a + 1) can round up past an integer, e.g. 0.3 * 10
+        value = jnp.where(self.cdf(value - 1) >= q, value - 1, value)
+        return jnp.clip(value, self.low, self.high)
 
     @property
     def mean(self) -> Array:
