@@ -1361,6 +1361,34 @@ class FoldedDistribution(TransformedDistribution):
 
 
 class Delta(Distribution):
+    r"""
+    Degenerate distribution that places all of its mass on a single point
+    ``v``, optionally reweighted by an additive ``log_density`` term.
+
+    Writing :math:`v` for the support point and :math:`c` for the
+    ``log_density`` offset, the log density is
+
+    .. math::
+      \log p(x) = \log c + \begin{cases}
+        0 & \text{if } x = v, \\
+        -\infty & \text{otherwise,}
+      \end{cases}
+
+    so with the default ``log_density = 0`` the distribution reduces to the
+    Dirac delta :math:`\delta(x - v)`. The ``log_density`` term does not move
+    the support; it only shifts the log density by a constant, which is useful
+    for representing deterministic values while tracking an accompanying
+    log-weight (for example a change-of-variables Jacobian). When
+    ``event_dim > 0`` the trailing dimensions of ``v`` are treated as event
+    dimensions and the per-element indicators are summed over them.
+
+    :param numpy.ndarray v: The support point on which all mass is placed.
+    :param numpy.ndarray log_density: An additive offset applied to the log
+        density, broadcast to the batch shape.
+    :param int event_dim: The number of trailing dimensions of ``v`` to treat
+        as event dimensions.
+    """
+
     arg_constraints = {
         "v": constraints.dependent(is_discrete=False),
         "log_density": constraints.real,
@@ -1393,11 +1421,28 @@ class Delta(Distribution):
 
     @constraints.dependent_property
     def support(self) -> constraints.Constraint:
+        r"""Support of the distribution.
+
+        The support is the real line (extended to ``event_dim`` event
+        dimensions), even though all probability mass is concentrated at
+        ``v``.
+        """
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""Draw samples from the distribution.
+
+        Sampling is deterministic: every draw equals the support point
+        :math:`v`, broadcast to ``sample_shape + batch_shape + event_shape``.
+        The PRNG ``key`` is therefore unused.
+
+        :param key: A JAX PRNG key (unused).
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples that are all equal to ``v``.
+        :rtype: ArrayLike
+        """
         if not sample_shape:
             return self.v
         shape = sample_shape + self.batch_shape + self.event_shape
@@ -1405,19 +1450,52 @@ class Delta(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculate the log density.
+
+        .. math::
+            \log p(x) = \log c + \sum_{\text{event}} \begin{cases}
+              0 & \text{if } x = v, \\
+              -\infty & \text{otherwise,}
+            \end{cases}
+
+        where :math:`c` is ``log_density``. Elementwise indicators are summed
+        over the event dimensions before the ``log_density`` offset is added,
+        so any coordinate differing from ``v`` yields :math:`-\infty`.
+
+        :param value: Values at which to evaluate the log density.
+        :return: Log density.
+        :rtype: ArrayLike
+        """
         log_prob = jnp.where(value == self.v, 0, -jnp.inf)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the distribution.
+
+        .. math:: E[X] = v
+        """
         return jnp.asarray(self.v)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the distribution.
+
+        Because all mass sits on the single point ``v``, the variance is zero.
+
+        .. math:: \operatorname{Var}(X) = 0
+        """
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     def entropy(self) -> Array:
+        r"""Entropy of the distribution.
+
+        .. math:: H(X) = -\log c
+
+        where :math:`c` is ``log_density``; with the default
+        ``log_density = 0`` the point mass has zero entropy.
+        """
         return -jnp.broadcast_to(self.log_density, self.batch_shape)
 
 
