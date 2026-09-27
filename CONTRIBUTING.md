@@ -27,6 +27,14 @@ uv sync --extra cpu --group dev --group test --group docs --group examples
 For CUDA support, replace `--extra cpu` with `--extra cuda12` or
 `--extra cuda13`, as appropriate for your CUDA version.
 
+If you prefer `pip`, the same dependency groups install with pip 25.1 or newer
+(run the commands below without the `uv run` prefix):
+
+```sh
+pip install -e '.[cpu]' --group dev --group test
+# add --group docs --group examples for the documentation and examples dependencies
+```
+
 For running `uv run make doctest`, [install pandoc](https://pandoc.org/installing.html).
 
 # Testing
