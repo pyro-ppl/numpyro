@@ -91,7 +91,7 @@ def AutoregressiveNN(
         autoregressive factorization. in particular for the identity permutation the autoregressive structure
         is such that the Jacobian is triangular. Defaults to identity permutation.
     :type permutation: array of ints
-    :param bool skip_connection: whether to add skip connections from the input to the output.
+    :param skip_connections: whether to add skip connections from the input to the output.
     :type skip_connections: bool
     :param nonlinearity: The nonlinearity to use in the feedforward network such as ReLU. Note that no
         nonlinearity is applied to the final network output, so the output is an unbounded real number.
