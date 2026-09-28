@@ -4075,7 +4075,7 @@ class SoftLaplace(Distribution):
     :math:`\mu \in \mathbb{R}` and scale :math:`\sigma > 0`, is
 
     .. math::
-        f(x ; \mu, \sigma) = \frac{1}{\pi\,\sigma\,\cosh\!\left(\frac{x-\mu}{\sigma}\right)},
+        f(x ; \mu, \sigma) = \frac{1}{\pi\,\sigma\,\cosh\!\left(\displaystyle\frac{x-\mu}{\sigma}\right)},
         \quad x \in \mathbb{R}
 
     which is the log-convex density::
@@ -4112,8 +4112,8 @@ class SoftLaplace(Distribution):
         r"""Evaluate the log probability density function at ``value``.
 
         .. math::
-            \ln f(x ; \mu, \sigma) = \ln\frac{2}{\pi} - \ln\sigma
-            - \ln\!\left(e^{z} + e^{-z}\right), \quad z = \frac{x-\mu}{\sigma}
+            \log f(x ; \mu, \sigma) = \log\frac{2}{\pi} - \log\sigma
+            - \log\!\left(e^{z} + e^{-z}\right), \quad z = \frac{x-\mu}{\sigma}
 
         :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
         :return: Log probability density evaluated under the SoftLaplace distribution.
@@ -4160,7 +4160,7 @@ class SoftLaplace(Distribution):
 
         .. math::
             F^{-1}(q ; \mu, \sigma) = \mu + \sigma\,
-            \ln\!\left(\tan\!\left(\frac{\pi q}{2}\right)\right)
+            \log\!\left(\tan\!\left(\frac{\pi q}{2}\right)\right)
 
         :param q: Quantile level :math:`q \in [0, 1]`.
         :return: The value :math:`x` such that :math:`F(x) = q`.
@@ -4182,7 +4182,6 @@ class SoftLaplace(Distribution):
 
         .. math::
             \mathrm{Var}[X] = \left(\frac{\pi \sigma}{2}\right)^{2}
-            = \frac{\pi^{2} \sigma^{2}}{4}
         """
         return jnp.asarray((jnp.pi / 2 * self.scale) ** 2)
 
