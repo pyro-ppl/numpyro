@@ -24,7 +24,7 @@ def _safe_map(f, *args):
 
 def eval_provenance(fn, **kwargs):
     """
-    Compute the provenance output of ``fun`` using JAX's abstract
+    Compute the provenance output of ``fn`` using JAX's abstract
     interpretation machinery. There is no actual array computation performed.
 
     Example::
@@ -39,8 +39,8 @@ def eval_provenance(fn, **kwargs):
         http://papers.neurips.cc/paper/4309-nonstandard-interpretations-of-probabilistic-programs-for-efficient-inference.pdf
     [2] https://jax.readthedocs.io/en/latest/notebooks/Writing_custom_interpreters_in_Jax.html
 
-    :param fun: A callable to track provenance of its (keyword) arguments.
-    :param kwargs: Keyword arguments of `fun`.
+    :param fn: A callable to track provenance of its (keyword) arguments.
+    :param kwargs: Keyword arguments of `fn`.
     :returns: A pytree of :class:`frozenset` indicating the dependency on the inputs.
     """
     # Flatten the function and its arguments
