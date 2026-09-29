@@ -766,8 +766,11 @@ def multidigamma(a: ArrayLike, d: ArrayLike) -> Array:
 def tri_logabsdet(a: ArrayLike) -> Array:
     """
     Evaluate the `logabsdet` of a triangular positive-definite matrix.
+
+    The diagonal is read with a masked reduction (``einsum("...ii->...i")``)
+    rather than :func:`jax.numpy.diagonal`, which lowers to a gather.
     """
-    return jnp.log(jnp.diagonal(a, axis1=-1, axis2=-2)).sum(axis=-1)
+    return jnp.log(jnp.einsum("...ii->...i", a)).sum(axis=-1)
 
 
 # The is sourced from: torch.distributions.util.py

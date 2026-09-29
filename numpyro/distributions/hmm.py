@@ -36,7 +36,7 @@ from numpyro.distributions.distribution import (
     _peel_event,
 )
 from numpyro.distributions.transforms import Transform
-from numpyro.distributions.util import validate_sample
+from numpyro.distributions.util import tri_logabsdet, validate_sample
 from numpyro.ops.gamma_gaussian import (
     GammaGaussian,
     gamma_and_mvn_to_gamma_gaussian,
@@ -47,6 +47,8 @@ from numpyro.ops.gamma_gaussian import (
 from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
+    _mt,
+    _mv,
     _type_name,
     gaussian_tensordot,
     loc_and_scale_tril,
@@ -97,44 +99,28 @@ class _Step(_Shaped, Protocol[Z]):
     def __add__(self, other: Z) -> Z: ...
 
 
-def _with_batch_rank(factor: F, rank: int) -> F:
-    missing = rank - len(factor.batch_shape)
-    return (
-        factor.reshape((1,) * missing + factor.batch_shape) if missing > 0 else factor
-    )
-
-
-def _align(init: F, trans: S, obs: S) -> tuple[F, S, S]:
-    """
-    Insert leading singleton batch axes so ``init`` has rank ``r`` and the
-    per-step factors rank ``r + 1``.
-    """
-    rank = max(
-        len(init.batch_shape), len(trans.batch_shape) - 1, len(obs.batch_shape) - 1
-    )
-    return (
-        _with_batch_rank(init, rank),
-        _with_batch_rank(trans, rank + 1),
-        _with_batch_rank(obs, rank + 1),
-    )
-
-
 def _vmap_leading(fn: Callable, ndim: int) -> Callable:
     for _ in range(ndim):
         fn = jax.vmap(fn)
     return fn
 
 
-def _as_float(matrix: ArrayLike) -> Array:
+def _broadcast_time(
+    shapes: Sequence[tuple[int, ...]], num_steps: Optional[int]
+) -> tuple[tuple[int, ...], int, int]:
     """
-    Convert ``matrix`` to an array, promoting integer input to the default
-    float dtype and leaving float dtypes untouched.
+    Broadcast per-step batch shapes, whose rightmost axis is time, and resolve
+    the number of steps.
+
+    :param shapes: batch shapes of the per-step parameters; a time-homogeneous
+        parameter contributes a trailing axis of size 1.
+    :param Optional[int] num_steps: requested length of the time axis.
+    :return: ``(batch_shape, time, num_steps)`` where ``time`` is the size of
+        the parameters' time axis (1 when every parameter is homogeneous).
+    :rtype: tuple[tuple[int, ...], int, int]
+    :raises ValueError: if the shapes do not broadcast, or ``num_steps`` is
+        missing or conflicts with ``time``.
     """
-    matrix = jnp.asarray(matrix)
-    return matrix.astype(jnp.result_type(matrix.dtype, float))
-
-
-def _time_shape(*shapes: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
     try:
         shape = lax.broadcast_shapes(*shapes)
     except ValueError as e:
@@ -143,10 +129,7 @@ def _time_shape(*shapes: tuple[int, ...]) -> tuple[tuple[int, ...], int]:
             "the per-step time axis sizes are "
             f"{[s[-1] if s else 1 for s in shapes]}"
         ) from e
-    return shape[:-1], shape[-1]
-
-
-def _resolve_num_steps(time: int, num_steps: Optional[int]) -> int:
+    batch_shape, time = shape[:-1], shape[-1]
     if num_steps is not None:
         num_steps = operator.index(num_steps)
     if time == 1:
@@ -163,29 +146,52 @@ def _resolve_num_steps(time: int, num_steps: Optional[int]) -> int:
         num_steps = time
     if num_steps < 1:
         raise ValueError("num_steps must be a positive integer")
-    return num_steps
+    return batch_shape, time, num_steps
 
 
-def _check_event_shapes(
+def _resolve_layout(
     initial_dist: Distribution,
-    transition_matrix: Array,
+    transition_matrix: ArrayLike,
     transition_dist: Distribution,
-    observation_matrix: Array,
+    observation_matrix: ArrayLike,
     observation_dist: Distribution,
-) -> None:
+    num_steps: Optional[int],
+    *,
+    extra_batch_shapes: Sequence[tuple[int, ...]] = (),
+) -> tuple[Array, Array, tuple[int, ...], int, int]:
     """
-    Check that the matrices and noise distributions agree on ``hidden_dim``
-    and ``obs_dim``.
+    Constructor prologue shared by the matrix-parameterized models: coerce the
+    matrices to float, check that they agree with the noise distributions on
+    ``hidden_dim`` and ``obs_dim``, broadcast the batch shapes and resolve the
+    number of steps.
 
     :param Distribution initial_dist: distribution over ``z_0``.
-    :param Array transition_matrix: shape ``(..., hidden_dim, hidden_dim)``.
+    :param ArrayLike transition_matrix: shape ``(..., hidden_dim, hidden_dim)``.
     :param Distribution transition_dist: process noise with
         ``event_shape == (hidden_dim,)``.
-    :param Array observation_matrix: shape ``(..., obs_dim, hidden_dim)``.
+    :param ArrayLike observation_matrix: shape ``(..., obs_dim, hidden_dim)``.
     :param Distribution observation_dist: observation noise with
         ``event_shape == (obs_dim,)``.
-    :raises ValueError: if any shape disagrees with ``observation_matrix``.
+    :param Optional[int] num_steps: requested length of the time axis.
+    :param Sequence[tuple[int, ...]] extra_batch_shapes: batch shapes of
+        additional time-homogeneous parameters (such as a shared scale prior)
+        that must broadcast with the others.
+    :return: ``(transition_matrix, observation_matrix, batch_shape, time,
+        num_steps)``: the matrices as float arrays (integer input is promoted
+        to the default float dtype), the broadcast batch shape, and ``time``,
+        the size of the parameters' time axis (1 when every parameter is
+        homogeneous).
+    :rtype: tuple[Array, Array, tuple[int, ...], int, int]
+    :raises ValueError: if event shapes disagree, the batch shapes do not
+        broadcast, or ``num_steps`` is missing or conflicts with ``time``.
     """
+
+    def as_float(matrix: ArrayLike) -> Array:
+        matrix = jnp.asarray(matrix)
+        return matrix.astype(jnp.result_type(matrix.dtype, float))
+
+    transition_matrix = as_float(transition_matrix)
+    observation_matrix = as_float(observation_matrix)
     obs_dim, hidden_dim = observation_matrix.shape[-2:]
     if transition_matrix.shape[-2:] != (hidden_dim, hidden_dim):
         raise ValueError(
@@ -200,66 +206,18 @@ def _check_event_shapes(
             raise ValueError(
                 f"{name} must have event_shape {expected}, got {tuple(d.event_shape)}"
             )
-
-
-def _resolve_layout(
-    initial_dist: Distribution,
-    transition_matrix: Array,
-    transition_dist: Distribution,
-    observation_matrix: Array,
-    observation_dist: Distribution,
-    num_steps: Optional[int],
-    *,
-    extra_batch_shapes: Sequence[tuple[int, ...]] = (),
-) -> tuple[tuple[int, ...], int, int]:
-    """
-    Validate event shapes and broadcast the parameters' batch shapes.
-
-    :param Distribution initial_dist: distribution over ``z_0``.
-    :param Array transition_matrix: shape ``(..., hidden_dim, hidden_dim)``.
-    :param Distribution transition_dist: process noise with
-        ``event_shape == (hidden_dim,)``.
-    :param Array observation_matrix: shape ``(..., obs_dim, hidden_dim)``.
-    :param Distribution observation_dist: observation noise with
-        ``event_shape == (obs_dim,)``.
-    :param Optional[int] num_steps: requested length of the time axis.
-    :param Sequence[tuple[int, ...]] extra_batch_shapes: batch shapes of
-        additional time-homogeneous parameters (such as a shared scale prior)
-        that must broadcast with the others.
-    :return: ``(batch_shape, time, num_steps)`` where ``time`` is the size of
-        the parameters' time axis (1 when every parameter is homogeneous).
-    :rtype: tuple[tuple[int, ...], int, int]
-    :raises ValueError: if event shapes disagree, the batch shapes do not
-        broadcast, or ``num_steps`` is missing or conflicts with ``time``.
-    """
-    _check_event_shapes(
-        initial_dist,
-        transition_matrix,
-        transition_dist,
-        observation_matrix,
-        observation_dist,
+    batch_shape, time, num_steps = _broadcast_time(
+        (
+            tuple(initial_dist.batch_shape) + (1,),
+            transition_matrix.shape[:-2],
+            tuple(transition_dist.batch_shape),
+            observation_matrix.shape[:-2],
+            tuple(observation_dist.batch_shape),
+            *(tuple(shape) + (1,) for shape in extra_batch_shapes),
+        ),
+        num_steps,
     )
-    batch_shape, time = _time_shape(
-        tuple(initial_dist.batch_shape) + (1,),
-        transition_matrix.shape[:-2],
-        tuple(transition_dist.batch_shape),
-        observation_matrix.shape[:-2],
-        tuple(observation_dist.batch_shape),
-        *(tuple(shape) + (1,) for shape in extra_batch_shapes),
-    )
-    return batch_shape, time, _resolve_num_steps(time, num_steps)
-
-
-def _check_expand(old: tuple[int, ...], new: Sequence[int]) -> tuple[int, ...]:
-    """Return ``new`` as a tuple if ``old`` broadcasts to exactly it."""
-    new = tuple(new)
-    try:
-        full = lax.broadcast_shapes(old, new)
-    except ValueError:
-        full = None
-    if full != new:
-        raise ValueError(f"Cannot broadcast distribution of shape {old} to shape {new}")
-    return new
+    return transition_matrix, observation_matrix, batch_shape, time, num_steps
 
 
 @jax.tree_util.register_dataclass
@@ -326,70 +284,6 @@ class _Moments:
             self.d[..., sl, :],
             self.R[..., sl, :, :],
         )
-
-
-def _kalman_filter(
-    m: _Moments, value: Array, num_steps: int
-) -> tuple[Array, Array, Array]:
-    """
-    Covariance-form Kalman filter over ``value`` of shape
-    ``batch_shape + (num_steps, obs_dim)``.
-
-    :return: ``(log_prob, loc_T, cov_T)`` with shapes ``batch_shape``,
-        ``batch_shape + (hidden_dim,)`` and
-        ``batch_shape + (hidden_dim, hidden_dim)``.
-    :rtype: tuple[Array, Array, Array]
-    """
-    batch_shape = value.shape[:-2]
-    obs_dim = value.shape[-1]
-    hidden_dim = m.loc0.shape[-1]
-
-    def per_step(x: Array, k: int) -> Array:
-        x = jnp.broadcast_to(x, batch_shape + (num_steps,) + x.shape[x.ndim - k + 1 :])
-        return jnp.moveaxis(x, len(batch_shape), 0)
-
-    mv = lambda M, v: jnp.einsum("...ij,...j->...i", M, v)  # noqa: E731
-    mm = lambda X, Y: jnp.matmul(X, Y)  # noqa: E731
-    mt = lambda X: jnp.swapaxes(X, -1, -2)  # noqa: E731
-    xs = (
-        per_step(m.A, 3),
-        per_step(m.b, 2),
-        per_step(m.Q, 3),
-        per_step(m.C, 3),
-        per_step(m.d, 2),
-        per_step(m.R, 3),
-        jnp.moveaxis(value, len(batch_shape), 0),
-    )
-    loc0 = jnp.broadcast_to(m.loc0, batch_shape + (hidden_dim,))
-    cov0 = jnp.broadcast_to(m.cov0, batch_shape + (hidden_dim, hidden_dim))
-
-    def step(
-        carry: tuple[Array, Array], inputs: tuple[Array, ...]
-    ) -> tuple[tuple[Array, Array], Array]:
-        loc, cov = carry
-        A, b, Q, C, d, R, x = inputs
-        loc_pred = mv(A, loc) + b
-        cov_pred = mm(mm(A, cov), mt(A)) + Q
-        S = mm(mm(C, cov_pred), mt(C)) + R
-        L = jnp.linalg.cholesky(S)
-        r = x - mv(C, loc_pred) - d
-        u = solve_triangular(L, r[..., None], lower=True)[..., 0]
-        ll = (
-            -0.5 * (u * u).sum(-1)
-            - jnp.log(jnp.einsum("...ii->...i", L)).sum(-1)
-            - 0.5 * obs_dim * math.log(2 * math.pi)
-        )
-        K = mt(cho_solve((L, True), mm(C, cov_pred)))
-        loc_new = loc_pred + mv(K, r)
-        # Joseph form: stays positive definite in float32 where
-        # cov_pred - K S K^T does not.
-        I_KC = jnp.eye(hidden_dim, dtype=cov_pred.dtype) - mm(K, C)
-        cov_new = mm(mm(I_KC, cov_pred), mt(I_KC)) + mm(mm(K, R), mt(K))
-        cov_new = 0.5 * (cov_new + mt(cov_new))
-        return (loc_new, cov_new), ll
-
-    (loc_T, cov_T), lls = lax.scan(step, (loc0, cov0), xs)
-    return lls.sum(0), loc_T, cov_T
 
 
 def _peel_observation(d: Distribution) -> tuple[Distribution, list[Transform]]:
@@ -484,6 +378,29 @@ class HiddenMarkovModel(Distribution, Generic[Z]):
             "HiddenMarkovModel is abstract; use a subclass such as GaussianHMM"
         )
 
+    @staticmethod
+    def _with_batch_rank(factor: F, rank: int) -> F:
+        """Prepend singleton batch axes until ``factor`` has batch rank ``rank``."""
+        missing = rank - len(factor.batch_shape)
+        if missing <= 0:
+            return factor
+        return factor.reshape((1,) * missing + factor.batch_shape)
+
+    @staticmethod
+    def _align(init: F, trans: S, obs: S) -> tuple[F, S, S]:
+        """
+        Insert leading singleton batch axes so ``init`` has rank ``r`` and the
+        per-step factors rank ``r + 1``.
+        """
+        rank = max(
+            len(init.batch_shape), len(trans.batch_shape) - 1, len(obs.batch_shape) - 1
+        )
+        return (
+            HiddenMarkovModel._with_batch_rank(init, rank),
+            HiddenMarkovModel._with_batch_rank(trans, rank + 1),
+            HiddenMarkovModel._with_batch_rank(obs, rank + 1),
+        )
+
     def __init__(
         self,
         init: Z,
@@ -494,7 +411,7 @@ class HiddenMarkovModel(Distribution, Generic[Z]):
         validate_args: Optional[bool] = None,
     ) -> None:
         self._moments = None
-        self._init, self._trans, self._obs = _align(init, trans, obs)
+        self._init, self._trans, self._obs = self._align(init, trans, obs)
         self.num_steps = num_steps
         if validate_args is not None:
             self._validate_args = validate_args
@@ -523,7 +440,7 @@ class HiddenMarkovModel(Distribution, Generic[Z]):
         new = copy.copy(self)
         for name, value in fields.items():
             setattr(new, name, value)
-        new._init, new._trans, new._obs = _align(new._init, new._trans, new._obs)
+        new._init, new._trans, new._obs = self._align(new._init, new._trans, new._obs)
         return new
 
     def expand(self, batch_shape: Sequence[int]) -> Self:
@@ -541,7 +458,9 @@ class HiddenMarkovModel(Distribution, Generic[Z]):
         :raises ValueError: if the current batch shape does not broadcast to
             ``batch_shape``.
         """
-        batch_shape = _check_expand(self.batch_shape, batch_shape)
+        batch_shape = ExpandedDistribution._broadcast_shape(
+            self.batch_shape, tuple(batch_shape)
+        )[0]
         moments = None if self._moments is None else self._moments.expand(batch_shape)
         return self._replace(_init=self._init.expand(batch_shape), _moments=moments)
 
@@ -715,15 +634,15 @@ class GaussianHMM(HiddenMarkovModel[Gaussian]):
         sequential: bool = False,
         validate_args: Optional[bool] = None,
     ) -> None:
-        transition_matrix = _as_float(transition_matrix)
-        observation_matrix = _as_float(observation_matrix)
-        batch_shape, time, num_steps = _resolve_layout(
-            initial_dist,
-            transition_matrix,
-            transition_dist,
-            observation_matrix,
-            observation_dist,
-            num_steps,
+        transition_matrix, observation_matrix, batch_shape, time, num_steps = (
+            _resolve_layout(
+                initial_dist,
+                transition_matrix,
+                transition_dist,
+                observation_matrix,
+                observation_dist,
+                num_steps,
+            )
         )
         super().__init__(
             mvn_to_gaussian(initial_dist),
@@ -779,6 +698,69 @@ class GaussianHMM(HiddenMarkovModel[Gaussian]):
         g = self._posterior(value)
         return g - g.event_logsumexp()
 
+    @staticmethod
+    def _kalman_filter(
+        m: _Moments, value: Array, num_steps: int
+    ) -> tuple[Array, Array, Array]:
+        """
+        Covariance-form Kalman filter over ``value`` of shape
+        ``batch_shape + (num_steps, obs_dim)``.
+
+        :return: ``(log_prob, loc_T, cov_T)`` with shapes ``batch_shape``,
+            ``batch_shape + (hidden_dim,)`` and
+            ``batch_shape + (hidden_dim, hidden_dim)``.
+        :rtype: tuple[Array, Array, Array]
+        """
+        batch_shape = value.shape[:-2]
+        obs_dim = value.shape[-1]
+        hidden_dim = m.loc0.shape[-1]
+
+        def per_step(x: Array, k: int) -> Array:
+            x = jnp.broadcast_to(
+                x, batch_shape + (num_steps,) + x.shape[x.ndim - k + 1 :]
+            )
+            return jnp.moveaxis(x, len(batch_shape), 0)
+
+        xs = (
+            per_step(m.A, 3),
+            per_step(m.b, 2),
+            per_step(m.Q, 3),
+            per_step(m.C, 3),
+            per_step(m.d, 2),
+            per_step(m.R, 3),
+            jnp.moveaxis(value, len(batch_shape), 0),
+        )
+        loc0 = jnp.broadcast_to(m.loc0, batch_shape + (hidden_dim,))
+        cov0 = jnp.broadcast_to(m.cov0, batch_shape + (hidden_dim, hidden_dim))
+
+        def step(
+            carry: tuple[Array, Array], inputs: tuple[Array, ...]
+        ) -> tuple[tuple[Array, Array], Array]:
+            loc, cov = carry
+            A, b, Q, C, d, R, x = inputs
+            loc_pred = _mv(A, loc) + b
+            cov_pred = A @ cov @ _mt(A) + Q
+            S = C @ cov_pred @ _mt(C) + R
+            L = jnp.linalg.cholesky(S)
+            r = x - _mv(C, loc_pred) - d
+            u = solve_triangular(L, r[..., None], lower=True)[..., 0]
+            ll = (
+                -0.5 * (u * u).sum(-1)
+                - tri_logabsdet(L)
+                - 0.5 * obs_dim * math.log(2 * math.pi)
+            )
+            K = _mt(cho_solve((L, True), C @ cov_pred))
+            loc_new = loc_pred + _mv(K, r)
+            # Joseph form: stays positive definite in float32 where
+            # cov_pred - K S K^T does not.
+            I_KC = jnp.eye(hidden_dim, dtype=cov_pred.dtype) - K @ C
+            cov_new = I_KC @ cov_pred @ _mt(I_KC) + K @ R @ _mt(K)
+            cov_new = 0.5 * (cov_new + _mt(cov_new))
+            return (loc_new, cov_new), ll
+
+        (loc_T, cov_T), lls = lax.scan(step, (loc0, cov0), xs)
+        return lls.sum(0), loc_T, cov_T
+
     @validate_sample
     def log_prob(self, value: Array) -> Array:
         """
@@ -799,7 +781,7 @@ class GaussianHMM(HiddenMarkovModel[Gaussian]):
         if self._moments is not None:
             m = self._moments
             return _vmap_leading(
-                lambda v: _kalman_filter(m, v, self.num_steps)[0], extra
+                lambda v: self._kalman_filter(m, v, self.num_steps)[0], extra
             )(value)
         return _vmap_leading(lambda v: self._posterior(v).event_logsumexp(), extra)(
             value
@@ -825,7 +807,7 @@ class GaussianHMM(HiddenMarkovModel[Gaussian]):
         if self._moments is not None:
             m = self._moments
             loc, cov = _vmap_leading(
-                lambda v: _kalman_filter(m, v, self.num_steps)[1:], extra
+                lambda v: self._kalman_filter(m, v, self.num_steps)[1:], extra
             )(value)
             return MultivariateNormal(
                 loc, covariance_matrix=cov, validate_args=self._validate_args
@@ -1070,9 +1052,7 @@ class GammaGaussianHMM(HiddenMarkovModel[GammaGaussian]):
         )
         if not isinstance(base_scale, Gamma):
             raise TypeError(f"scale_dist must be a Gamma, got {_type_name(scale_dist)}")
-        transition_matrix = _as_float(transition_matrix)
-        observation_matrix = _as_float(observation_matrix)
-        _, _, num_steps = _resolve_layout(
+        transition_matrix, observation_matrix, _, _, num_steps = _resolve_layout(
             initial_dist,
             transition_matrix,
             transition_dist,
@@ -1215,16 +1195,19 @@ class GaussianMRF(HiddenMarkovModel[Gaussian]):
             raise ValueError(
                 "observation_dist must be a joint over (hidden, observed) coordinates"
             )
-        _, time = _time_shape(
-            tuple(initial_dist.batch_shape) + (1,),
-            tuple(transition_dist.batch_shape),
-            tuple(observation_dist.batch_shape),
+        _, _, num_steps = _broadcast_time(
+            (
+                tuple(initial_dist.batch_shape) + (1,),
+                tuple(transition_dist.batch_shape),
+                tuple(observation_dist.batch_shape),
+            ),
+            num_steps,
         )
         super().__init__(
             mvn_to_gaussian(initial_dist),
             mvn_to_gaussian(transition_dist),
             mvn_to_gaussian(observation_dist),
-            _resolve_num_steps(time, num_steps),
+            num_steps,
             validate_args=validate_args,
         )
 
@@ -1373,7 +1356,9 @@ class IndependentHMM(Distribution):
         :raises ValueError: if the current batch shape does not broadcast to
             ``batch_shape``.
         """
-        batch_shape = _check_expand(self.batch_shape, batch_shape)
+        batch_shape = ExpandedDistribution._broadcast_shape(
+            self.batch_shape, tuple(batch_shape)
+        )[0]
         obs = self.base_dist.batch_shape[-1:]
         return self._rewrap(self.base_dist.expand(batch_shape + obs))
 
@@ -1482,8 +1467,6 @@ class LinearHMM(Distribution):
         num_steps: Optional[int] = None,
         validate_args: Optional[bool] = None,
     ) -> None:
-        transition_matrix = _as_float(transition_matrix)
-        observation_matrix = _as_float(observation_matrix)
         for name, d in (
             ("initial_dist", initial_dist),
             ("transition_dist", transition_dist),
@@ -1496,13 +1479,15 @@ class LinearHMM(Distribution):
                     f"{name} must be reparameterized (has_rsample), "
                     f"got {type(d).__name__}"
                 )
-        batch_shape, time, num_steps = _resolve_layout(
-            initial_dist,
-            transition_matrix,
-            transition_dist,
-            observation_matrix,
-            observation_dist,
-            num_steps,
+        transition_matrix, observation_matrix, batch_shape, time, num_steps = (
+            _resolve_layout(
+                initial_dist,
+                transition_matrix,
+                transition_dist,
+                observation_matrix,
+                observation_dist,
+                num_steps,
+            )
         )
         obs_dim, hidden_dim = observation_matrix.shape[-2:]
         observation_dist, transforms = _peel_observation(observation_dist)
@@ -1620,7 +1605,9 @@ class LinearHMM(Distribution):
         )
 
     def expand(self, batch_shape: Sequence[int]) -> LinearHMM:
-        batch_shape = _check_expand(self.batch_shape, batch_shape)
+        batch_shape = ExpandedDistribution._broadcast_shape(
+            self.batch_shape, tuple(batch_shape)
+        )[0]
         time_shape = batch_shape + (self.transition_dist.batch_shape[-1],)
         new = copy.copy(self)
         new.initial_dist = self.initial_dist.expand(batch_shape)

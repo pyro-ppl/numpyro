@@ -27,17 +27,14 @@ from jax.scipy.special import gammaln
 
 from numpyro.distributions.continuous import Gamma, MultivariateStudentT
 from numpyro.distributions.distribution import Distribution, ExpandedDistribution
-from numpyro.distributions.util import safe_cholesky
+from numpyro.distributions.util import safe_cholesky, tri_logabsdet
 from numpyro.ops.gaussian import (
     _LOG_2PI,
     AffineNormal,
     Gaussian,
-    _FactorShapeOps,
-    _log_diag_sum,
+    _Factor,
     _mv,
     _pad_event,
-    _schur_marginalize,
-    _sequential_tensordot,
     loc_and_scale_tril,
     matrix_and_mvn_to_gaussian,
     mvn_to_gaussian,
@@ -99,7 +96,7 @@ class GammaFactor:
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True, eq=False)
-class GammaGaussian(_FactorShapeOps):
+class GammaGaussian(_Factor):
     """
     Factor ``log_normalizer + alpha log s + s (x . info_vec - 0.5 x^T precision x - beta)``
     over ``(x, s)``.
@@ -265,7 +262,7 @@ class GammaGaussian(_FactorShapeOps):
         """
         if left == 0 and right == 0:
             return self
-        precision, info_vec, b_tmp, log_diag = _schur_marginalize(
+        precision, info_vec, b_tmp, log_diag = self._schur_marginalize(
             self.precision, self.info_vec, left, right
         )
         n_b = left + right
@@ -287,7 +284,7 @@ class GammaGaussian(_FactorShapeOps):
         chol = safe_cholesky(self.precision)
         u = solve_triangular(chol, self.info_vec[..., None], lower=True)[..., 0]
         return GammaFactor(
-            self.log_normalizer + 0.5 * self.dim * _LOG_2PI - _log_diag_sum(chol),
+            self.log_normalizer + 0.5 * self.dim * _LOG_2PI - tri_logabsdet(chol),
             self.alpha - 0.5 * self.dim + 1,
             self.beta - 0.5 * (u * u).sum(-1),
         )
@@ -424,4 +421,4 @@ def sequential_gamma_gaussian_tensordot(gaussian: GammaGaussian) -> GammaGaussia
     :rtype: GammaGaussian
     :raises ValueError: if the time axis is empty or the event dimension is odd.
     """
-    return _sequential_tensordot(gaussian, gamma_gaussian_tensordot)
+    return gaussian._sequential_reduce(gamma_gaussian_tensordot)
