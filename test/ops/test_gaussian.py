@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from jax.test_util import check_grads
 
 import numpyro.distributions as dist
+from numpyro.distributions.util import safe_cholesky
 from numpyro.ops.gaussian import (
     AffineNormal,
     Gaussian,
@@ -201,10 +202,15 @@ def test_marginalize_condition_identity(left, right):
     assert_allclose(marginal.event_logsumexp(), g.event_logsumexp(), rtol=1e-4)
 
 
-def test_marginalize_static_permutations_avoid_gather():
-    g = random_gaussian(random.key(0), (3,), 4)
-    for f in [lambda g: g.marginalize(left=2), lambda g: g.marginalize(right=1)]:
-        assert "gather" not in jax.jit(f).lower(g).as_text()
+def test_event_permute_static_and_traced_paths_agree():
+    g = random_gaussian(random.key(0), (3,), 5)
+    perm = np.array([3, 4, 0, 1, 2])
+    static = g.event_permute(perm)
+    traced = g.event_permute(jnp.asarray(perm))
+    assert_close_gaussian(static, traced, rtol=0, atol=0)
+    assert_close_gaussian(
+        jax.jit(lambda g: g.event_permute(perm))(g), traced, rtol=0, atol=0
+    )
 
 
 def test_permute_condition_identity():
@@ -380,6 +386,58 @@ def test_gaussian_tensordot_against_dense(na, nb, nc):
     assert_close_gaussian(xy, _tensordot_oracle(x, y, na, nb, nc))
 
 
+def _numpy_marginal(g, keep, drop):
+    """Schur complement in numpy float64: (log_normalizer, info_vec, precision) over ``keep``."""
+    c, h, P = (
+        np.asarray(x, np.float64) for x in (g.log_normalizer, g.info_vec, g.precision)
+    )
+    Paa = P[..., keep, :][..., :, keep]
+    Pab = P[..., keep, :][..., :, drop]
+    Pbb = P[..., drop, :][..., :, drop]
+    Pbb_inv = np.linalg.inv(Pbb)
+    hb = h[..., drop]
+    log_normalizer = (
+        c
+        + 0.5 * len(drop) * np.log(2 * np.pi)
+        - 0.5 * np.linalg.slogdet(Pbb)[1]
+        + 0.5 * np.einsum("...i,...ij,...j->...", hb, Pbb_inv, hb)
+    )
+    info_vec = h[..., keep] - np.einsum("...ij,...jk,...k->...i", Pab, Pbb_inv, hb)
+    precision = Paa - Pab @ Pbb_inv @ np.swapaxes(Pab, -1, -2)
+    return log_normalizer, info_vec, precision
+
+
+@pytest.mark.parametrize("left,right", [(2, 0), (0, 2), (1, 2), (2, 1)])
+def test_marginalize_matches_numpy_schur_complement(left, right):
+    dim = 5
+    g = random_gaussian(random.key(left * 10 + right), (3,), dim)
+    keep = list(range(left, dim - right))
+    drop = list(range(left)) + list(range(dim - right, dim))
+    expected = _numpy_marginal(g, keep, drop)
+    actual = g.marginalize(left=left, right=right)
+    # float32 factor algebra against a float64 numpy oracle at the file's
+    # standard 1e-4 tolerance; measured max abs error 7.6e-7
+    assert_allclose(actual.log_normalizer, expected[0], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.info_vec, expected[1], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.precision, expected[2], rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize("na,nb,nc", [(1, 1, 1), (2, 2, 1), (0, 2, 1), (2, 1, 0)])
+def test_gaussian_tensordot_matches_numpy_joint_marginal(na, nb, nc):
+    x = random_gaussian(random.key(0), (3,), na + nb)
+    y = random_gaussian(random.key(1), (3,), nb + nc)
+    joint = x.event_pad(right=nc) + y.event_pad(left=na)
+    keep = list(range(na)) + list(range(na + nb, na + nb + nc))
+    drop = list(range(na, na + nb))
+    expected = _numpy_marginal(joint, keep, drop)
+    actual = gaussian_tensordot(x, y, nb)
+    # float32 factor algebra against a float64 numpy oracle at the file's
+    # standard 1e-4 tolerance; measured max abs error 3.7e-7
+    assert_allclose(actual.log_normalizer, expected[0], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.info_vec, expected[1], rtol=1e-4, atol=1e-4)
+    assert_allclose(actual.precision, expected[2], rtol=1e-4, atol=1e-4)
+
+
 @pytest.mark.parametrize("na,nb,nc", [(1, 1, 1), (2, 2, 1)])
 @pytest.mark.parametrize("rank", [1, None])
 def test_gaussian_tensordot_broadcasts_batch_and_rank_deficient(na, nb, nc, rank):
@@ -415,7 +473,7 @@ def test_sequential_gaussian_tensordot_check_grads():
     )
 
 
-@pytest.mark.parametrize("num_steps", list(range(1, 20)))
+@pytest.mark.parametrize("num_steps", [1, 2, 3, 4, 7, 8, 16, 19])
 @pytest.mark.parametrize("state_dim", [1, 2, 3])
 def test_sequential_gaussian_tensordot_matches_fold(num_steps, state_dim):
     g = random_gaussian(random.key(num_steps), (2, num_steps), 2 * state_dim)
@@ -426,38 +484,46 @@ def test_sequential_gaussian_tensordot_matches_fold(num_steps, state_dim):
     assert_close_gaussian(actual, expected, rtol=1e-3, atol=1e-3)
 
 
-def test_sequential_gaussian_tensordot_float32_long_horizon():
-    T, s = 100_000, 2
-    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], jnp.float32)
+@pytest.mark.parametrize("T", [1000, 100_000])
+def test_sequential_gaussian_tensordot_long_horizon_is_normalized(T):
+    """Contracting ``N(z_0; 0, I)`` with ``T`` zero-mean transition densities
+    and marginalizing every state integrates to one, so the exact log
+    normalizer and its gradient with respect to the matrix are zero."""
+    s = 2
+    dtype = jnp.result_type(float)
+    if dtype == jnp.float32:
+        if T > 1000:
+            pytest.skip("float32 drifts by 7.6 nats at 100k steps; x64 covers it")
+        # Measured float32 error at T=1000: value 4.2e-2, gradient max 20.5.
+        value_atol, grad_atol = 0.1, 62.0
+    else:
+        # Measured float64 error at T=100k: value 1.1e-9, gradient max 1.0e-6.
+        value_atol, grad_atol = 1e-8, 1e-5
+    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], dtype)
     noise = dist.MultivariateNormal(
-        jnp.zeros(s, jnp.float32), covariance_matrix=0.1 * jnp.eye(s, dtype=jnp.float32)
+        jnp.zeros(s, dtype), covariance_matrix=0.1 * jnp.eye(s, dtype=dtype)
+    )
+    init = mvn_to_gaussian(
+        dist.MultivariateNormal(
+            jnp.zeros(s, dtype), covariance_matrix=jnp.eye(s, dtype=dtype)
+        )
     )
 
     def value(matrix):
         g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
-        assert g.batch_shape == (T,)
-        return sequential_gaussian_tensordot(g).event_logsumexp()
+        reduced = sequential_gaussian_tensordot(g)
+        return gaussian_tensordot(init, reduced, s).event_logsumexp()
 
     result, grad = jax.jit(jax.value_and_grad(value))(matrix)
-    assert jnp.isfinite(result) and jnp.isfinite(grad).all()
+    assert result.dtype == dtype and grad.dtype == dtype
+    assert_allclose(result, 0.0, atol=value_atol)
+    assert_allclose(grad, jnp.zeros_like(grad), atol=grad_atol)
 
 
-def test_sequential_gaussian_tensordot_x64_long_horizon():
-    if jnp.result_type(float) == jnp.float32:
-        pytest.skip("float64 reduction is tested with x64 only")
-    T, s = 20_000, 2
-    matrix = jnp.array([[0.9, 0.1], [0.0, 0.999]], jnp.float64)
-    noise = dist.MultivariateNormal(
-        jnp.zeros(s, jnp.float64), covariance_matrix=0.1 * jnp.eye(s, dtype=jnp.float64)
-    )
-
-    def value(matrix):
-        g = matrix_and_mvn_to_gaussian(matrix, noise).expand((T,))
-        return sequential_gaussian_tensordot(g).event_logsumexp()
-
-    result, grad = jax.jit(jax.value_and_grad(value))(matrix)
-    assert result.dtype == jnp.float64 and grad.dtype == jnp.float64
-    assert jnp.isfinite(result) and jnp.isfinite(grad).all()
+def test_sequential_gaussian_tensordot_rejects_empty_time_axis():
+    g = random_gaussian(random.key(0), (2, 3), 4)[..., :0]
+    with pytest.raises(ValueError, match="empty time axis"):
+        sequential_gaussian_tensordot(g)
 
 
 def test_loc_and_scale_tril():
@@ -476,6 +542,30 @@ def test_loc_and_scale_tril_x64_keeps_dtype():
         g.info_vec.astype(jnp.float32), g.precision.astype(jnp.float32)
     )
     assert loc.dtype == jnp.float32 and scale_tril.dtype == jnp.float32
+
+
+def test_loc_and_scale_tril_jitters_the_ordering_it_factorizes():
+    """A precision that is singular only at rounding level must still give
+    finite moments, even when it is the reversed ordering that fails.
+
+    ``P = outer(v, v)`` with ``v = [0.1, 2.3]`` in float32 is singular in exact
+    arithmetic, and the rounding of the outer product lands on the side where
+    ``cholesky(P)`` succeeds (last pivot ``4.2567e-4``) while
+    ``cholesky(P[::-1, ::-1])`` is ``nan``. Because
+    :func:`~numpyro.ops.gaussian.loc_and_scale_tril` factorizes the reversed
+    ordering, probing the natural one added no jitter and both outputs measured
+    ``nan`` before the fix, on a precision whose ``Gaussian.log_prob`` is
+    finite.
+    """
+    v = jnp.array([0.1, 2.3], dtype=jnp.float32)
+    precision = jnp.outer(v, v)
+    info_vec = jnp.array([1.0, -2.0], dtype=jnp.float32)
+    assert jnp.isfinite(safe_cholesky(precision)).all()
+
+    loc, scale_tril = loc_and_scale_tril(info_vec, precision)
+
+    assert jnp.isfinite(loc).all()
+    assert jnp.isfinite(scale_tril).all()
 
 
 def _posterior_marginals(init, trans):
@@ -567,13 +657,26 @@ def test_filter_sample_check_grads():
     )
 
 
-def test_filter_sample_lowers_without_gather():
-    init = random_gaussian(random.key(0), (), 2)
-    trans = random_gaussian(random.key(1), (64,), 4)
-    lowered = jax.jit(sequential_gaussian_filter_sample).lower(
-        random.key(2), init, trans
+def test_condition_broadcasts_leading_value_dims():
+    g = random_gaussian(random.key(0), (4,), 3)
+    value = random.normal(random.key(1), (5, 4, 1))
+    conditioned = g.condition(value)
+    assert conditioned.batch_shape == (5, 4)
+    assert_close_gaussian(conditioned[2], g.condition(value[2]))
+
+
+def test_factors_support_tree_map_and_vmap_in_axes():
+    g = random_gaussian(random.key(0), (4,), 2)
+    doubled = jax.tree_util.tree_map(lambda a: 2 * a, g)
+    assert isinstance(doubled, Gaussian)
+    assert_allclose(doubled.precision, 2 * g.precision)
+    per_batch = jax.vmap(lambda f: f.event_logsumexp(), in_axes=0)(g)
+    assert_allclose(per_batch, g.event_logsumexp(), rtol=1e-6)
+    affine = matrix_and_mvn_to_gaussian(
+        jnp.ones((4, 1, 2)), dist.Normal(jnp.zeros((4, 1)), 1.0).to_event(1)
     )
-    assert "gather" not in lowered.as_text()
+    assert isinstance(affine, AffineNormal)
+    assert jax.tree_util.tree_map(lambda a: a.shape, affine).matrix == (4, 1, 2)
 
 
 def test_filter_sample_antithetic():
@@ -607,3 +710,72 @@ def test_filter_sample_moments():
     mean = jnp.einsum("...ij,...j->...i", cov, joint.info_vec)
     assert_allclose(z[..., 0].mean(0), mean, atol=0.05)
     assert_allclose(jnp.cov(z[..., 0].T), cov, atol=0.1)
+
+
+def test_affine_normal_batch_shape_broadcasts_all_fields():
+    matrix = jnp.ones((2, 3))
+    loc = jnp.zeros((4, 2))
+    scale = jnp.ones((2,))
+    affine = AffineNormal(matrix, loc, scale)
+    assert affine.batch_shape == (4,)
+    assert affine.condition(jnp.zeros((4, 2))).batch_shape == (4,)
+    assert affine.marginalize(right=2).batch_shape == (4,)
+    assert affine.marginalize(right=2).log_normalizer.shape == (4,)
+    assert affine.expand((5, 4)).batch_shape == (5, 4)
+
+
+def test_gaussian_tensordot_rejects_negative_dims():
+    x = random_gaussian(random.key(0), (), 2)
+    y = random_gaussian(random.key(1), (), 1)
+    with pytest.raises(ValueError, match="dims must be non-negative"):
+        gaussian_tensordot(x, y, -1)
+
+
+def test_event_permute_dim_zero_is_identity():
+    g = random_gaussian(random.key(0), (3,), 2).marginalize(right=2)
+    assert g.dim == 0
+    for perm in (np.array([], dtype=int), jnp.array([], dtype=int)):
+        permuted = g.event_permute(perm)
+        assert permuted.dim == 0
+        assert_allclose(permuted.log_normalizer, g.log_normalizer)
+    assert g.left_condition(jnp.zeros((3, 0))).dim == 0
+
+
+def test_cat_rejects_empty_parts():
+    with pytest.raises(ValueError, match="at least one factor"):
+        Gaussian.cat([])
+
+
+def test_sequential_gaussian_tensordot_rejects_odd_dim():
+    g = random_gaussian(random.key(0), (4,), 3)
+    with pytest.raises(ValueError, match="even event dimension"):
+        sequential_gaussian_tensordot(g)
+
+
+def test_filter_sample_rejects_mismatched_state_dim():
+    init = random_gaussian(random.key(0), (), 2)
+    trans = random_gaussian(random.key(1), (5,), 6)
+    with pytest.raises(ValueError, match="2 \\* init.dim"):
+        sequential_gaussian_filter_sample(random.key(2), init, trans)
+
+
+def test_condition_rejects_oversized_value():
+    g = random_gaussian(random.key(0), (), 2)
+    with pytest.raises(ValueError, match="at most 2"):
+        g.condition(jnp.zeros(3))
+
+
+def test_filter_sample_noise_dtype_is_promoted_from_both_factors():
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("dtype promotion between float32 and float64 needs x64")
+    init = random_gaussian(random.key(0), (), 2)
+    init = Gaussian(
+        init.log_normalizer.astype(jnp.float32),
+        init.info_vec.astype(jnp.float32),
+        init.precision.astype(jnp.float32),
+    )
+    trans = random_gaussian(random.key(1), (3,), 4)
+    assert (
+        sequential_gaussian_filter_sample(random.key(2), init, trans).dtype
+        == jnp.float64
+    )

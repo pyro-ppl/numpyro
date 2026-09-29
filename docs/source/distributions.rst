@@ -495,6 +495,30 @@ IndependentHMM
     :show-inheritance:
     :member-order: bysource
 
+GammaGaussianHMM
+^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.hmm.GammaGaussianHMM
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LinearHMM
+^^^^^^^^^
+.. autoclass:: numpyro.distributions.hmm.LinearHMM
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+GaussianMRF
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.hmm.GaussianMRF
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Discrete Distributions
 ----------------------
 

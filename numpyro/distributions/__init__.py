@@ -113,7 +113,14 @@ from numpyro.distributions.distribution import (
     TransformedDistribution,
     Unit,
 )
-from numpyro.distributions.hmm import GaussianHMM, HiddenMarkovModel, IndependentHMM
+from numpyro.distributions.hmm import (
+    GammaGaussianHMM,
+    GaussianHMM,
+    GaussianMRF,
+    HiddenMarkovModel,
+    IndependentHMM,
+    LinearHMM,
+)
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.mixtures import Mixture, MixtureGeneral, MixtureSameFamily
 from numpyro.distributions.transforms import biject_to
@@ -171,10 +178,12 @@ __all__ = [
     "Exponential",
     "FoldedDistribution",
     "Gamma",
+    "GammaGaussianHMM",
     "GammaPoisson",
     "GaussianCopula",
     "GaussianCopulaBeta",
     "GaussianHMM",
+    "GaussianMRF",
     "GaussianRandomWalk",
     "GaussianStateSpace",
     "Geometric",
@@ -203,6 +212,7 @@ __all__ = [
     "LeftTruncatedDistribution",
     "LeftTruncatedGamma",
     "Levy",
+    "LinearHMM",
     "LKJ",
     "LKJCholesky",
     "Logistic",

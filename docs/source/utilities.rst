@@ -122,6 +122,14 @@ Gaussian factors
     :undoc-members:
     :show-inheritance:
 
+Gamma-Gaussian factors
+----------------------
+
+.. automodule:: numpyro.ops.gamma_gaussian
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 Model Inspection
 ----------------
 
