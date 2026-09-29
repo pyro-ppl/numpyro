@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Callable, ClassVar, Optional, Self, Sequence, TypeVar, Union
+from typing import Callable, ClassVar, Optional, Self, Sequence, Union
 
 import numpy as np
 
@@ -56,6 +56,7 @@ from numpyro.distributions.util import (
     cholesky_of_inverse,
     jitter_if_singular,
     safe_cholesky,
+    tri_logabsdet,
 )
 
 __all__ = [
@@ -82,73 +83,21 @@ def _mt(matrix: Array) -> Array:
     return jnp.swapaxes(matrix, -1, -2)
 
 
-def _log_diag_sum(chol: Array) -> Array:
-    """``sum(log(diag(chol)))`` via a masked reduce rather than a gather."""
-    return jnp.log(jnp.einsum("...ii->...i", chol)).sum(-1)
-
-
-def _static_runs(perm: np.ndarray) -> list[slice]:
-    """
-    Split a permutation into maximal runs of consecutive indices.
-
-    :param numpy.ndarray perm: permutation of ``range(n)``.
-    :return: one slice per run, in the order of ``perm``; ``[]`` for an empty
-        permutation.
-    :rtype: list[slice]
-    """
-    if perm.size == 0:
-        return []
-    cuts = np.flatnonzero(np.diff(perm) != 1) + 1
-    bounds = np.concatenate([[0], cuts, [perm.size]])
-    return [
-        slice(int(perm[i]), int(perm[i]) + int(j - i))
-        for i, j in zip(bounds[:-1], bounds[1:])
-    ]
-
-
 def _pad_event(x: Array, event_ndim: int, left: int, right: int) -> Array:
     return jnp.pad(x, [(0, 0)] * (x.ndim - event_ndim) + [(left, right)] * event_ndim)
 
 
-def _with_batch(x: Array, event_ndim: int, batch_shape: tuple[int, ...]) -> Array:
-    return jnp.broadcast_to(x, batch_shape + x.shape[x.ndim - event_ndim :])
-
-
-def _noise(
-    noise: Optional[Array],
-    key: Optional[Array],
-    shape: tuple[int, ...],
-    dtype: jnp.dtype,
-) -> Array:
+class _Factor:
     """
-    Return ``noise`` after checking its shape, or draw standard normals.
-
-    :param Array noise: draws of exactly ``shape``, or ``None`` to draw them.
-    :param Array key: PRNG key; required when ``noise`` is ``None``.
-    :param tuple shape: required shape of the draws.
-    :param dtype: dtype of the fresh draws, canonicalized to the enabled
-        precision so NumPy float64 fields do not trigger x64 warnings.
-    :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
-        ``noise.shape != shape``.
-    """
-    if noise is None:
-        if key is None:
-            raise ValueError("either key or noise is required")
-        return random.normal(key, shape, jax.dtypes.canonicalize_dtype(dtype))
-    if noise.shape != shape:
-        raise ValueError(f"noise must have shape {shape}, got {noise.shape}")
-    return noise
-
-
-class _FactorShapeOps:
-    """
-    Batch-shape operations shared by the factor dataclasses.
+    Base class of the factor dataclasses.
 
     A subclass is a frozen dataclass whose fields are arrays with, for field
     ``i``, ``event_ndims[i]`` trailing event dimensions; the leading
-    dimensions broadcast to ``batch_shape``. The mixin adds no dataclass
+    dimensions broadcast to ``batch_shape``. The base class adds no dataclass
     fields and rebuilds instances positionally from ``_fields()``, which must
-    return the fields in declaration order.
+    return the fields in declaration order. Besides the batch-shape
+    operations it hosts the numerical steps shared by the subclasses'
+    ``sample``, ``marginalize`` and sequential reductions.
     """
 
     event_ndims: ClassVar[tuple[int, ...]]
@@ -175,7 +124,9 @@ class _FactorShapeOps:
 
     def expand(self, batch_shape: Sequence[int]) -> Self:
         """Broadcast every field to ``batch_shape``."""
-        return self._map(lambda x, k: _with_batch(x, k, tuple(batch_shape)))
+        return self._map(
+            lambda x, k: jnp.broadcast_to(x, tuple(batch_shape) + x.shape[x.ndim - k :])
+        )
 
     def reshape(self, batch_shape: Sequence[int]) -> Self:
         """Reshape the batch dimensions of every field to ``batch_shape``."""
@@ -203,53 +154,106 @@ class _FactorShapeOps:
             )
         )
 
+    @staticmethod
+    def _noise(
+        noise: Optional[Array],
+        key: Optional[Array],
+        shape: tuple[int, ...],
+        dtype: jnp.dtype,
+    ) -> Array:
+        """
+        Return ``noise`` after checking its shape, or draw standard normals.
 
-F = TypeVar("F", bound=_FactorShapeOps)
+        :param Array noise: draws of exactly ``shape``, or ``None`` to draw them.
+        :param Array key: PRNG key; required when ``noise`` is ``None``.
+        :param tuple shape: required shape of the draws.
+        :param dtype: dtype of the fresh draws, canonicalized to the enabled
+            precision so NumPy float64 fields do not trigger x64 warnings.
+        :raises ValueError: if neither ``key`` nor ``noise`` is given, or if
+            ``noise.shape != shape``.
+        """
+        if noise is None:
+            if key is None:
+                raise ValueError("either key or noise is required")
+            return random.normal(key, shape, jax.dtypes.canonicalize_dtype(dtype))
+        if noise.shape != shape:
+            raise ValueError(f"noise must have shape {shape}, got {noise.shape}")
+        return noise
 
+    @staticmethod
+    def _schur_marginalize(
+        precision: Array, info_vec: Array, left: int, right: int
+    ) -> tuple[Array, Array, Array, Array]:
+        """
+        Schur complement of the ``left`` leading and ``right`` trailing
+        coordinates, shared by the ``marginalize`` methods.
 
-def _schur_marginalize(
-    precision: Array, info_vec: Array, left: int, right: int
-) -> tuple[Array, Array, Array, Array]:
-    """
-    Schur complement of the ``left`` leading and ``right`` trailing
-    coordinates, shared by the ``marginalize`` methods.
+        One-sided calls index with static slices; only the two-sided case
+        gathers with index arrays.
 
-    One-sided calls index with static slices; only the two-sided case gathers
-    with index arrays.
+        :return: the reduced precision, the reduced information vector,
+            ``b_tmp = L^-1 info_vec[drop]`` and ``sum(log(diag(L)))`` with ``L``
+            the Cholesky factor of the dropped block, which must be positive
+            definite.
+        :rtype: tuple[Array, Array, Array, Array]
+        """
+        n = precision.shape[-1]
+        if left and right:
+            keep = np.arange(left, n - right)
+            drop = np.concatenate([np.arange(left), np.arange(n - right, n)])
+            P_aa = precision[..., keep[:, None], keep]
+            P_ba = precision[..., drop[:, None], keep]
+            P_bb = precision[..., drop[:, None], drop]
+        else:
+            keep = slice(left, n - right)
+            drop = slice(0, left) if left else slice(n - right, n)
+            P_aa = precision[..., keep, keep]
+            P_ba = precision[..., drop, keep]
+            P_bb = precision[..., drop, drop]
+        chol = safe_cholesky(P_bb)
+        P_a = solve_triangular(chol, P_ba, lower=True)
+        b_tmp = solve_triangular(chol, info_vec[..., drop][..., None], lower=True)[
+            ..., 0
+        ]
+        return (
+            P_aa - _mt(P_a) @ P_a,
+            info_vec[..., keep] - _mv(_mt(P_a), b_tmp),
+            b_tmp,
+            tri_logabsdet(chol),
+        )
 
-    :return: the reduced precision, the reduced information vector,
-        ``b_tmp = L^-1 info_vec[drop]`` and ``sum(log(diag(L)))`` with ``L``
-        the Cholesky factor of the dropped block, which must be positive
-        definite.
-    :rtype: tuple[Array, Array, Array, Array]
-    """
-    n = precision.shape[-1]
-    if left and right:
-        keep = np.arange(left, n - right)
-        drop = np.concatenate([np.arange(left), np.arange(n - right, n)])
-        P_aa = precision[..., keep[:, None], keep]
-        P_ba = precision[..., drop[:, None], keep]
-        P_bb = precision[..., drop[:, None], drop]
-    else:
-        keep = slice(left, n - right)
-        drop = slice(0, left) if left else slice(n - right, n)
-        P_aa = precision[..., keep, keep]
-        P_ba = precision[..., drop, keep]
-        P_bb = precision[..., drop, drop]
-    chol = safe_cholesky(P_bb)
-    P_a = solve_triangular(chol, P_ba, lower=True)
-    b_tmp = solve_triangular(chol, info_vec[..., drop][..., None], lower=True)[..., 0]
-    return (
-        P_aa - _mt(P_a) @ P_a,
-        info_vec[..., keep] - _mv(_mt(P_a), b_tmp),
-        b_tmp,
-        _log_diag_sum(chol),
-    )
+    def _sequential_reduce(self, tensordot: Callable[[Self, Self, int], Self]) -> Self:
+        """
+        Reduce pairwise factors over the last batch axis with ``log2(T)``
+        batched contractions of ``tensordot`` over ``dim // 2`` shared
+        coordinates.
+
+        :raises ValueError: if the time axis is empty or the event dimension
+            is odd.
+        """
+        factor = self
+        if factor.batch_shape[-1] == 0:
+            raise ValueError("cannot reduce over an empty time axis")
+        if factor.dim % 2:
+            raise ValueError(
+                f"pairwise factors need an even event dimension, got {factor.dim}"
+            )
+        state_dim = factor.dim // 2
+        while factor.batch_shape[-1] > 1:
+            num_steps = factor.batch_shape[-1]
+            even = num_steps // 2 * 2
+            contracted = tensordot(
+                factor[..., 0:even:2], factor[..., 1:even:2], state_dim
+            )
+            if num_steps > even:
+                contracted = type(factor).cat([contracted, factor[..., -1:]], axis=-1)
+            factor = contracted
+        return factor[..., 0]
 
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True, eq=False)
-class Gaussian(_FactorShapeOps):
+class Gaussian(_Factor):
     """
     Unnormalized log-quadratic factor
     ``log_normalizer + x . info_vec - 0.5 x^T precision x``.
@@ -287,6 +291,40 @@ class Gaussian(_FactorShapeOps):
     def _fields(self) -> tuple[Array, ...]:
         return (self.log_normalizer, self.info_vec, self.precision)
 
+    @classmethod
+    def _from_sqrt_form(cls, scale_tril: Array, loc: Array, matrix: Array) -> Gaussian:
+        """
+        Factor with ``precision = R^T R``, ``R = L^-1 matrix``, from noise
+        ``N(loc, L L^T)`` with ``L = scale_tril``.
+        """
+        R = solve_triangular(scale_tril, matrix, lower=True)
+        v = solve_triangular(scale_tril, loc[..., None], lower=True)[..., 0]
+        log_normalizer = (
+            -0.5 * loc.shape[-1] * _LOG_2PI
+            - 0.5 * (v * v).sum(-1)
+            - tri_logabsdet(scale_tril)
+        )
+        return cls(log_normalizer, _mv(_mt(R), v), _mt(R) @ R)
+
+    @staticmethod
+    def _static_runs(perm: np.ndarray) -> list[slice]:
+        """
+        Split a permutation into maximal runs of consecutive indices.
+
+        :param numpy.ndarray perm: permutation of ``range(n)``.
+        :return: one slice per run, in the order of ``perm``; ``[]`` for an
+            empty permutation.
+        :rtype: list[slice]
+        """
+        if perm.size == 0:
+            return []
+        cuts = np.flatnonzero(np.diff(perm) != 1) + 1
+        bounds = np.concatenate([[0], cuts, [perm.size]])
+        return [
+            slice(int(perm[i]), int(perm[i]) + int(j - i))
+            for i, j in zip(bounds[:-1], bounds[1:])
+        ]
+
     def event_pad(self, left: int = 0, right: int = 0) -> Gaussian:
         """Embed the factor into a larger event space with zero coupling."""
         return Gaussian(
@@ -305,7 +343,7 @@ class Gaussian(_FactorShapeOps):
         if self.dim == 0:
             return self
         if isinstance(perm, np.ndarray):
-            runs = _static_runs(perm)
+            runs = self._static_runs(perm)
             info_vec = jnp.concatenate([self.info_vec[..., s] for s in runs], -1)
             precision = jnp.concatenate([self.precision[..., s, :] for s in runs], -2)
             precision = jnp.concatenate([precision[..., :, s] for s in runs], -1)
@@ -414,7 +452,7 @@ class Gaussian(_FactorShapeOps):
         """
         if left == 0 and right == 0:
             return self
-        precision, info_vec, b_tmp, log_diag = _schur_marginalize(
+        precision, info_vec, b_tmp, log_diag = self._schur_marginalize(
             self.precision, self.info_vec, left, right
         )
         log_normalizer = (
@@ -433,7 +471,7 @@ class Gaussian(_FactorShapeOps):
             self.log_normalizer
             + 0.5 * self.dim * _LOG_2PI
             + 0.5 * (u * u).sum(-1)
-            - _log_diag_sum(chol)
+            - tri_logabsdet(chol)
         )
 
     def sample(
@@ -456,7 +494,7 @@ class Gaussian(_FactorShapeOps):
             ``noise`` has the wrong shape.
         """
         shape = tuple(sample_shape) + self.batch_shape + (self.dim,)
-        noise = _noise(noise, key, shape, self.precision.dtype)
+        noise = self._noise(noise, key, shape, self.precision.dtype)
         chol = safe_cholesky(self.precision)
         loc = cho_solve((chol, True), self.info_vec[..., None])[..., 0]
 
@@ -525,21 +563,6 @@ def mvn_moments(d: Distribution) -> tuple[Array, Array]:
     return loc, scale_tril @ _mt(scale_tril)
 
 
-def _sqrt_form(scale_tril: Array, loc: Array, matrix: Array) -> Gaussian:
-    """
-    Factor with ``precision = R^T R``, ``R = L^-1 matrix``, from noise
-    ``N(loc, L L^T)`` with ``L = scale_tril``.
-    """
-    R = solve_triangular(scale_tril, matrix, lower=True)
-    v = solve_triangular(scale_tril, loc[..., None], lower=True)[..., 0]
-    log_normalizer = (
-        -0.5 * loc.shape[-1] * _LOG_2PI
-        - 0.5 * (v * v).sum(-1)
-        - _log_diag_sum(scale_tril)
-    )
-    return Gaussian(log_normalizer, _mv(_mt(R), v), _mt(R) @ R)
-
-
 def mvn_to_gaussian(d: Distribution) -> Gaussian:
     """
     Convert a Gaussian distribution to a normalized :class:`Gaussian` factor.
@@ -567,7 +590,7 @@ def mvn_to_gaussian(d: Distribution) -> Gaussian:
         return Gaussian(log_normalizer, loc * inv_var, eye * inv_var[..., None])
     loc, scale_tril = _mvn_params(d)
     eye = jnp.broadcast_to(jnp.eye(loc.shape[-1], dtype=loc.dtype), scale_tril.shape)
-    return _sqrt_form(scale_tril, loc, eye)
+    return Gaussian._from_sqrt_form(scale_tril, loc, eye)
 
 
 def matrix_and_gaussian_to_gaussian(matrix: Array, y_gaussian: Gaussian) -> Gaussian:
@@ -581,7 +604,7 @@ def matrix_and_gaussian_to_gaussian(matrix: Array, y_gaussian: Gaussian) -> Gaus
     :rtype: Gaussian
     """
     batch_shape = lax.broadcast_shapes(matrix.shape[:-2], y_gaussian.batch_shape)
-    matrix = _with_batch(matrix, 2, batch_shape)
+    matrix = jnp.broadcast_to(matrix, batch_shape + matrix.shape[-2:])
     y_gaussian = y_gaussian.expand(batch_shape)
     P_yy = y_gaussian.precision
     P_xy = -_mt(matrix) @ P_yy
@@ -632,7 +655,7 @@ def matrix_and_mvn_to_gaussian(
     eye = jnp.broadcast_to(
         jnp.eye(y_dim, dtype=matrix.dtype), batch_shape + (y_dim, y_dim)
     )
-    return _sqrt_form(
+    return Gaussian._from_sqrt_form(
         jnp.broadcast_to(scale_tril, batch_shape + (y_dim, y_dim)),
         jnp.broadcast_to(loc, batch_shape + (y_dim,)),
         jnp.concatenate([-matrix, eye], -1),
@@ -684,33 +707,9 @@ def gaussian_tensordot(x: Gaussian, y: Gaussian, dims: int = 0) -> Gaussian:
             log_normalizer
             + 0.5 * nb * _LOG_2PI
             + 0.5 * (Linvb * Linvb).sum(-1)
-            - _log_diag_sum(chol)
+            - tri_logabsdet(chol)
         )
     return Gaussian(log_normalizer, info_vec, precision)._broadcast()
-
-
-def _sequential_tensordot(factor: F, tensordot: Callable[[F, F, int], F]) -> F:
-    """
-    Reduce pairwise factors over the last batch axis with ``log2(T)`` batched
-    contractions of ``tensordot`` over ``dim // 2`` shared coordinates.
-
-    :raises ValueError: if the time axis is empty or the event dimension is odd.
-    """
-    if factor.batch_shape[-1] == 0:
-        raise ValueError("cannot reduce over an empty time axis")
-    if factor.dim % 2:
-        raise ValueError(
-            f"pairwise factors need an even event dimension, got {factor.dim}"
-        )
-    state_dim = factor.dim // 2
-    while factor.batch_shape[-1] > 1:
-        num_steps = factor.batch_shape[-1]
-        even = num_steps // 2 * 2
-        contracted = tensordot(factor[..., 0:even:2], factor[..., 1:even:2], state_dim)
-        if num_steps > even:
-            contracted = type(factor).cat([contracted, factor[..., -1:]], axis=-1)
-        factor = contracted
-    return factor[..., 0]
 
 
 def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
@@ -725,7 +724,7 @@ def sequential_gaussian_tensordot(gaussian: Gaussian) -> Gaussian:
     :rtype: Gaussian
     :raises ValueError: if the time axis is empty or the event dimension is odd.
     """
-    return _sequential_tensordot(gaussian, gaussian_tensordot)
+    return gaussian._sequential_reduce(gaussian_tensordot)
 
 
 def sequential_gaussian_filter_sample(
@@ -786,7 +785,9 @@ def sequential_gaussian_filter_sample(
     final = gaussian[..., 0] + init.expand(batch_shape).event_pad(right=state_dim)
 
     shape = tuple(sample_shape) + batch_shape + (num_steps + 1, state_dim)
-    noise = _noise(noise, key, shape, jnp.result_type(init.precision, trans.precision))
+    noise = Gaussian._noise(
+        noise, key, shape, jnp.result_type(init.precision, trans.precision)
+    )
 
     def backward(eps: Array) -> Array:
         result = final.sample(
@@ -841,7 +842,7 @@ def loc_and_scale_tril(info_vec: Array, precision: Array) -> tuple[Array, Array]
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True, eq=False)
-class AffineNormal(_FactorShapeOps):
+class AffineNormal(_Factor):
     """
     Conditional ``y | x ~ Normal(matrix @ x + loc, scale)`` standing in for a
     joint factor over ``(x, y)``.
@@ -953,7 +954,7 @@ class AffineNormal(_FactorShapeOps):
                 "AffineNormal.sample requires all inputs to be conditioned"
             )
         shape = tuple(sample_shape) + self.loc.shape
-        return self.loc + _noise(noise, key, shape, self.loc.dtype) * self.scale
+        return self.loc + self._noise(noise, key, shape, self.loc.dtype) * self.scale
 
     def marginalize(self, left: int = 0, right: int = 0) -> Gaussian:
         """
