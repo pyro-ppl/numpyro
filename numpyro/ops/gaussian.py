@@ -510,23 +510,21 @@ class Gaussian(_Factor):
         return draw(noise)
 
 
-def _diag_normal_base(d: Distribution) -> Optional[Normal]:
-    """Return the ``Normal`` inside an ``Independent(Normal, 1)``, else ``None``."""
+def _diag_normal_params(d: Distribution) -> Optional[tuple[Array, Array]]:
+    """
+    Return ``(loc, scale)`` of an ``Independent(Normal, 1)``, possibly wrapped
+    in ``ExpandedDistribution``, broadcast to its full shape; ``None`` for any
+    other distribution.
+    """
+    shape = d.batch_shape + d.event_shape
     if isinstance(d, ExpandedDistribution):
         d = d.base_dist
     if not isinstance(d, Independent) or d.reinterpreted_batch_ndims != 1:
         return None
     base = d.base_dist
     base = base.base_dist if isinstance(base, ExpandedDistribution) else base
-    return base if isinstance(base, Normal) else None
-
-
-def _diag_normal_params(d: Distribution) -> Optional[tuple[Array, Array]]:
-    """Return ``(loc, scale)`` of an ``Independent(Normal, 1)``, else ``None``."""
-    base = _diag_normal_base(d)
-    if base is None:
+    if not isinstance(base, Normal):
         return None
-    shape = d.batch_shape + d.event_shape
     return jnp.broadcast_to(base.loc, shape), jnp.broadcast_to(base.scale, shape)
 
 
@@ -540,7 +538,7 @@ def is_gaussian_noise(d: Distribution) -> bool:
         either possibly wrapped in ``ExpandedDistribution``.
     :rtype: bool
     """
-    if _diag_normal_base(d) is not None:
+    if _diag_normal_params(d) is not None:
         return True
     base = d.base_dist if isinstance(d, ExpandedDistribution) else d
     return isinstance(base, MultivariateNormal)

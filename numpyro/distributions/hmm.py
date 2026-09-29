@@ -286,27 +286,6 @@ class _Moments:
         )
 
 
-def _peel_observation(d: Distribution) -> tuple[Distribution, list[Transform]]:
-    """
-    Strip ``Independent``, ``ExpandedDistribution`` and ``TransformedDistribution``
-    wrappers, returning the base noise with ``event_dim == 1`` and the transforms.
-    """
-    shape = tuple(d.batch_shape) + tuple(d.event_shape)
-    transforms: list[Transform] = []
-    while True:
-        if isinstance(d, (Independent, ExpandedDistribution)):
-            d = d.base_dist
-        elif isinstance(d, TransformedDistribution):
-            transforms = list(d.transforms) + transforms
-            d = d.base_dist
-        else:
-            break
-    d = d.expand(shape[: len(shape) - d.event_dim])
-    if d.event_dim == 0:
-        d = d.to_event(1)
-    return d, transforms
-
-
 class HiddenMarkovModel(Distribution, Generic[Z]):
     """
     Base class for distributions over observation sequences with the latent
@@ -1456,6 +1435,28 @@ class LinearHMM(Distribution):
     )
     pytree_aux_fields = ("num_steps",)
 
+    @staticmethod
+    def _peel_observation(d: Distribution) -> tuple[Distribution, list[Transform]]:
+        """
+        Strip ``Independent``, ``ExpandedDistribution`` and
+        ``TransformedDistribution`` wrappers, returning the base noise with
+        ``event_dim == 1`` and the transforms.
+        """
+        shape = tuple(d.batch_shape) + tuple(d.event_shape)
+        transforms: list[Transform] = []
+        while True:
+            if isinstance(d, (Independent, ExpandedDistribution)):
+                d = d.base_dist
+            elif isinstance(d, TransformedDistribution):
+                transforms = list(d.transforms) + transforms
+                d = d.base_dist
+            else:
+                break
+        d = d.expand(shape[: len(shape) - d.event_dim])
+        if d.event_dim == 0:
+            d = d.to_event(1)
+        return d, transforms
+
     def __init__(
         self,
         initial_dist: Distribution,
@@ -1490,7 +1491,7 @@ class LinearHMM(Distribution):
             )
         )
         obs_dim, hidden_dim = observation_matrix.shape[-2:]
-        observation_dist, transforms = _peel_observation(observation_dist)
+        observation_dist, transforms = self._peel_observation(observation_dist)
         if tuple(observation_dist.event_shape) != (obs_dim,):
             raise ValueError(
                 f"observation noise must have event_shape {(obs_dim,)}, "
