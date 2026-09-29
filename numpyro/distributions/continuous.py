@@ -867,7 +867,7 @@ class EulerMaruyama(Distribution):
         sde_log_prob = Normal(0.0, sigma).to_event(self.event_dim).log_prob(xt - mu)
         init_log_prob = self.init_dist.log_prob(value0)
 
-        return sde_log_prob + init_log_prob
+        return jnp.add(sde_log_prob, init_log_prob)
 
 
 class Exponential(Distribution):
@@ -1197,18 +1197,18 @@ class GaussianStateSpace(TransformedDistribution):
         )
         self.transition_matrix = transition_matrix
         self._initial_value = initial_value
+
         # Expand the covariance/precision/scale matrices to the right number of steps.
-        args = {
-            "covariance_matrix": covariance_matrix,
-            "precision_matrix": precision_matrix,
-            "scale_tril": scale_tril,
-        }
-        args = {
-            key: jnp.expand_dims(value, axis=-3).repeat(num_steps, axis=-3)
-            for key, value in args.items()
-            if value is not None
-        }
-        base_distribution = MultivariateNormal(**args)
+        def expand_to_steps(matrix: Optional[Array]) -> Optional[Array]:
+            if matrix is None:
+                return None
+            return jnp.expand_dims(matrix, axis=-3).repeat(num_steps, axis=-3)
+
+        base_distribution = MultivariateNormal(
+            covariance_matrix=expand_to_steps(covariance_matrix),
+            precision_matrix=expand_to_steps(precision_matrix),
+            scale_tril=expand_to_steps(scale_tril),
+        )
         self.scale_tril = base_distribution.scale_tril[..., 0, :, :]
         base_distribution = base_distribution.to_event(1)
 
@@ -3055,9 +3055,9 @@ class MultivariateNormal(Distribution):
     def __init__(
         self,
         loc: ArrayLike = 0.0,
-        covariance_matrix: Optional[Array] = None,
-        precision_matrix: Optional[Array] = None,
-        scale_tril: Optional[Array] = None,
+        covariance_matrix: Optional[ArrayLike] = None,
+        precision_matrix: Optional[ArrayLike] = None,
+        scale_tril: Optional[ArrayLike] = None,
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
@@ -4059,12 +4059,16 @@ class RelaxedBernoulliLogits(TransformedDistribution):
 
 
 def RelaxedBernoulli(
-    temperature, probs=None, logits=None, *, validate_args: Optional[bool] = None
-):
-    if probs is None and logits is None:
-        raise ValueError("One of `probs` or `logits` must be specified.")
+    temperature: ArrayLike,
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
+    *,
+    validate_args: Optional[bool] = None,
+) -> RelaxedBernoulliLogits:
     if probs is not None:
         logits = _to_logits_bernoulli(probs)
+    elif logits is None:
+        raise ValueError("One of `probs` or `logits` must be specified.")
     return RelaxedBernoulliLogits(temperature, logits, validate_args=validate_args)
 
 

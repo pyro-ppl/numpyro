@@ -106,7 +106,7 @@ class GaussianCopula(Distribution):
 
     @lazy_property
     def correlation_matrix(self) -> Array:
-        return self.base_dist.covariance_matrix
+        return jnp.asarray(self.base_dist.covariance_matrix)
 
     @lazy_property
     def correlation_cholesky(self) -> Array:

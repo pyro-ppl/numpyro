@@ -1772,8 +1772,8 @@ def ZeroInflatedDistribution(
     assert_one_of(gate=gate, gate_logits=gate_logits)
     if gate is not None:
         return ZeroInflatedProbs(base_dist, gate, validate_args=validate_args)
-    else:
-        return ZeroInflatedLogits(base_dist, gate_logits, validate_args=validate_args)
+    assert gate_logits is not None
+    return ZeroInflatedLogits(base_dist, gate_logits, validate_args=validate_args)
 
 
 class ZeroInflatedPoisson(ZeroInflatedProbs):
@@ -2046,6 +2046,7 @@ def HurdleDistribution(
     assert_one_of(gate=gate, gate_logits=gate_logits)
     if gate is not None:
         return HurdleProbs(base_dist, gate, validate_args=validate_args)
+    assert gate_logits is not None
     return HurdleLogits(base_dist, gate_logits, validate_args=validate_args)
 
 

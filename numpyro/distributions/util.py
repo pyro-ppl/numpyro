@@ -6,6 +6,7 @@ from collections import namedtuple
 import functools as ft
 from functools import partial, update_wrapper
 import math
+from typing import Any
 import warnings
 
 import numpy as np
@@ -806,7 +807,7 @@ class lazy_property(object):
     def __call__(self, *args, **kwargs):
         return self.wrapped(*args, **kwargs)
 
-    def __get__(self, instance, obj_type=None):
+    def __get__(self, instance: Any, obj_type: Any = None) -> Any:
         if instance is None:
             return self
         value = self.wrapped(instance)
