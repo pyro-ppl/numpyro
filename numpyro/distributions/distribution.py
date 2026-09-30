@@ -353,7 +353,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         if self.has_rsample:
             return self.sample(key, sample_shape=sample_shape)
 
@@ -376,7 +376,7 @@ class Distribution(metaclass=DistributionMeta):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         """
         Returns a sample from the distribution having shape given by
         `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
@@ -386,13 +386,13 @@ class Distribution(metaclass=DistributionMeta):
         :param jax.random.key key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: an array of shape `sample_shape + batch_shape + event_shape`
-        :rtype: jax.Array
+        :rtype: numpy.ndarray
         """
         raise NotImplementedError
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[Array, list[Any]]:
+    ) -> tuple[ArrayLike, list[Any]]:
         """
         Same as ``sample`` except that any intermediate computations are
         returned (useful for `TransformedDistribution`).
@@ -461,7 +461,7 @@ class Distribution(metaclass=DistributionMeta):
         sample_shape: tuple[int, ...] = ...,
         sample_intermediates: Literal[False] = ...,
         **kwargs: Any,
-    ) -> Array: ...
+    ) -> ArrayLike: ...
 
     @overload
     def __call__(
@@ -471,13 +471,13 @@ class Distribution(metaclass=DistributionMeta):
         sample_shape: tuple[int, ...] = ...,
         sample_intermediates: Literal[True] = ...,
         **kwargs: Any,
-    ) -> tuple[Array, list[Any]]: ...
+    ) -> tuple[ArrayLike, list[Any]]: ...
 
     def __call__(
         self,
         *args: Any,
         **kwargs: Any,
-    ) -> Union[Array, tuple[Array, list[Any]]]:
+    ) -> Union[ArrayLike, tuple[ArrayLike, list[Any]]]:
         key = kwargs.pop("rng_key")
         sample_intermediates = kwargs.pop("sample_intermediates", False)
         if sample_intermediates:
@@ -750,10 +750,10 @@ class ExpandedDistribution(Distribution):
 
     def _sample(
         self,
-        sample_fn: Callable[..., tuple[Array, list[Any]]],
+        sample_fn: Callable[..., tuple[ArrayLike, list[ArrayLike]]],
         key: Optional[jax.Array],
         sample_shape: tuple[int, ...] = (),
-    ) -> tuple[Array, list[Array]]:
+    ) -> tuple[ArrayLike, list[ArrayLike]]:
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
@@ -774,7 +774,7 @@ class ExpandedDistribution(Distribution):
         for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
             permutation[dim1], permutation[dim2] = permutation[dim2], permutation[dim1]
 
-        def reshape_sample(x: ArrayLike) -> Array:
+        def reshape_sample(x: ArrayLike) -> ArrayLike:
             """
             Reshapes samples and intermediates to ensure that the output
             shape is correct: This implicitly replaces the interstitial dims
@@ -791,7 +791,7 @@ class ExpandedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self._sample(
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
             key,
@@ -805,12 +805,12 @@ class ExpandedDistribution(Distribution):
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[Array, list[Array]]:
+    ) -> tuple[ArrayLike, list[ArrayLike]]:
         return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.sample_with_intermediates(key, sample_shape)[0]
 
     def log_prob(
@@ -1009,17 +1009,17 @@ class Independent(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[Array, list[Any]]:
+    ) -> tuple[ArrayLike, list[Any]]:
         # Reinterpreting batch dims as event dims does not reshape the sample, so
         # the base distribution's intermediates carry over unchanged. Forwarding
         # them lets ``log_prob`` reuse cached intermediates (e.g. the pre-transform
@@ -1088,7 +1088,7 @@ class MaskedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
@@ -1098,7 +1098,7 @@ class MaskedDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return self.base_dist.sample(key, sample_shape)
 
     def log_prob(
@@ -1250,11 +1250,11 @@ class TransformedDistribution(Distribution):
 
     def rsample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         x = self.base_dist.rsample(key, sample_shape=sample_shape)
         for transform in self.transforms:
             x = transform(x)
-        return jnp.asarray(x)
+        return x
 
     @property
     def support(self) -> constraints.Constraint:
@@ -1270,22 +1270,22 @@ class TransformedDistribution(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         x = self.base_dist.sample(key, sample_shape)
         for transform in self.transforms:
             x = transform(x)
-        return jnp.asarray(x)
+        return x
 
     def sample_with_intermediates(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> tuple[Array, list[Any]]:
+    ) -> tuple[ArrayLike, list[Any]]:
         x = self.base_dist.sample(key, sample_shape)
         intermediates: list[Any] = []
         for transform in self.transforms:
             x_tmp = x
             x, t_inter = transform.call_with_intermediates(x)
             intermediates.append([x_tmp, t_inter])
-        return jnp.asarray(x), intermediates
+        return x, intermediates
 
     @validate_sample
     def log_prob(
@@ -1437,7 +1437,7 @@ class Delta(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         r"""Draw samples from the distribution.
 
         Sampling is deterministic: every draw equals the support point
@@ -1447,8 +1447,10 @@ class Delta(Distribution):
         :param key: A JAX PRNG key (unused).
         :param sample_shape: Sample dimensions to prepend to the batch shape.
         :return: Samples that are all equal to ``v``.
-        :rtype: jax.Array
+        :rtype: ArrayLike
         """
+        if not sample_shape:
+            return self.v
         shape = sample_shape + self.batch_shape + self.event_shape
         return jnp.broadcast_to(self.v, shape)
 
@@ -1525,7 +1527,7 @@ class Unit(Distribution):
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
-    ) -> Array:
+    ) -> ArrayLike:
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)
 
     def log_prob(

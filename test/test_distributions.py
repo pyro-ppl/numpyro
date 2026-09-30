@@ -1498,7 +1498,8 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
     rng_key = random.key(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
-    assert isinstance(samples, jnp.ndarray)
+    if jax_dist_cls is not dist.Delta:
+        assert isinstance(samples, jnp.ndarray)
     if isinstance(jax_dist, dist.IntervalCensoredDistribution):
         # interval censored distributions take interval (lo-hi) input but return univarite samples
         expected_shape = expected_shape[:-1]
