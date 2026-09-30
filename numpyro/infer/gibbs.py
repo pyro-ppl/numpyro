@@ -233,8 +233,10 @@ def _flat_support_lows(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray:
 
     The discrete proposals propose the indices `0, ..., support_size - 1`; this is the
     offset from an index to a value, e.g. `low` for
-    :class:`~numpyro.distributions.DiscreteUniform`. Built with numpy, as
-    :func:`_flat_support_sizes`.
+    :class:`~numpyro.distributions.DiscreteUniform`. It is read from `support.lower_bound`
+    (0 for the boolean support) rather than from the values of `enumerate_support`, which
+    are traced when `init` runs under :func:`jax.pmap`; :func:`_flat_support_sizes` only
+    uses the static shape of `enumerate_support`.
     """
     lows = {
         name: np.broadcast_to(
@@ -893,7 +895,11 @@ ProposalFn: TypeAlias = Callable[
     [jax.Array, SiteValues, jax.Array, PotentialFn, jax.Array, jax.Array],
     tuple[jax.Array, SiteValues, jax.Array, jax.Array],
 ]
-"""`(rng_key, z, pe, potential_fn, idx, support_size) -> (rng_key, z_new, pe_new, log_accept_ratio)`."""
+"""`(rng_key, z, pe, potential_fn, idx, support_size) -> (rng_key, z_new, pe_new, log_accept_ratio)`.
+
+The proposals work with indices: they propose `z[idx]` in `0, ..., support_size - 1`. For
+supports that do not start at 0, such as `DiscreteUniform(low, high)`, shift the values, e.g.
+with the `support_lows_flat` argument of :func:`discrete_gibbs_sweep`."""
 
 
 def _discrete_gibbs_proposal_body_fn(
@@ -1065,11 +1071,18 @@ def _offset_proposal(
     if not np.any(support_lows_flat):
         return proposal_fn
 
-    def offset_proposal_fn(rng_key, z, pe, potential_fn, idx, support_size):
+    def offset_proposal_fn(
+        rng_key: jax.Array,
+        z: SiteValues,
+        pe: jax.Array,
+        potential_fn: PotentialFn,
+        idx: jax.Array,
+        support_size: jax.Array,
+    ) -> tuple[jax.Array, SiteValues, jax.Array, jax.Array]:
         z_flat, unravel_fn = ravel_pytree(z)
         lows = jnp.asarray(support_lows_flat, dtype=z_flat.dtype)
 
-        def shifted_potential_fn(z_shifted):
+        def shifted_potential_fn(z_shifted: SiteValues) -> jax.Array:
             return potential_fn(unravel_fn(ravel_pytree(z_shifted)[0] + lows))
 
         rng_key, z_new, pe_new, log_accept_ratio = proposal_fn(
@@ -1093,6 +1106,7 @@ def discrete_gibbs_sweep(
     potential_fn: PotentialFn,
     support_sizes_flat: jax.Array,
     proposal_fn: ProposalFn,
+    support_lows_flat: np.ndarray | jax.Array | None = None,
 ) -> tuple[SiteValues, jax.Array]:
     """
     One sweep over the flat discrete coordinates of `z` in a random order, each coordinate
@@ -1104,8 +1118,29 @@ def discrete_gibbs_sweep(
     :param potential_fn: potential energy as a function of the discrete values.
     :param support_sizes_flat: support size of each flat coordinate, in `ravel_pytree` order.
     :param proposal_fn: a discrete proposal, see :func:`select_discrete_proposal`.
+    :param support_lows_flat: smallest support value of each flat coordinate, in
+        `ravel_pytree` order. The proposals work with the indices
+        `0, ..., support_size - 1`, so `z` is shifted by these values once per sweep.
+        `None` (default) means that every support starts at 0.
     :return: the new values and their potential energy.
     """
+    if support_lows_flat is not None:
+        z_flat, unravel_fn = ravel_pytree(z)
+        lows = jnp.asarray(support_lows_flat, dtype=z_flat.dtype)
+
+        def index_potential_fn(z_idx: SiteValues) -> jax.Array:
+            return potential_fn(unravel_fn(ravel_pytree(z_idx)[0] + lows))
+
+        z_idx, pe = discrete_gibbs_sweep(
+            rng_key,
+            unravel_fn(z_flat - lows),
+            potential_energy,
+            index_potential_fn,
+            support_sizes_flat,
+            proposal_fn,
+        )
+        return unravel_fn(ravel_pytree(z_idx)[0] + lows), pe
+
     num_discretes = support_sizes_flat.shape[0]
     rng_key, rng_permute = random.split(rng_key)
     idxs = random.permutation(rng_permute, jnp.arange(num_discretes))
@@ -1269,9 +1304,9 @@ class DiscreteGibbs(MCMCKernel):
         model_kwargs: ModelKwargs | None,
     ) -> DiscreteGibbsState:
         """One :func:`~numpyro.infer.gibbs.discrete_gibbs_sweep` with the selected proposal."""
-        assert self._support_lows_flat is not None, (
-            "`init` must be called before `sample`."
-        )
+        assert (
+            self._support_sizes_flat is not None and self._support_lows_flat is not None
+        ), "`init` must be called before `sample`."
         rng_key, key_sweep = random.split(state.rng_key)
         z, pe = discrete_gibbs_sweep(
             key_sweep,
@@ -1279,7 +1314,8 @@ class DiscreteGibbs(MCMCKernel):
             state.potential_energy,
             self.get_potential_fn(model_args, model_kwargs),
             jnp.asarray(self._support_sizes_flat),
-            _offset_proposal(self._proposal_fn, self._support_lows_flat),
+            self._proposal_fn,
+            self._support_lows_flat if np.any(self._support_lows_flat) else None,
         )
         return state._replace(z=z, potential_energy=pe, rng_key=rng_key)
 

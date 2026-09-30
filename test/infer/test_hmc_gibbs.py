@@ -259,6 +259,8 @@ def test_discrete_gibbs_discrete_uniform(random_walk, kernel, inner_kernel, kwar
 
     def model():
         x = numpyro.sample("x", dist.DiscreteUniform(3, 7).expand([2]))
+        # a continuous latent, so that MixedHMC also refracts with a nonzero offset
+        numpyro.sample("y", dist.Normal())
         numpyro.sample("obs", dist.Normal(x, 1.0), obs=obs)
 
     sampler = kernel(inner_kernel(model), random_walk=random_walk, **kwargs)
