@@ -1053,12 +1053,18 @@ class DiscreteUniform(Distribution):
         of the discrete uniform distribution.
 
         .. math::
-            F^{-1}(u) = a + u\,(b - a + 1) - 1, \quad u \in [0, 1]
+            F^{-1}(u) = a + \lceil u\,(b - a + 1) \rceil - 1, \quad u \in (0, 1]
+
+        that is, the smallest :math:`k \in \{a, \dots, b\}` with
+        :math:`F(k) \ge u`. :math:`u = 0` maps to :math:`a`.
 
         :param q: Quantile level(s) :math:`u \in [0, 1]`.
         :return: The inverse CDF evaluated at ``q``.
         """
-        return jnp.asarray(self.low + q * (self.high - self.low + 1) - 1)
+        value = self.low + jnp.ceil(q * (self.high - self.low + 1)) - 1
+        # q * (b - a + 1) can round up past an integer, e.g. 0.3 * 10
+        value = jnp.where(self.cdf(value - 1) >= q, value - 1, value)
+        return jnp.clip(value, self.low, self.high)
 
     @property
     def mean(self) -> Array:
@@ -1771,11 +1777,44 @@ def ZeroInflatedDistribution(
 
 
 class ZeroInflatedPoisson(ZeroInflatedProbs):
-    """
-    A Zero Inflated Poisson distribution.
+    r"""
+    A Zero-Inflated Poisson distribution.
 
-    :param numpy.ndarray gate: probability of extra zeros.
-    :param numpy.ndarray rate: rate of Poisson distribution.
+    A zero-inflated Poisson mixes a point mass at zero (the *structural* or
+    *excess* zeros) with a Poisson distribution, allowing the number of zeros to
+    exceed what a plain Poisson would produce. With gate :math:`g` (the
+    probability of a structural zero) and Poisson rate :math:`\lambda`, the
+    probability mass function is
+
+    .. math::
+
+        P(X = 0) = g + (1 - g)\, e^{-\lambda}, \qquad
+        P(X = k) = (1 - g)\, \frac{\lambda^{k} e^{-\lambda}}{k!}
+        \;\text{for } k \geq 1.
+
+    A zero therefore arises either from the structural component (with
+    probability :math:`g`) or as a sampling zero from the Poisson component
+    (with probability :math:`(1 - g)\, e^{-\lambda}`).
+
+    The mean and variance are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \lambda, \qquad
+        \operatorname{Var}(X) = (1 - g)\, \lambda\, (1 + g\, \lambda).
+
+    Whenever :math:`g > 0` the variance exceeds the mean, so the zero-inflated
+    Poisson captures the overdispersion that a plain Poisson - for which the
+    mean equals the variance - cannot.
+
+    .. note::
+        ``gate`` is the probability of a structural zero, matching the
+        convention used by :class:`ZeroInflatedDistribution`.
+
+    :param numpy.ndarray gate: probability of extra (structural) zeros, in
+        :math:`[0, 1]`.
+    :param numpy.ndarray rate: rate :math:`\lambda` of the Poisson component
+        (default 1).
     """
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}

@@ -1960,6 +1960,20 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         pytest.skip("cdf/icdf not implemented")
 
 
+@pytest.mark.parametrize("low, high", [(2, 7), (-3, 4), (5, 5)])
+def test_discrete_uniform_icdf(low, high):
+    d = dist.DiscreteUniform(low, high)
+    support = np.arange(low, high + 1)
+    # include the exact levels k / n, where q * n can round up past k
+    quantiles = np.concatenate(
+        [np.linspace(0.01, 1.0, 100), np.arange(1, len(support) + 1) / len(support)]
+    )
+    actual = d.icdf(quantiles)
+    assert_allclose(actual, osp.randint(low, high + 1).ppf(quantiles))
+    assert np.all(np.isin(actual, support))
+    assert_allclose(d.icdf(d.cdf(support)), support)
+
+
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
 def test_independent_shape(jax_dist, sp_dist, params):
     d = jax_dist(*params)
