@@ -120,9 +120,6 @@ class DistributionMeta(type):
         *args: Any,
         **kwargs: Any,
     ) -> _DistributionT:
-        # Under `numpyro.handlers.collapse`, a coercion may return a funsor term
-        # instead of a distribution instance. That path is experimental and not
-        # reflected in the static return type.
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
