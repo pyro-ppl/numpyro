@@ -39,6 +39,7 @@ from typing import (
     Literal,
     Optional,
     Sequence,
+    TypeVar,
     Union,
     cast,
     overload,
@@ -100,6 +101,8 @@ def validation_enabled(is_validate: bool = True) -> Generator[None, None, None]:
 
 COERCIONS: list[Any] = []
 
+_DistributionT = TypeVar("_DistributionT", bound="Distribution")
+
 
 class DistributionMeta(type):
     def __init__(
@@ -113,10 +116,10 @@ class DistributionMeta(type):
         return super().__init__(*args, **kwargs)
 
     def __call__(
-        cls,
+        cls: type[_DistributionT],
         *args: Any,
         **kwargs: Any,
-    ) -> Any:
+    ) -> _DistributionT:
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
