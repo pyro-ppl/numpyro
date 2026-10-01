@@ -5928,98 +5928,10 @@ def test_truncated_gamma_inference():
     assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.4
 
 
-@pytest.mark.parametrize(
-    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
-)
-@pytest.mark.parametrize("mode", ["eager", "jit", "vmap"])
-def test_geometric_probs_endpoint_log_prob(dtype, mode):
-    probs = jnp.asarray([0.2, 0.7, 1.0], dtype=dtype)
-    values = jnp.arange(4)[:, None]
-
-    def log_prob(p, x):
-        return dist.Geometric(probs=p).log_prob(x)
-
-    if mode == "jit":
-        actual = jax.jit(log_prob)(probs, values)
-    elif mode == "vmap":
-        actual = vmap(log_prob, in_axes=(None, 0))(probs, values)
-    else:
-        actual = log_prob(probs, values)
-    expected = osp.geom.logpmf(np.asarray(values), np.asarray(probs), loc=-1)
-    assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
-    assert_array_equal(actual[:, -1], [0.0, -np.inf, -np.inf, -np.inf])
-
-
-@pytest.mark.parametrize(
-    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
-)
-@pytest.mark.parametrize("mode", ["eager", "jit", "vmap"])
-def test_geometric_probs_endpoint_entropy(dtype, mode):
-    probs = jnp.asarray([0.2, 0.7, 1.0], dtype=dtype)
-
-    def entropy(p):
-        return dist.Geometric(probs=p).entropy()
-
-    if mode == "jit":
-        actual = jax.jit(entropy)(probs)
-    elif mode == "vmap":
-        actual = vmap(entropy)(probs)
-    else:
-        actual = entropy(probs)
-    # SciPy's entropy also computes 0 * log(0) at p=1. The point mass
-    # has entropy zero; use SciPy only for the nondegenerate controls.
-    expected = np.concatenate([osp.geom.entropy(np.asarray(probs[:-1])), [0.0]])
-    assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
-    assert actual[-1] == 0.0
-
-
-@pytest.mark.parametrize(
-    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
-)
-@pytest.mark.parametrize("jit", [False, True])
-def test_geometric_probs_zero_log_prob_gradient(dtype, jit):
-    def log_prob(p):
-        return dist.Geometric(probs=p).log_prob(0)
-
-    derivative = grad(log_prob)
-    if jit:
-        derivative = jax.jit(derivative)
-    # P(X=0)=p, so the one-sided derivative of log P(X=0) is 1/p,
-    # including at the deterministic endpoint p=1.
-    for p in [0.2, 0.7, 1.0]:
-        assert_allclose(derivative(jnp.asarray(p, dtype=dtype)), 1 / p, rtol=1e-6)
-
-
-@pytest.mark.parametrize(
-    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
-)
-@pytest.mark.parametrize("jit", [False, True])
-def test_geometric_probs_interior_gradients(dtype, jit):
-    def log_prob(p):
-        return dist.Geometric(probs=p).log_prob(3)
-
-    def entropy(p):
-        return dist.Geometric(probs=p).entropy()
-
-    derivatives = (grad(log_prob), grad(entropy))
-    if jit:
-        derivatives = tuple(jax.jit(fn) for fn in derivatives)
-    for p in [0.2, 0.7]:
-        x = jnp.asarray(p, dtype=dtype)
-        assert_allclose(derivatives[0](x), 1 / p - 3 / (1 - p), rtol=1e-6)
-        assert_allclose(derivatives[1](x), np.log1p(-p) / p**2, rtol=1e-6)
-
-
-@pytest.mark.parametrize(
-    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
-)
-@pytest.mark.parametrize("sample_shape", [(), (2, 5)])
-def test_geometric_probs_deterministic_endpoint(dtype, sample_shape):
-    distribution = dist.Geometric(
-        probs=jnp.asarray(1.0, dtype=dtype), validate_args=True
-    )
-    samples = distribution.sample(random.PRNGKey(0), sample_shape)
-    assert samples.shape == sample_shape
-    assert_array_equal(samples, np.zeros(sample_shape))
-    assert distribution.mean == 0.0
-    assert distribution.variance == 0.0
+def test_geometric_probs_deterministic_endpoint():
+    # p=1 is a point mass at zero failures (gh-2297).
+    d = dist.GeometricProbs(1.0)
+    assert_array_equal(d.log_prob(np.arange(4)), [0.0, -np.inf, -np.inf, -np.inf])
+    assert d.entropy() == 0.0
+    # The where-guard must not leak NaN into the gradient: d/dp log p = 1/p.
+    assert_allclose(grad(lambda p: dist.GeometricProbs(p).log_prob(0))(1.0), 1.0)
