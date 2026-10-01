@@ -609,7 +609,7 @@ class ESS(EnsembleSampler):
             directions = dist.Normal(loc=0, scale=1).sample(
                 rng_key, sample_shape=inactive.shape
             )
-            directions /= jnp.linalg.norm(directions, axis=0)
+            directions /= jnp.linalg.norm(directions, axis=-1, keepdims=True)
 
             return 2.0 * mu * directions
 

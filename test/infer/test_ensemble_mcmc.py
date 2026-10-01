@@ -123,6 +123,22 @@ def test_warmup(kernel_cls):
     mcmc.run(random.key(3), labels)
 
 
+def test_random_move_normalizes_per_walker():
+    # Each walker's direction vector must have norm `2 * mu`, independent of
+    # the other active walkers (ESS.RandomMove's docstring promises "no
+    # chain interaction"). Normalizing on the wrong axis couples walkers
+    # through a shared per-dimension scale and leaves per-walker norms
+    # scattered around (but not equal to) 2 * mu.
+    random_move = ESS.RandomMove()
+    inactive = random.normal(random.key(0), (6, 4))
+    mu = 1.5
+
+    directions = random_move(random.key(1), inactive, mu)
+
+    row_norms = jnp.linalg.norm(directions, axis=-1)
+    assert jnp.allclose(row_norms, 2.0 * mu, atol=1e-5)
+
+
 def test_ensemble_sampler_uses_complementary_halves():
     class ToyEnsembleSampler(EnsembleSampler):
         def __init__(self):
