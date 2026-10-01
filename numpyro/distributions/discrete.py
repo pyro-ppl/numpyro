@@ -2196,7 +2196,7 @@ class GeometricProbs(Distribution):
         """
         value = jnp.asarray(value)
         probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
-        return value * jnp.log1p(-probs) + jnp.log(probs)
+        return value * jnp.log1p(-probs) + jnp.log(self.probs)
 
     @lazy_property
     def logits(self) -> Array:
@@ -2235,7 +2235,7 @@ class GeometricProbs(Distribution):
         :rtype: jax.Array
         """
         probs = jnp.asarray(self.probs)
-        return -(1 - probs) * jnp.log1p(-probs) / probs - jnp.log(probs)
+        return -xlog1py(1 - probs, -probs) / probs - jnp.log(probs)
 
 
 class GeometricLogits(Distribution):
