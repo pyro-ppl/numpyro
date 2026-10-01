@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import glob
+import logging
 import os
 import shutil
 import sys
 
 import nbsphinx
+from sphinx.util import logging as sphinx_logging
 
 # import pkg_resources
 
@@ -317,9 +319,31 @@ texinfo_documents = [
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
-    "jax": ("https://jax.readthedocs.io/en/latest/", None),
+    "jax": ("https://docs.jax.dev/en/latest/", None),
     "pyro": ("https://docs.pyro.ai/en/stable/", None),
 }
+
+
+class _IntersphinxFetchFailureFilter(logging.Filter):
+    """Log an unreachable intersphinx inventory as info instead of a warning.
+
+    Sphinx emits this warning without a ``type``, so ``suppress_warnings`` cannot
+    silence it, and ``-W`` would turn a transient outage of an external docs server
+    into a failed build. References into the missing inventory render as plain text.
+    """
+
+    def filter(self, record):
+        if record.levelno == logging.WARNING and str(record.msg).startswith(
+            "failed to reach any of the inventories"
+        ):
+            record.levelno = logging.INFO
+            record.levelname = "INFO"
+        return True
+
+
+sphinx_logging.getLogger("sphinx.ext.intersphinx").logger.addFilter(
+    _IntersphinxFetchFailureFilter()
+)
 
 
 # -- Suppress warnings in Sphinx 7.3.5
