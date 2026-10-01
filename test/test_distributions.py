@@ -5926,3 +5926,12 @@ def test_truncated_gamma_inference():
     samples = mcmc.get_samples()
     assert abs(float(jnp.mean(samples["concentration"])) - true_concentration) < 0.7
     assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.4
+
+
+def test_geometric_probs_deterministic_endpoint():
+    # p=1 is a point mass at zero failures (gh-2297).
+    d = dist.GeometricProbs(1.0)
+    assert_array_equal(d.log_prob(np.arange(4)), [0.0, -np.inf, -np.inf, -np.inf])
+    assert d.entropy() == 0.0
+    # The where-guard must not leak NaN into the gradient: d/dp log p = 1/p.
+    assert_allclose(grad(lambda p: dist.GeometricProbs(p).log_prob(0))(1.0), 1.0)
