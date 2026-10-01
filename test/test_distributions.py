@@ -5928,7 +5928,9 @@ def test_truncated_gamma_inference():
     assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.4
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
+)
 @pytest.mark.parametrize("mode", ["eager", "jit", "vmap"])
 def test_geometric_probs_endpoint_log_prob(dtype, mode):
     probs = jnp.asarray([0.2, 0.7, 1.0], dtype=dtype)
@@ -5948,7 +5950,9 @@ def test_geometric_probs_endpoint_log_prob(dtype, mode):
     assert_array_equal(actual[:, -1], [0.0, -np.inf, -np.inf, -np.inf])
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
+)
 @pytest.mark.parametrize("mode", ["eager", "jit", "vmap"])
 def test_geometric_probs_endpoint_entropy(dtype, mode):
     probs = jnp.asarray([0.2, 0.7, 1.0], dtype=dtype)
@@ -5969,7 +5973,9 @@ def test_geometric_probs_endpoint_entropy(dtype, mode):
     assert actual[-1] == 0.0
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
+)
 @pytest.mark.parametrize("jit", [False, True])
 def test_geometric_probs_zero_log_prob_gradient(dtype, jit):
     def log_prob(p):
@@ -5984,7 +5990,9 @@ def test_geometric_probs_zero_log_prob_gradient(dtype, jit):
         assert_allclose(derivative(jnp.asarray(p, dtype=dtype)), 1 / p, rtol=1e-6)
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
+)
 @pytest.mark.parametrize("jit", [False, True])
 def test_geometric_probs_interior_gradients(dtype, jit):
     def log_prob(p):
@@ -6002,7 +6010,9 @@ def test_geometric_probs_interior_gradients(dtype, jit):
         assert_allclose(derivatives[1](x), np.log1p(-p) / p**2, rtol=1e-6)
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize(
+    "dtype", [np.float32, np.float64] if jax.config.x64_enabled else [np.float32]
+)
 @pytest.mark.parametrize("sample_shape", [(), (2, 5)])
 def test_geometric_probs_deterministic_endpoint(dtype, sample_shape):
     distribution = dist.Geometric(
