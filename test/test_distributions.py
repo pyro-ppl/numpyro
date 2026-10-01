@@ -3,6 +3,7 @@
 
 
 from collections import namedtuple
+from decimal import Decimal, localcontext
 from functools import partial
 import inspect
 from itertools import product
@@ -5935,3 +5936,30 @@ def test_geometric_probs_deterministic_endpoint():
     assert d.entropy() == 0.0
     # The where-guard must not leak NaN into the gradient: d/dp log p = 1/p.
     assert_allclose(grad(lambda p: dist.GeometricProbs(p).log_prob(0))(1.0), 1.0)
+
+
+def test_geometric_logits_extreme_moments():
+    logits = np.array([-20.0, -2.0, 0.0, 2.0, 20.0, 40.0])
+    with localcontext() as context:
+        context.prec = 60
+        probabilities = [1 / (1 + (-Decimal(str(x))).exp()) for x in logits]
+        means = np.array([float((1 - p) / p) for p in probabilities])
+        variances = np.array([float((1 - p) / p**2) for p in probabilities])
+    d = dist.GeometricLogits(logits)
+    assert_allclose(d.mean, means, rtol=1e-6, atol=0)
+    assert_allclose(d.variance, variances, rtol=1e-6, atol=0)
+    assert_allclose(
+        grad(lambda x: dist.GeometricLogits(x).mean.sum())(jnp.asarray(logits)),
+        -means,
+        rtol=1e-6,
+        atol=0,
+    )
+    assert_allclose(
+        grad(lambda x: dist.GeometricLogits(x).variance.sum())(jnp.asarray(logits)),
+        -means - 2 * means**2,
+        rtol=1e-6,
+        atol=0,
+    )
+
+    assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
+    assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
