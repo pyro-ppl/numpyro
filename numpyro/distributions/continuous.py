@@ -3959,7 +3959,7 @@ class Normal(Distribution):
            H(X) = \frac{1}{2} \ln(2\pi e \sigma^2)
         """
         return jnp.broadcast_to(
-            (jnp.log(2 * np.pi * self.scale**2) + 1) / 2, self.batch_shape
+            jnp.log(self.scale) + (np.log(2 * np.pi) + 1) / 2, self.batch_shape
         )
 
 
