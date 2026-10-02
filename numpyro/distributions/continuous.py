@@ -4620,7 +4620,8 @@ class Weibull(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         scaled_value = (value / self.scale) ** self.concentration
-        # Avoid cancellation near zero without losing exp's upper-tail gradients.
+        # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
+        # Use exp there to retain its derivative, and expm1 near zero.
         return jnp.where(
             scaled_value < jnp.log(2),
             -jnp.expm1(-scaled_value),
