@@ -2876,15 +2876,70 @@ def _batch_trace_from_cholesky(L):
 
 
 class MatrixNormal(Distribution):
-    """
-    Matrix variate normal distribution as described in [1] but with a lower_triangular parametrization,
-    i.e. :math:`U=scale_tril_row @ scale_tril_row^{T}` and :math:`V=scale_tril_column @ scale_tril_column^{T}`.
-    The distribution is related to the multivariate normal distribution in the following way.
-    If :math:`X ~ MN(loc,U,V)` then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
+    r"""
+    Matrix normal distribution on real matrices with ``event_shape = (n, p)``
+    and mean matrix :math:`M` (``loc``), as described in [1]. The row and column
+    covariance matrices are :math:`U = L_r L_r^\top` and
+    :math:`V = L_c L_c^\top`, where :math:`L_r` (``scale_tril_row``) and
+    :math:`L_c` (``scale_tril_column``) are lower Cholesky factors with positive
+    diagonal entries.
 
-    :param array_like loc: Location of the distribution.
-    :param array_like scale_tril_row: Lower cholesky of rows covariance matrix.
-    :param array_like scale_tril_column: Lower cholesky of columns covariance matrix.
+    The probability density function is
+
+    .. math::
+        f(X; M, U, V) =
+        \frac{\exp\left(-\frac{1}{2}\operatorname{tr}\left[
+        U^{-1}(X-M)V^{-1}(X-M)^\top\right]\right)}
+        {(2\pi)^{np/2}|U|^{p/2}|V|^{n/2}},
+        \qquad X \in \mathbb{R}^{n \times p}.
+
+    Equivalently,
+    :math:`\operatorname{vec}(X) \sim \mathcal{N}(\operatorname{vec}(M), V \otimes U)`,
+    where :math:`\operatorname{vec}` stacks the columns of a matrix and
+    :math:`\otimes` denotes the Kronecker product. For an unbatched matrix ``x``,
+    this is ``x.reshape(-1, order="F")``.
+
+    Samples are generated as :math:`X = M + L_r Z L_c^\top`, where :math:`Z`
+    is an :math:`n \times p` matrix of independent standard normal entries.
+    The log density is evaluated using triangular solves and the diagonals of
+    the Cholesky factors, without constructing the :math:`np \times np`
+    Kronecker covariance matrix.
+
+    Leading dimensions of all three parameters must be broadcast-compatible
+    and determine ``batch_shape``. The last two dimensions are matrix dimensions:
+    ``loc`` has shape ``(..., n, p)``, ``scale_tril_row`` has shape
+    ``(..., n, n)``, and ``scale_tril_column`` has shape ``(..., p, p)``.
+    Samples have shape ``sample_shape + batch_shape + (n, p)``, and
+    ``log_prob`` reduces the two event dimensions to give one value per matrix.
+
+    :param array_like loc: Mean matrix with shape ``(..., n, p)``.
+    :param array_like scale_tril_row: Lower Cholesky factor of the row covariance
+        matrix, with shape ``(..., n, n)`` and positive diagonal entries.
+    :param array_like scale_tril_column: Lower Cholesky factor of the column
+        covariance matrix, with shape ``(..., p, p)`` and positive diagonal entries.
+
+    **Example**
+
+    A matrix with two rows and three columns is equivalent to a six-dimensional
+    multivariate normal when its columns are stacked:
+
+    .. doctest::
+
+        >>> import jax.numpy as jnp
+        >>> from numpyro.distributions import MatrixNormal, MultivariateNormal
+        >>> loc = jnp.arange(6.0).reshape(2, 3)
+        >>> row = jnp.array([[1.0, 0.0], [0.4, 0.8]])
+        >>> column = jnp.array([[1.0, 0.0, 0.0], [0.3, 1.2, 0.0], [0.2, -0.1, 0.7]])
+        >>> matrix_normal = MatrixNormal(loc, row, column)
+        >>> vector_normal = MultivariateNormal(
+        ...     loc.reshape(-1, order="F"), scale_tril=jnp.kron(column, row)
+        ... )
+        >>> x = loc + jnp.array([[0.2, -0.3, 0.5], [0.7, 0.1, -0.4]])
+        >>> bool(jnp.allclose(
+        ...     matrix_normal.log_prob(x),
+        ...     vector_normal.log_prob(x.reshape(-1, order="F")),
+        ... ))
+        True
 
     **References**
 
