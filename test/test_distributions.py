@@ -5948,7 +5948,7 @@ def test_lognormal_small_scale_variance():
         rtol=1e-6,
         atol=0,
     )
-    
+
 
 def test_geometric_logits_extreme_moments():
     logits = np.array([-20.0, -2.0, 0.0, 2.0, 20.0, 40.0])
