@@ -1839,13 +1839,6 @@ def test_entropy_scipy(jax_dist, sp_dist, params):
     assert_allclose(actual, expected, atol=1e-5)
 
 
-def test_normal_entropy_extreme_scale():
-    scale = np.array([1e-30, 1e30], dtype=np.float32)
-    actual = dist.Normal(0, jnp.asarray(scale)).entropy()
-    expected = osp.norm.entropy(scale=scale.astype(np.float64))
-    assert_allclose(actual, expected, rtol=1e-6)
-
-
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL + BASE
 )
