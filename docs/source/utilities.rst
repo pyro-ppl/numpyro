@@ -114,6 +114,14 @@ Tensor Indexing
     :show-inheritance:
     :member-order: bysource
 
+Gaussian factors
+----------------
+
+.. automodule:: numpyro.ops.gaussian
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 Model Inspection
 ----------------
 
