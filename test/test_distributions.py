@@ -3,6 +3,7 @@
 
 
 from collections import namedtuple
+from decimal import Decimal, localcontext
 from functools import partial
 import inspect
 from itertools import product
@@ -5935,3 +5936,19 @@ def test_geometric_probs_deterministic_endpoint():
     assert d.entropy() == 0.0
     # The where-guard must not leak NaN into the gradient: d/dp log p = 1/p.
     assert_allclose(grad(lambda p: dist.GeometricProbs(p).log_prob(0))(1.0), 1.0)
+
+
+def test_weibull_small_cdf():
+    values = np.array([0.0, 1e-10, 1e-4, 0.5, 2.0, 6.0])
+    with localcontext() as context:
+        context.prec = 60
+        expected = np.array(
+            [float(1 - (-(Decimal(str(x)) ** 2)).exp()) for x in values]
+        )
+    assert_allclose(dist.Weibull(1.0, 2.0).cdf(values), expected, rtol=1e-6, atol=0)
+    assert_allclose(
+        grad(lambda x: dist.Weibull(1.0, 2.0).cdf(x).sum())(jnp.asarray(values)),
+        2 * values * np.exp(-(values**2)),
+        rtol=1e-6,
+        atol=0,
+    )
