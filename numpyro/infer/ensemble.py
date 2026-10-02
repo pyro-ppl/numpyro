@@ -603,13 +603,20 @@ class ESS(EnsembleSampler):
         When this move is used the walkers move along random directions. There is no communication between the
         walkers and this Move corresponds to the vanilla Slice Sampling method. This Move should be used for
         debugging purposes only.
+
+        Each walker's direction is drawn and normalized independently of the other active
+        walkers, to length ``2 * mu``.
         """
 
         def random_move(rng_key, inactive, mu):
             directions = dist.Normal(loc=0, scale=1).sample(
                 rng_key, sample_shape=inactive.shape
             )
-            directions /= jnp.linalg.norm(directions, axis=0)
+            # Normalized per walker (last axis), not across the chain axis: the
+            # reference zeus implementation normalizes across chains instead, which
+            # couples a walker's step length to the other active walkers' draws and
+            # contradicts the "no communication between the walkers" contract above.
+            directions /= jnp.linalg.norm(directions, axis=-1, keepdims=True)
 
             return 2.0 * mu * directions
 
