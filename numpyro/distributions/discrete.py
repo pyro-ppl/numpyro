@@ -2321,9 +2321,11 @@ class GeometricLogits(Distribution):
         .. math::
             E[X] = \frac{1}{p}-1,
 
-        where :math:`p=\sigma(\ell)`.
+        where :math:`p=\sigma(\ell)`. Computed directly as
+        :math:`\exp(-\ell)` to avoid cancellation when :math:`p` rounds to one.
         """
-        return 1.0 / self.probs - 1.0
+        logits = jnp.asarray(self.logits)
+        return jnp.exp(-logits.astype(jnp.result_type(logits, float)))
 
     @property
     def variance(self) -> Array:
@@ -2335,11 +2337,12 @@ class GeometricLogits(Distribution):
         implemented as,
 
         .. math::
-            \operatorname{Var}(X) = \frac{1/p-1}{p},
+            \operatorname{Var}(X) = \exp(-\ell)(1+\exp(-\ell)),
 
         where :math:`p=\sigma(\ell)`.
         """
-        return (1.0 / self.probs - 1.0) / self.probs
+        mean = self.mean
+        return mean * (1.0 + mean)
 
     def entropy(self) -> Array:
         r"""Calculates the entropy of the Geometric distribution.
