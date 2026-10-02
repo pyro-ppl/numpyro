@@ -742,6 +742,64 @@ def ZeroInflatedNegativeBinomial2(
     gate_logits: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
+    r"""A zero-inflated Negative Binomial distribution (NB2 / mean-dispersion
+    parameterization).
+
+    A zero-inflated :class:`~numpyro.distributions.conjugate.NegativeBinomial2`
+    mixes a point mass at zero (the *structural* or *excess* zeros) with a
+    Negative Binomial count distribution, allowing the number of zeros to exceed
+    what a plain Negative Binomial would produce. With gate :math:`g` (the
+    probability of a structural zero), mean :math:`\mu` and concentration
+    :math:`\alpha`, the probability mass function is
+
+    .. math::
+
+        P(X = 0) = g + (1 - g)\, \mathrm{NB2}(0 \mid \mu, \alpha), \qquad
+        P(X = k) = (1 - g)\, \mathrm{NB2}(k \mid \mu, \alpha)
+        \;\text{for } k \geq 1,
+
+    where :math:`\mathrm{NB2}(\cdot \mid \mu, \alpha)` is the PMF of the
+    :class:`~numpyro.distributions.conjugate.NegativeBinomial2` distribution,
+
+    .. math::
+
+        \mathrm{NB2}(k \mid \mu, \alpha) =
+        \frac{\Gamma(k + \alpha)}{k!\, \Gamma(\alpha)}
+        \left(\frac{\alpha}{\alpha + \mu}\right)^{\alpha}
+        \left(\frac{\mu}{\alpha + \mu}\right)^{k}.
+
+    A zero therefore arises either from the structural component (with
+    probability :math:`g`) or as a sampling zero from the Negative Binomial
+    component (with probability
+    :math:`(1 - g)\, \mathrm{NB2}(0 \mid \mu, \alpha)`, where
+    :math:`\mathrm{NB2}(0 \mid \mu, \alpha) = (\alpha / (\alpha + \mu))^{\alpha}`).
+
+    The mean and variance are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \mu, \qquad
+        \operatorname{Var}(X) = (1 - g)\, \mu
+        \left(1 + \frac{\mu}{\alpha} + g\, \mu\right).
+
+    Compared with a zero-inflated Poisson, the Negative Binomial component also
+    accommodates over-dispersion among the non-structural counts (its variance is
+    :math:`\mu + \mu^2 / \alpha`). For :math:`g = 0` the distribution reduces to
+    :class:`~numpyro.distributions.conjugate.NegativeBinomial2`.
+
+    The gate must be specified either as a probability ``gate`` :math:`= g` or as
+    logits ``gate_logits`` :math:`= \ell`, with :math:`g = 1 / (1 + e^{-\ell})`.
+    Exactly one of the two is required, as for
+    :func:`~numpyro.distributions.discrete.ZeroInflatedDistribution`.
+
+    :param numpy.ndarray mean: mean :math:`\mu` of the NegativeBinomial2 component.
+    :param numpy.ndarray concentration: concentration (dispersion) :math:`\alpha`
+        of the NegativeBinomial2 component.
+    :param numpy.ndarray gate: probability of extra (structural) zeros, in
+        :math:`[0, 1]`.
+    :param numpy.ndarray gate_logits: logits of the probability of extra
+        (structural) zeros.
+    """
     return ZeroInflatedDistribution(
         NegativeBinomial2(mean, concentration, validate_args=validate_args),
         gate=gate,
