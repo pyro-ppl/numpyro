@@ -5937,6 +5937,19 @@ def test_geometric_probs_deterministic_endpoint():
     assert_allclose(grad(lambda p: dist.GeometricProbs(p).log_prob(0))(1.0), 1.0)
 
 
+def test_lognormal_small_scale_variance():
+    loc = np.array([-2.0, 0.0, 2.0])[:, None]
+    scale = np.array([1e-8, 1e-4, 0.1, 1.0])
+    expected = np.expm1(scale**2) * np.exp(2 * loc + scale**2)
+    assert_allclose(dist.LogNormal(loc, scale).variance, expected, rtol=1e-6, atol=0)
+    assert_allclose(
+        grad(lambda x: dist.LogNormal(x, scale).variance.sum())(jnp.asarray(loc)),
+        2 * expected.sum(axis=1, keepdims=True),
+        rtol=1e-6,
+        atol=0,
+    )
+
+
 def test_geometric_logits_extreme_moments():
     logits = np.array([-20.0, -2.0, 0.0, 2.0, 20.0, 40.0])
     means = np.exp(-logits)
