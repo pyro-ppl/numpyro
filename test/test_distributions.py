@@ -5947,6 +5947,8 @@ def test_weibull_small_cdf():
         rtol=1e-5,
         atol=0,
     )
+
+
 def test_geometric_logits_extreme_moments():
     logits = np.array([-20.0, -2.0, 0.0, 2.0, 20.0, 40.0])
     means = np.exp(-logits)
