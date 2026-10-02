@@ -3681,6 +3681,46 @@ def _batch_lowrank_mahalanobis(
 
 
 class LowRankMultivariateNormal(Distribution):
+    r"""Multivariate normal distribution on :math:`\mathbb{R}^d` whose covariance
+    matrix is the sum of a low-rank matrix and a positive diagonal matrix,
+
+    .. math::
+        \Sigma = W W^\top + \operatorname{diag}(D),
+
+    where :math:`W \in \mathbb{R}^{d \times m}` is the covariance factor (usually
+    with :math:`m \ll d`) and :math:`D \in \mathbb{R}_{>0}^{d}` is the diagonal
+    part. The Probability Density Function (PDF) is
+
+    .. math::
+        f(x ; \mu, W, D) =
+        (2 \pi)^{-d/2} |\Sigma|^{-1/2}
+        \exp\left(-\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)\right),
+        \quad x \in \mathbb{R}^d
+
+    The mean is :math:`\mu` and the marginal variances are
+    :math:`\operatorname{Var}(x_i) = \sum_{j=1}^{m} W_{ij}^2 + D_i`.
+
+    A sample is generated as
+    :math:`x = \mu + W \epsilon_W + \sqrt{D} \odot \epsilon_D` with
+    :math:`\epsilon_W \sim \mathrm{Normal}(0, I_m)` and
+    :math:`\epsilon_D \sim \mathrm{Normal}(0, I_d)`. The log density avoids
+    forming the :math:`d \times d` matrix :math:`\Sigma` by using the
+    Woodbury matrix identity and the matrix determinant lemma with the
+    :math:`m \times m` capacitance matrix :math:`C = I_m + W^\top \operatorname{diag}(D)^{-1} W`:
+
+    .. math::
+        \Sigma^{-1} = \operatorname{diag}(D)^{-1}
+        - \operatorname{diag}(D)^{-1} W C^{-1} W^\top \operatorname{diag}(D)^{-1},
+        \qquad
+        \log |\Sigma| = \log |C| + \sum_{i=1}^{d} \log D_i.
+
+    :param loc: Mean vector :math:`\mu \in \mathbb{R}^d`.
+    :param cov_factor: Factor :math:`W` of the low-rank part of the covariance,
+        with shape ``(..., d, m)``.
+    :param cov_diag: Diagonal part :math:`D > 0` of the covariance, with shape
+        ``(..., d)``.
+    """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "cov_factor": constraints.independent(constraints.real, 2),
