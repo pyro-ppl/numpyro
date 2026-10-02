@@ -4619,7 +4619,14 @@ class Weibull(Distribution):
         return ll
 
     def cdf(self, value: ArrayLike) -> Array:
-        return 1 - jnp.exp(-((value / self.scale) ** self.concentration))
+        scaled_value = (value / self.scale) ** self.concentration
+        # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
+        # Use exp there to retain its derivative, and expm1 near zero.
+        return jnp.where(
+            scaled_value < jnp.log(2),
+            -jnp.expm1(-scaled_value),
+            1 - jnp.exp(-scaled_value),
+        )
 
     @property
     def mean(self) -> Array:

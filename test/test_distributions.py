@@ -5950,6 +5950,18 @@ def test_lognormal_small_scale_variance():
     )
 
 
+def test_weibull_small_cdf():
+    values = np.array([0.0, 1e-10, 1e-4, 0.5, 2.0, 6.0])
+    expected = -np.expm1(-(values**2))
+    assert_allclose(dist.Weibull(1.0, 2.0).cdf(values), expected, rtol=1e-6, atol=0)
+    assert_allclose(
+        grad(lambda x: dist.Weibull(1.0, 2.0).cdf(x).sum())(jnp.asarray(values)),
+        2 * values * np.exp(-(values**2)),
+        rtol=1e-5,
+        atol=0,
+    )
+
+
 def test_geometric_logits_extreme_moments():
     logits = np.array([-20.0, -2.0, 0.0, 2.0, 20.0, 40.0])
     means = np.exp(-logits)
