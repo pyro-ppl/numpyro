@@ -5935,3 +5935,27 @@ def test_geometric_probs_deterministic_endpoint():
     assert d.entropy() == 0.0
     # The where-guard must not leak NaN into the gradient: d/dp log p = 1/p.
     assert_allclose(grad(lambda p: dist.GeometricProbs(p).log_prob(0))(1.0), 1.0)
+
+
+def test_geometric_logits_extreme_moments():
+    logits = np.array([-20.0, -2.0, 0.0, 2.0, 20.0, 40.0])
+    means = np.exp(-logits)
+    variances = means * (1 + means)
+    d = dist.GeometricLogits(logits)
+    assert_allclose(d.mean, means, rtol=1e-6, atol=0)
+    assert_allclose(d.variance, variances, rtol=1e-6, atol=0)
+    assert_allclose(
+        grad(lambda x: dist.GeometricLogits(x).mean.sum())(jnp.asarray(logits)),
+        -means,
+        rtol=1e-6,
+        atol=0,
+    )
+    assert_allclose(
+        grad(lambda x: dist.GeometricLogits(x).variance.sum())(jnp.asarray(logits)),
+        -means - 2 * means**2,
+        rtol=1e-6,
+        atol=0,
+    )
+
+    assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
+    assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
