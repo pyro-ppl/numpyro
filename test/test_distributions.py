@@ -3,7 +3,6 @@
 
 
 from collections import namedtuple
-from decimal import Decimal, localcontext
 from functools import partial
 import inspect
 from itertools import product
@@ -5941,20 +5940,7 @@ def test_geometric_probs_deterministic_endpoint():
 def test_lognormal_small_scale_variance():
     loc = np.array([-2.0, 0.0, 2.0])[:, None]
     scale = np.array([1e-8, 1e-4, 0.1, 1.0])
-    with localcontext() as context:
-        context.prec = 60
-        expected = np.array(
-            [
-                [
-                    float(
-                        ((Decimal(str(s)) ** 2).exp() - 1)
-                        * (2 * Decimal(str(m)) + Decimal(str(s)) ** 2).exp()
-                    )
-                    for s in scale
-                ]
-                for m in loc[:, 0]
-            ]
-        )
+    expected = np.expm1(scale**2) * np.exp(2 * loc + scale**2)
     assert_allclose(dist.LogNormal(loc, scale).variance, expected, rtol=1e-6, atol=0)
     assert_allclose(
         grad(lambda x: dist.LogNormal(x, scale).variance.sum())(jnp.asarray(loc)),
