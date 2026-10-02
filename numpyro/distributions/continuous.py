@@ -2601,7 +2601,7 @@ class LogNormal(TransformedDistribution):
         .. math::
             \mathrm{Var}(X) = \left(e^{\sigma^{2}} - 1\right) e^{2\mu + \sigma^{2}}
         """
-        return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
+        return jnp.expm1(self.scale**2) * jnp.exp(2 * self.loc + self.scale**2)
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Normal distribution:
