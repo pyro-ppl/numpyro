@@ -3,7 +3,6 @@
 
 
 from collections import namedtuple
-from decimal import Decimal, localcontext
 from functools import partial
 import inspect
 from itertools import product
@@ -5940,11 +5939,8 @@ def test_geometric_probs_deterministic_endpoint():
 
 def test_geometric_logits_extreme_moments():
     logits = np.array([-20.0, -2.0, 0.0, 2.0, 20.0, 40.0])
-    with localcontext() as context:
-        context.prec = 60
-        probabilities = [1 / (1 + (-Decimal(str(x))).exp()) for x in logits]
-        means = np.array([float((1 - p) / p) for p in probabilities])
-        variances = np.array([float((1 - p) / p**2) for p in probabilities])
+    means = np.exp(-logits)
+    variances = means * (1 + means)
     d = dist.GeometricLogits(logits)
     assert_allclose(d.mean, means, rtol=1e-6, atol=0)
     assert_allclose(d.variance, variances, rtol=1e-6, atol=0)
