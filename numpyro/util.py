@@ -450,7 +450,14 @@ def fori_collect(
                     vals = _body_fn(i, *vals)
 
                     t.set_description(progbar_desc(i), refresh=False)
-                    if diagnostics_fn:
+                    # Formatting the diagnostics reads device scalars, which
+                    # blocks the host until step `i` has finished and prevents
+                    # step `i + 1` from being dispatched asynchronously. tqdm
+                    # only displays the postfix every `progress_rate` steps, so
+                    # compute it only when it can be shown.
+                    if diagnostics_fn and (
+                        (i + 1) % progress_rate == 0 or i + 1 == upper
+                    ):
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
         last_val, collection, _, _ = vals
