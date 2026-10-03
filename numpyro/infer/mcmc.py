@@ -615,11 +615,17 @@ class MCMC(object):
         except TypeError:
             pass
 
+    def _get_states(self):
+        if self._states is None and self._states_flat is not None:
+            # single chain: the collection is stored without the chain axis
+            self._states = jax.tree.map(lambda x: x[None, ...], self._states_flat)
+        return self._states
+
     def _get_states_flat(self):
-        if self._states_flat is None:
+        if self._states_flat is None and self._states is not None:
             self._states_flat = jax.tree.map(
                 # need to calculate first dimension manually; see issue #1328
-                lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
+                lambda x: x.reshape((x.shape[0] * x.shape[1],) + x.shape[2:]),
                 self._states,
             )
         return self._states_flat
@@ -776,9 +782,12 @@ class MCMC(object):
             remove_sites=remove_sites,
         )
         map_args = (rng_key, init_state, init_params)
+        states = states_flat = None
         if self.num_chains == 1:
+            # Keep the collection in its native layout; adding the chain axis
+            # copies the whole collection in eager mode, so `_states` is derived
+            # lazily in `_get_states` only when `group_by_chain=True` is requested.
             states_flat, last_state = partial_map_fn(map_args)
-            states = jax.tree.map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
             if self.chain_method == "sequential":
                 states, last_state = _laxmap(partial_map_fn, map_args)
@@ -794,7 +803,7 @@ class MCMC(object):
 
         self._last_state = last_state
         self._states = states
-        self._states_flat = None
+        self._states_flat = states_flat
         self._set_collection_params()
 
     def get_samples(self, group_by_chain=False):
@@ -817,7 +826,7 @@ class MCMC(object):
             samples = predictive(rng_key1, *model_args, **model_kwargs)
 
         """
-        states = self._states if group_by_chain else self._get_states_flat()
+        states = self._get_states() if group_by_chain else self._get_states_flat()
         assert states is not None, "`run` must be called before `get_samples`."
         return states[self._sample_field]
 
@@ -830,7 +839,7 @@ class MCMC(object):
         :return: Extra fields keyed by field names which are specified in the
             `extra_fields` keyword of :meth:`run`.
         """
-        states = self._states if group_by_chain else self._get_states_flat()
+        states = self._get_states() if group_by_chain else self._get_states_flat()
         assert states is not None, "`run` must be called before `get_extra_fields`."
         return {k: v for k, v in states.items() if k != self._sample_field}
 
@@ -843,7 +852,7 @@ class MCMC(object):
             at deterministic sites.
         """
         # Exclude deterministic sites by default
-        states = self._states
+        states = self._get_states()
         assert states is not None, "`run` must be called before `print_summary`."
         sites = states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
@@ -860,18 +869,15 @@ class MCMC(object):
                     if k in state_sample_field
                 }
         print_summary(sites, prob=prob)
-        extra_fields = self.get_extra_fields()
-        if "diverging" in extra_fields:
-            print(
-                "Number of divergences: {}".format(jnp.sum(extra_fields["diverging"]))
-            )
+        if "diverging" in states:
+            print("Number of divergences: {}".format(jnp.sum(states["diverging"])))
 
     def transfer_states_to_host(self):
         """
         Reduce the memory footprint of collected samples by transferring them to the host device.
         """
         self._states = device_get(self._states)
-        self._states_flat = device_get(self._get_states_flat())
+        self._states_flat = device_get(self._states_flat)
 
     def __getstate__(self):
         state = self.__dict__.copy()
