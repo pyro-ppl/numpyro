@@ -4097,7 +4097,8 @@ def RelaxedBernoulli(
 ) -> RelaxedBernoulliLogits:
     r"""Continuous relaxation of the Bernoulli distribution on the unit interval.
 
-    Exactly one of ``probs`` or ``logits`` must be specified. A probability
+    At least one of ``probs`` or ``logits`` must be specified; if both are
+    given, ``probs`` takes precedence and ``logits`` is ignored. A probability
     :math:`p` is converted to logits :math:`\ell = \log p - \log(1 - p)` and a
     :class:`RelaxedBernoulliLogits` distribution is returned; see that class for
     the density and the sampling procedure.
