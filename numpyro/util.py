@@ -408,7 +408,15 @@ def fori_collect(
 
     def map_fn(x):
         nx = jnp.asarray(x)
-        return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype) * nx[None, ...]
+        collection = jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype)
+        if isinstance(nx, Tracer):
+            # Under vmap/pmap the collection has to depend on the (batched)
+            # init value: otherwise its buffer has size 1 along the mapped axis
+            # and cannot be donated in `_body_fn` (see #1802). In eager mode
+            # the multiply only adds a second full-size buffer and a pass over
+            # the collection.
+            collection = collection * nx[None, ...]
+        return collection
 
     collection = jax.tree.map(map_fn, init_val_transformed)
 
