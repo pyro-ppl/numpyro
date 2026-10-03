@@ -405,7 +405,10 @@ class _ImproperWrapper(dist.ImproperUniform):
 
 
 class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
-    arg_constraints = {"rate": constraints.positive, "gate_logits": constraints.real}
+    arg_constraints = {
+        "rate": constraints.positive,
+        "gate_logits": constraints.extended_real,
+    }
     pytree_data_fields = ("rate",)
 
     def __init__(self, rate, gate_logits, *, validate_args=None):
@@ -937,6 +940,13 @@ CONTINUOUS = [
         None,
         np.array([-2.0, 2.0]),
     ),
+    # Infinite bounds (gh-2282): an absent side, also mixed within a batch.
+    T(_TruncatedNormal, 1.0, 2.0, -np.inf, None),
+    T(_TruncatedNormal, 1.0, 2.0, None, np.inf),
+    T(_TruncatedNormal, 0.3, 1.2, -np.inf, 2.0),
+    T(_TruncatedNormal, -1.0, 2.0, 1.0, np.inf),
+    T(_TruncatedNormal, 0.0, 1.0, np.array([-np.inf, 0.5]), 2.0),
+    T(_TruncatedCauchy, 0.0, 1.0, -np.inf, 1.0),
     T(dist.TwoSidedTruncatedDistribution, dist.Laplace(0.0, 1.0), -2.0, 3.0),
     T(_TruncatedGamma, 2.0, 1.0, 0.5, 3.0),
     T(_TruncatedGamma, 0.7, 2.0, 0.2, None),
@@ -1257,15 +1267,18 @@ DISCRETE = [
     T(dist.BernoulliProbs, 0.2),
     T(dist.BernoulliProbs, np.array([0.2, 0.7])),
     T(dist.BernoulliLogits, np.array([-1.0, 3.0])),
+    T(dist.BernoulliLogits, np.array([-np.inf, np.inf])),
     T(dist.BinomialProbs, np.array([0.2, 0.7]), np.array([10, 2])),
     T(dist.BinomialProbs, np.array([0.2, 0.7]), np.array([5, 8])),
     T(dist.BinomialLogits, np.array([-1.0, 3.0]), np.array([5, 8])),
+    T(dist.BinomialLogits, np.array([-np.inf, 1.0, np.inf]), np.array([5, 8, 3])),
     T(dist.CategoricalProbs, np.array([1.0])),
     T(dist.CategoricalProbs, np.array([0.1, 0.5, 0.4])),
     T(dist.CategoricalProbs, np.array([[0.1, 0.5, 0.4], [0.4, 0.4, 0.2]])),
     T(dist.CategoricalLogits, np.array([-5.0])),
     T(dist.CategoricalLogits, np.array([1.0, 2.0, -2.0])),
     T(dist.CategoricalLogits, np.array([[-1, 2.0, 3.0], [3.0, -4.0, -2.0]])),
+    T(dist.CategoricalLogits, np.array([-np.inf, 2.0, 0.0])),
     T(dist.Delta, 1),
     T(dist.Delta, np.array([0.0, 2.0])),
     T(dist.Delta, np.array([0.0, 2.0]), np.array([-2.0, -4.0])),
@@ -1287,6 +1300,7 @@ DISCRETE = [
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
     T(dist.MultinomialLogits, np.array([-1.0, 3.0]), np.array([[5], [8]])),
+    T(dist.MultinomialLogits, np.array([-np.inf, 1.0, 0.0]), 5),
     T(dist.NegativeBinomialProbs, 10, 0.2),
     T(dist.NegativeBinomialProbs, 10, np.array([0.2, 0.6])),
     T(dist.NegativeBinomialProbs, np.array([4.2, 10.7, 2.1]), 0.2),
@@ -1303,6 +1317,7 @@ DISCRETE = [
         np.array([4.2, 7.7, 2.1]),
         np.array([4.2, 0.7, 2.1]),
     ),
+    T(dist.NegativeBinomialLogits, np.array([4.2, 10.7]), -np.inf),
     T(dist.NegativeBinomial2, 0.3, 10),
     T(dist.NegativeBinomial2, np.array([10.2, 7, 31]), 10),
     T(dist.NegativeBinomial2, np.array([10.2, 7, 31]), np.array([10.2, 20.7, 2.1])),
@@ -1325,6 +1340,7 @@ DISCRETE = [
         np.array([0.2, 4.0, 0.3]),
         np.array([2.0, -3.0, 5.0]),
     ),
+    T(ZeroInflatedPoissonLogits, np.array([2.0, 3.0]), np.array([-np.inf, np.inf])),
     T(dist.HurdlePoisson, 0.6, 2.0),
     T(dist.HurdlePoisson, np.array([0.2, 0.7, 0.3]), np.array([2.0, 3.0, 5.0])),
 ]
@@ -1350,8 +1366,12 @@ def gen_values_within_bounds(constraint, size, key=None):
     if constraint is constraints.boolean:
         return random.bernoulli(key, shape=size)
     elif isinstance(constraint, constraints.greater_than):
+        if np.all(np.isinf(constraint.lower_bound)):  # (-inf, inf]
+            return random.normal(key, size)
         return jnp.exp(random.normal(key, size)) + constraint.lower_bound + eps
     elif isinstance(constraint, constraints.less_than):
+        if np.all(np.isinf(constraint.upper_bound)):  # [-inf, inf)
+            return random.normal(key, size)
         return constraint.upper_bound - jnp.exp(random.normal(key, size)) - eps
     elif isinstance(constraint, constraints.integer_interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
@@ -1363,7 +1383,12 @@ def gen_values_within_bounds(constraint, size, key=None):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
-    elif constraint in (constraints.real, constraints.real_vector):
+    elif constraint in (
+        constraints.real,
+        constraints.real_vector,
+        constraints.extended_real,
+        constraints.softmax_logits,
+    ):
         return random.normal(key, size)
     elif constraint is constraints.simplex:
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1])
@@ -1431,7 +1456,12 @@ def gen_values_outside_bounds(constraint, size, key=None):
     elif isinstance(constraint, constraints.interval):
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.0)
-    elif constraint in [constraints.real, constraints.real_vector]:
+    elif constraint in (
+        constraints.real,
+        constraints.real_vector,
+        constraints.extended_real,
+        constraints.softmax_logits,
+    ):
         return lax.full(size, np.nan)
     elif constraint is constraints.simplex:
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1]) + 1e-2
@@ -1877,16 +1907,55 @@ def test_entropy_categorical():
         assert_allclose(jax_dist.entropy(), sp_dist.entropy(), rtol=1e-6, atol=1e-6)
 
 
-def test_entropy_categorical_zero_probability():
+@pytest.mark.parametrize(
+    "make_dist",
+    [dist.CategoricalProbs, lambda probs: dist.CategoricalLogits(jnp.log(probs))],
+    ids=["probs", "logits"],
+)
+def test_entropy_categorical_zero_probability(make_dist):
     # A zero-probability category contributes nothing to the entropy because
-    # 0 * log(0) = 0 by convention, as scipy.stats.entropy implements it.
+    # 0 * log(0) = 0 by convention, as scipy.stats.entropy implements it; in logit
+    # space that category is a -inf logit (gh-2282).
     probs = jnp.array([0.25, 0.0, 0.75])
     assert_allclose(
-        dist.CategoricalProbs(probs).entropy(),
-        osp.entropy(probs),
-        rtol=1e-6,
-        atol=1e-6,
+        make_dist(probs).entropy(), osp.entropy(probs), rtol=1e-6, atol=1e-6
     )
+
+
+def test_categorical_logits_issue_reproducer():
+    # Verbatim from gh-2282: a list with a -inf logit is a zero-probability category.
+    d = dist.CategoricalLogits(logits=[-float("inf"), 0.0])
+    assert (d.sample(random.key(0), (20,)) == 1).all()
+    assert_allclose(d.log_prob(jnp.array([0, 1])), [-jnp.inf, 0.0])
+    assert_allclose(d.probs, [0.0, 1.0])
+
+
+@pytest.mark.parametrize(
+    "fn, param",
+    [
+        (lambda x: dist.BernoulliLogits(x).entropy().sum(), [-np.inf, 0.5, np.inf]),
+        (lambda x: dist.CategoricalLogits(x).entropy(), [-np.inf, 0.5, 1.0]),
+        (lambda x: dist.NegativeBinomialLogits(3.0, x).mean, -np.inf),
+        (lambda x: dist.NegativeBinomialLogits(3.0, x).variance, -np.inf),
+        (
+            lambda low: dist.TruncatedNormal(
+                0.0, 1.0, low=low, high=2.0
+            ).variance.sum(),
+            [-np.inf, 0.5],
+        ),
+    ],
+    ids=[
+        "BernoulliLogits.entropy",
+        "CategoricalLogits.entropy",
+        "NegativeBinomialLogits.mean",
+        "NegativeBinomialLogits.variance",
+        "TruncatedNormal.variance",
+    ],
+)
+def test_gradient_finite_at_infinite_parameter(fn, param):
+    # Each site multiplies a vanishing probability by a diverging term; the operand,
+    # not the result, is sanitized so that the gradient stays finite too (gh-2282).
+    assert jnp.isfinite(jax.grad(fn)(jnp.array(param))).all()
 
 
 def test_mixture_log_prob():
@@ -2071,7 +2140,84 @@ def test_zero_inflated_logits_probs_agree():
     zi_logits = dist.ZeroInflatedDistribution(d, gate_logits=gate_logits)
     zi_probs = dist.ZeroInflatedDistribution(d, gate=gate_probs)
     sample = np.random.randint(0, 20, (1000, 100))
-    assert_allclose(zi_probs.log_prob(sample), zi_logits.log_prob(sample))
+    # Algebraically identical, so only float32 rounding differs; the default rtol
+    # of 1e-7 is below float32 epsilon.
+    assert_allclose(zi_probs.log_prob(sample), zi_logits.log_prob(sample), rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "logits_dist, probs_dist",
+    [
+        (
+            lambda: dist.NegativeBinomialLogits(3.0, -jnp.inf),
+            lambda: dist.NegativeBinomialProbs(3.0, 0.0),
+        ),
+        (
+            lambda: dist.ZeroInflatedLogits(dist.Poisson(2.0), -jnp.inf),
+            lambda: dist.ZeroInflatedProbs(dist.Poisson(2.0), 0.0),
+        ),
+        (
+            lambda: dist.ZeroInflatedLogits(dist.Poisson(2.0), jnp.inf),
+            lambda: dist.ZeroInflatedProbs(dist.Poisson(2.0), 1.0),
+        ),
+        (
+            lambda: dist.HurdleLogits(dist.Poisson(2.0), -jnp.inf),
+            lambda: dist.HurdleProbs(dist.Poisson(2.0), 0.0),
+        ),
+        (
+            lambda: dist.HurdleLogits(dist.Poisson(2.0), jnp.inf),
+            lambda: dist.HurdleProbs(dist.Poisson(2.0), 1.0),
+        ),
+    ],
+    ids=[
+        "NegativeBinomial",
+        "ZI_gate_0",
+        "ZI_gate_1",
+        "Hurdle_gate_0",
+        "Hurdle_gate_1",
+    ],
+)
+def test_logits_match_probs_at_endpoint(logits_dist, probs_dist):
+    # An infinite logit is the p = 0 or p = 1 endpoint, which the probs
+    # parameterization already accepts; the two must agree there (gh-2282).
+    value = jnp.array([0.0, 1.0, 3.0])
+    assert_allclose(
+        logits_dist().log_prob(value), probs_dist().log_prob(value), atol=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    "make_dist, message",
+    [
+        (
+            lambda: dist.NegativeBinomialLogits(3.0, jnp.inf),  # Gamma rate 0
+            "NegativeBinomialLogits distribution got invalid logits",
+        ),
+        (
+            lambda: dist.GeometricLogits(-jnp.inf),  # p = 0: no finite count has mass
+            "GeometricLogits distribution got invalid logits",
+        ),
+        (
+            lambda: dist.TruncatedNormal(1.0, 2.0, low=jnp.inf),  # empty support
+            "LeftTruncatedDistribution distribution got invalid low",
+        ),
+        (
+            lambda: dist.TruncatedNormal(1.0, 2.0, high=-jnp.inf),
+            "RightTruncatedDistribution distribution got invalid high",
+        ),
+    ],
+    ids=[
+        "NegativeBinomialLogits",
+        "GeometricLogits",
+        "Truncated_low",
+        "Truncated_high",
+    ],
+)
+def test_improper_infinite_parameter_rejected(make_dist, message):
+    # Only the infinity with a well-defined limit is admitted; the other leaves the
+    # distribution without a normalizer and must fail the distribution's own check.
+    with pytest.raises(ValueError, match=message):
+        make_dist()
 
 
 @pytest.mark.parametrize("rate", [0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 10.0])
@@ -5928,13 +6074,23 @@ def test_truncated_gamma_inference():
     assert abs(float(jnp.mean(samples["rate"])) - true_rate) < 0.4
 
 
-def test_geometric_probs_deterministic_endpoint():
-    # p=1 is a point mass at zero failures (gh-2297).
-    d = dist.GeometricProbs(1.0)
+@pytest.mark.parametrize(
+    "make_dist, param, grad_log_prob_0",
+    [(dist.GeometricProbs, 1.0, 1.0), (dist.GeometricLogits, np.inf, 0.0)],
+    ids=["probs", "logits"],
+)
+def test_geometric_deterministic_endpoint(make_dist, param, grad_log_prob_0):
+    # p=1 is a point mass at zero failures (gh-2297, gh-2282).
+    d = make_dist(param)
     assert_array_equal(d.log_prob(np.arange(4)), [0.0, -np.inf, -np.inf, -np.inf])
     assert d.entropy() == 0.0
-    # The where-guard must not leak NaN into the gradient: d/dp log p = 1/p.
-    assert_allclose(grad(lambda p: dist.GeometricProbs(p).log_prob(0))(1.0), 1.0)
+    assert d.mean == 0.0
+    assert (d.sample(random.key(0), (20,)) == 0).all()
+    # The where-guard must not leak NaN into the gradient: d/dp log p = 1/p and
+    # d/dl log sigmoid(l) = sigmoid(-l).
+    assert_allclose(
+        grad(lambda x: make_dist(x).log_prob(0))(param), grad_log_prob_0, atol=1e-6
+    )
 
 
 def test_lognormal_small_scale_variance():

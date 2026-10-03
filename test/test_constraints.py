@@ -18,6 +18,7 @@ SINGLETON_CONSTRAINTS = {
     "complex": constraints.complex,
     "corr_cholesky": constraints.corr_cholesky,
     "corr_matrix": constraints.corr_matrix,
+    "extended_real": constraints.extended_real,
     "l1_ball": constraints.l1_ball,
     "lower_cholesky": constraints.lower_cholesky,
     "scaled_unit_lower_cholesky": constraints.scaled_unit_lower_cholesky,
@@ -33,6 +34,7 @@ SINGLETON_CONSTRAINTS = {
     "real_vector": constraints.real_vector,
     "real_matrix": constraints.real_matrix,
     "simplex": constraints.simplex,
+    "softmax_logits": constraints.softmax_logits,
     "softplus_lower_cholesky": constraints.softplus_lower_cholesky,
     "softplus_positive": constraints.softplus_positive,
     "sphere": constraints.sphere,
@@ -188,3 +190,20 @@ def test_singleton_constraint_eq(constraint):
         return c1.eq(c2)
 
     assert check_constraints(constraint, constraint)
+
+
+@pytest.mark.parametrize(
+    "logits, expected",
+    [
+        ([-np.inf, 0.0], True),  # a zero-probability category
+        ([np.inf, 0.0], False),  # softmax normalizer is inf - inf
+        ([-np.inf, -np.inf], False),  # no normalizer, like simplex rejects [0, 0]
+        ([np.nan, 0.0], False),
+    ],
+    ids=["neg_inf", "pos_inf", "all_neg_inf", "nan"],
+)
+def test_softmax_logits(logits, expected):
+    assert constraints.softmax_logits(logits) == expected  # any array-like
+    # batched along the event dimension
+    batched = np.array([logits, [0.0, 1.0]])
+    assert (constraints.softmax_logits(batched) == [expected, True]).all()
