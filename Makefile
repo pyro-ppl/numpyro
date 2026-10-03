@@ -14,7 +14,7 @@ format: license FORCE
 	ruff check --fix .
 
 install: FORCE
-	pip install -e '.[dev,doc,test,examples]'
+	uv sync --extra cpu --group dev --group test --group docs --group examples
 
 doctest: FORCE
 	JAX_PLATFORM_NAME=cpu $(MAKE) -C docs doctest
