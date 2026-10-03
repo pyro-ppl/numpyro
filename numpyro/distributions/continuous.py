@@ -4976,19 +4976,32 @@ class AsymmetricLaplaceQuantile(Distribution):
 
 class ZeroSumNormal(TransformedDistribution):
     r"""
-    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where one or
-    more axes are constrained to sum to zero (the last axis by default).
+    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3].
+    All axes in ``event_shape`` are constrained to sum to zero. For example,
+    ``event_shape=(3, 4)`` constrains both rows and columns to sum to zero.
+
+    For a single constrained axis, ``event_shape=(n,)``, and scalar ``scale``
+    :math:`\sigma`, the distribution is
 
     .. math::
-        \begin{align*}
-        ZSN(\sigma) = N(0, \sigma^2 (I - \tfrac{1}{n}J)) \\
-        \text{where} \ ~ J_{ij} = 1 \ ~ \text{and} \\
-        n = \text{number of zero-sum axes}
-        \end{align*}
+        ZSN(\sigma) = N(0, \sigma^2 (I_n - \tfrac{1}{n}J_n)).
+
+    Here :math:`n` is the length of the constrained axis, and :math:`I_n` and
+    :math:`J_n` are the :math:`n \times n` identity and all-ones matrices.
+    Each entry has variance :math:`\sigma^2(1 - 1/n)`.
 
     :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
         enforced.
     :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
+
+    For ``event_shape=(4,)``, there is one constrained axis of length four:
+
+    .. doctest::
+
+        >>> from numpy.testing import assert_allclose
+        >>> import numpyro.distributions as dist
+        >>> d = dist.ZeroSumNormal(1.0, event_shape=(4,))
+        >>> assert_allclose(d.variance, [0.75, 0.75, 0.75, 0.75])
 
     **Example:**
 
