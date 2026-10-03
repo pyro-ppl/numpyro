@@ -490,9 +490,14 @@ def soft_vmap(
     chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
     if chunk_size > 1:
         pad = chunk_size - batch_size % chunk_size if batch_size % chunk_size else 0
-        xs = jax.tree.map(
-            lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs
-        )
+        if pad > 0:
+            # jnp.pad copies its input even when all pad widths are zero, so skip
+            # it when the batch is already a multiple of the chunk size (always
+            # the case for the default chunk_size=None).
+            xs = jax.tree.map(
+                lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)),
+                xs,
+            )
         num_chunks = batch_size // chunk_size + int(pad > 0)
         prepend_shape = (-1,) if num_chunks > 1 else ()
         xs = jax.tree.map(
