@@ -212,7 +212,7 @@ class BernoulliLogits(Distribution):
     :math:`\sigma(\alpha) = 1/(1 + \exp{(-\alpha)})` is the sigmoid function.
     """
 
-    arg_constraints = {"logits": constraints.real}
+    arg_constraints = {"logits": constraints.extended_real}
 
     support = constraints.boolean
     r"""The support of the Bernoulli distribution is the set of binary outcomes :math:`\{0, 1\}`."""
@@ -221,7 +221,8 @@ class BernoulliLogits(Distribution):
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
         r"""
-        :param logits: Log-odds parameter spanning the full real line :math:`\alpha \in \mathbb{R}`.
+        :param logits: Log-odds parameter :math:`\alpha \in [-\infty, \infty]`;
+            :math:`\mp\infty` denote :math:`p = 0` and :math:`p = 1`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
         self.logits = logits
@@ -314,16 +315,16 @@ class BernoulliLogits(Distribution):
 
         where :math:`p = \sigma(\alpha)` is the mean of the distribution.
 
-        The implementation is of following form to maintain numerical stability across
-        the full range of log-odds values:
-
-        .. math::
-            H[X] = \frac{(1 + e^{-\alpha}) \ln(1 + e^{-\alpha})
-                + e^{-\alpha} \alpha}{1 + e^{-\alpha}}
+        It is evaluated as :math:`p\,\mathrm{softplus}(-\alpha) +
+        (1-p)\,\mathrm{softplus}(\alpha)`, dropping each term where its probability
+        is zero, which is exact for all :math:`\alpha` including :math:`\pm\infty`.
         """
         logits = jnp.asarray(self.logits)
-        nexp = jnp.exp(-logits)
-        return ((1 + nexp) * jnp.log1p(nexp) + nexp * logits) / (1 + nexp)
+        # expit(-logits) is 1 - p without cancellation once the sigmoid saturates.
+        p, q = expit(logits), expit(-logits)
+        return p * jnp.where(p > 0, softplus(-logits), 0.0) + q * jnp.where(
+            q > 0, softplus(logits), 0.0
+        )
 
 
 def Bernoulli(
@@ -513,7 +514,7 @@ class BinomialLogits(Distribution):
     """
 
     arg_constraints = {
-        "logits": constraints.real,
+        "logits": constraints.extended_real,
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
@@ -527,7 +528,8 @@ class BinomialLogits(Distribution):
         validate_args: Optional[bool] = None,
     ):
         r"""
-        :param logits: Log-odds parameter spanning :math:`\mathbb{R}`.
+        :param logits: Log-odds parameter in :math:`[-\infty, \infty]`;
+            :math:`\mp\infty` denote :math:`p = 0` and :math:`p = 1`.
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
@@ -561,12 +563,16 @@ class BinomialLogits(Distribution):
         r"""Evaluate the log probability mass function at specified count
         configurations.
 
-        The log probability mass function is computed entirely in log-space using a
-        numerically-stable formulation that avoids sigmoid underflow/overflow:
+        The log probability mass function is computed in log-odds space with
+        :math:`\ln p = -\mathrm{softplus}(-\alpha)` and
+        :math:`\ln(1-p) = -\mathrm{softplus}(\alpha)`, which are exact at
+        :math:`\alpha = \pm\infty`:
 
         .. math::
-            \ln P(X = k | n, \alpha) = \ln \binom{n}{k} + (k - n) \alpha
-            - n \ln(1 + \sigma(-|\alpha|))
+            \ln P(X = k | n, \alpha) = \ln \binom{n}{k} + k \ln p + (n - k) \ln(1-p)
+
+        A term whose count is zero is dropped rather than evaluated as
+        :math:`0 \cdot \infty`.
 
         The binomial coefficient in log-space is computed using the log-gamma function:
 
@@ -581,17 +587,14 @@ class BinomialLogits(Distribution):
         :return: Log probability scores evaluated under the Binomial PMF.
         """
         total_count = jnp.array(self.total_count, dtype=jnp.result_type(float))
-        log_factorial_n = gammaln(total_count + 1)
-        log_factorial_k = gammaln(value + 1)
-        log_factorial_nmk = gammaln(total_count - value + 1)
-        normalize_term = (
-            self.total_count * jnp.clip(self.logits, 0)
-            + xlog1py(total_count, jnp.exp(-jnp.abs(self.logits)))
-            - log_factorial_n
+        log_binom = (
+            gammaln(total_count + 1)
+            - gammaln(value + 1)
+            - gammaln(total_count - value + 1)
         )
-        return (
-            value * self.logits - log_factorial_k - log_factorial_nmk - normalize_term
-        )
+        log_p = jnp.where(value == 0, 0.0, -softplus(-self.logits))
+        log_1mp = jnp.where(value == total_count, 0.0, -softplus(self.logits))
+        return log_binom + value * log_p + (total_count - value) * log_1mp
 
     @lazy_property
     def probs(self) -> Array:
@@ -812,16 +815,19 @@ class CategoricalLogits(Distribution):
     :math:`k \in \{0, 1, \dots, K-1\}`.
     """
 
-    arg_constraints = {"logits": constraints.real_vector}
+    arg_constraints = {"logits": constraints.softmax_logits}
     has_enumerate_support = True
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
         r"""
-        :param logits: Real-valued logits vector; the trailing dimension indexes the
-            :math:`K` categories. Logits are unnormalized and converted to
-            probabilities via the softmax function.
+        :param logits: Logits vector; the trailing dimension indexes the :math:`K`
+            categories. Logits are unnormalized and converted to probabilities via
+            the softmax function. A :math:`-\infty` entry is a zero-probability
+            category; :math:`+\infty` is rejected since the softmax is then undefined.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
+        # Lists must become arrays for the sampler; NumPy inputs stay NumPy.
+        logits = logits if isinstance(logits, jax.Array) else np.asarray(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
@@ -929,17 +935,18 @@ class CategoricalLogits(Distribution):
         r"""The entropy of the Categorical distribution is given by:
 
         .. math::
-            H[X] = -\sum_{k=0}^{K-1} p_k \ln p_k
-            = \ln\!\sum_{j=0}^{K-1} \exp(\alpha_j) - \sum_{k=0}^{K-1} p_k\, \alpha_k
+            H[X] = -\sum_{k=0}^{K-1} p_k \ln p_k,
+            \qquad \ln p_k = \alpha_k - \ln\!\sum_{j=0}^{K-1} \exp(\alpha_j)
 
-        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`. The implementation
-        uses :func:`~jax.scipy.special.logsumexp` for the log-partition term, ensuring
-        numerical stability for large or widely-spread logits.
+        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`. The log-partition
+        term uses :func:`~jax.scipy.special.logsumexp` for stability, and a
+        zero-probability category contributes :math:`0 \ln 0 = 0`.
 
         :return: The entropy of the Categorical distribution.
         """
-        probs = softmax(self.logits, axis=-1)
-        return -(probs * self.logits).sum(axis=-1) + logsumexp(self.logits, axis=-1)
+        log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
+        probs = jnp.exp(log_pmf)
+        return -(probs * jnp.where(probs > 0, log_pmf, 0.0)).sum(axis=-1)
 
 
 def Categorical(probs=None, logits=None, *, validate_args: Optional[bool] = None):
@@ -1356,7 +1363,7 @@ class MultinomialLogits(Distribution):
     """
 
     arg_constraints = {
-        "logits": constraints.real_vector,
+        "logits": constraints.softmax_logits,
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("logits",)
@@ -1371,9 +1378,10 @@ class MultinomialLogits(Distribution):
         validate_args: Optional[bool] = None,
     ):
         r"""
-        :param logits: Real-valued logits vector; the trailing dimension indexes
-            the :math:`K` categories. Logits are unnormalized and converted to
-            probabilities via the softmax function.
+        :param logits: Logits vector; the trailing dimension indexes the :math:`K`
+            categories. Logits are unnormalized and converted to probabilities via
+            the softmax function. A :math:`-\infty` entry is a zero-probability
+            category; :math:`+\infty` is rejected since the softmax is then undefined.
         :param total_count: Number of trials :math:`n`. If this is a JAX array,
             it is required to specify `total_count_max`.
         :param total_count_max: The maximum number of trials,
@@ -1430,13 +1438,13 @@ class MultinomialLogits(Distribution):
         .. math::
             \ln P(X = \mathbf{x} \mid \boldsymbol{\alpha}, n) =
             \ln\Gamma(n + 1)
-            + \sum_{k=0}^{K-1} \left[ x_k \alpha_k - \ln\Gamma(x_k + 1) \right]
-            - n\,\ln\!\sum_{j=0}^{K-1} \exp(\alpha_j)
+            + \sum_{k=0}^{K-1} \left[ x_k \ln p_k - \ln\Gamma(x_k + 1) \right],
+            \qquad
+            \ln p_k = \alpha_k - \ln\!\sum_{j=0}^{K-1} \exp(\alpha_j)
 
-        where :math:`n` is :attr:`total_count`. The normalizing log-partition is
-        computed via :func:`~jax.scipy.special.logsumexp`, which uses the
-        standard max-subtraction trick to guarantee numerical stability in the
-        presence of large or widely-spread logit magnitudes.
+        where :math:`n` is :attr:`total_count`. The log-partition term uses
+        :func:`~jax.scipy.special.logsumexp` for stability, and a zero count
+        contributes nothing even for a category with :math:`\alpha_k = -\infty`.
 
         :param value: Count vector :math:`\mathbf{x}` whose last dimension has
             size :math:`K` and sums to :attr:`total_count`.
@@ -1444,11 +1452,10 @@ class MultinomialLogits(Distribution):
         """
         if self._validate_args:
             self._validate_sample(value)
-        normalize_term = self.total_count * logsumexp(self.logits, axis=-1) - gammaln(
+        log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
+        log_pmf = jnp.where(value == 0, 0.0, log_pmf)
+        return jnp.sum(value * log_pmf - gammaln(value + 1), axis=-1) + gammaln(
             self.total_count + 1
-        )
-        return (
-            jnp.sum(value * self.logits - gammaln(value + 1), axis=-1) - normalize_term
         )
 
     @lazy_property
@@ -1732,7 +1739,7 @@ class ZeroInflatedProbs(Distribution):
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
-    arg_constraints = {"gate_logits": constraints.real}
+    arg_constraints = {"gate_logits": constraints.extended_real}
 
     def __init__(
         self,
@@ -1748,11 +1755,11 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        log_prob_minus_log_gate = -self.gate_logits + self.base_dist.log_prob(value)
+        # Both branches in terms of the stable log-gates, which are exact at +-inf
+        # (-gate_logits + base_log_prob would be inf - inf there).
         log_gate = -softplus(-self.gate_logits)
-        log_prob = log_prob_minus_log_gate + log_gate
-        zero_log_prob = softplus(log_prob_minus_log_gate) + log_gate
-        return jnp.where(value == 0, zero_log_prob, log_prob)
+        log_prob = -softplus(self.gate_logits) + self.base_dist.log_prob(value)
+        return jnp.where(value == 0, jnp.logaddexp(log_gate, log_prob), log_prob)
 
 
 def ZeroInflatedDistribution(
@@ -2026,7 +2033,7 @@ class HurdleLogits(HurdleProbs):
        data models. *Journal of Econometrics*, 33(3), 341-365.
     """
 
-    arg_constraints = {"gate_logits": constraints.real}
+    arg_constraints = {"gate_logits": constraints.extended_real}
     pytree_data_fields = ("base_dist", "gate_logits")
 
     def __init__(
@@ -2249,14 +2256,17 @@ class GeometricLogits(Distribution):
     where :math:`\ell` denote the logits parameter,
     :math:`p = \sigma(\ell) = \displaystyle\frac{1}{1+\exp(-\ell)}` is the probability of success.
 
-    :param logits: Logits of success on each trial (:math:`logits`).
+    :param logits: Logits of success on each trial (:math:`\ell`) in
+        :math:`(-\infty, \infty]`; :math:`+\infty` is certain success on the first
+        trial.
     :type logits: ArrayLike
     :param validate_args: Whether to validate input constraints, defaults to
         ``None``.
     :type validate_args: bool, optional
     """
 
-    arg_constraints = {"logits": constraints.real}
+    # -inf is p = 0, which has no normalizer.
+    arg_constraints = {"logits": constraints.greater_than(-float("inf"))}
     support = constraints.nonnegative_integer
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
@@ -2301,7 +2311,8 @@ class GeometricLogits(Distribution):
         r"""Calculates the log probability mass function.
 
         .. math::
-           \log P(X = k; \ell) = \ell - (k + 1) \operatorname{softplus}(\ell),
+           \log P(X = k; \ell) = -\operatorname{softplus}(-\ell)
+           - k \operatorname{softplus}(\ell),
 
         where, :math:`\operatorname{softplus}` is :func:`~jax.nn.softplus`.
 
@@ -2312,7 +2323,11 @@ class GeometricLogits(Distribution):
         :rtype: jax.Array
         """
         value = jnp.asarray(value)
-        return (-value - 1) * softplus(self.logits) + self.logits
+        logits = jnp.asarray(self.logits)
+        # log p = -softplus(-logits) and log(1 - p) = -softplus(logits) are exact at
+        # +inf, where the equivalent logits - (k + 1) softplus(logits) is inf - inf.
+        log_1mp = jnp.where(value == 0, 0.0, -softplus(logits))
+        return -softplus(-logits) + value * log_1mp
 
     @property
     def mean(self) -> Array:
@@ -2359,11 +2374,14 @@ class GeometricLogits(Distribution):
         :rtype: jax.Array
         """
         logits = jnp.asarray(self.logits)
-        logq = -jax.nn.softplus(logits)
-        logp = -jax.nn.softplus(-logits)
-        p = jax.scipy.special.expit(logits)
+        logq = -softplus(logits)
+        logp = -softplus(-logits)
+        p = expit(logits)
+        # expit(-logits) is 1 - p without cancellation once the sigmoid saturates, and
+        # the guard keeps q * logq at zero (not 0 * -inf) when p is one.
+        q = expit(-logits)
         p_clip = jnp.clip(p, jnp.finfo(p.dtype).tiny)
-        return -(1 - p) * logq / p_clip - logp
+        return -q * jnp.where(q > 0, logq, 0.0) / p_clip - logp
 
 
 def Geometric(

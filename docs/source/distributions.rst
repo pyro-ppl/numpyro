@@ -929,6 +929,10 @@ dependent
 ^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.dependent
 
+extended_real
+^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.extended_real
+
 greater_than
 ^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.constraints.greater_than
@@ -1008,6 +1012,10 @@ softplus_lower_cholesky
 simplex
 ^^^^^^^
 .. autodata:: numpyro.distributions.constraints.simplex
+
+softmax_logits
+^^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.softmax_logits
 
 sphere
 ^^^^^^
