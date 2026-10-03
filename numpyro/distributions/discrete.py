@@ -1133,17 +1133,52 @@ class DiscreteUniform(Distribution):
 
 
 class OrderedLogistic(CategoricalProbs):
-    """
+    r"""
     A categorical distribution with ordered outcomes.
+
+    The ordered logistic (proportional odds) distribution models an ordinal
+    outcome :math:`Y` that takes one of :math:`K` ordered categories. A real-valued
+    predictor :math:`\eta` is compared with :math:`K - 1` strictly increasing
+    cutpoints :math:`c_0 < c_1 < \dots < c_{K-2}` through the logistic CDF, so that
+    the cumulative probabilities are
+
+    .. math::
+        P(Y \le k \mid \eta, \mathbf{c}) = \sigma(c_k - \eta),
+        \quad k \in \{0, 1, \dots, K-2\}
+
+    where :math:`\sigma(x) = 1 / (1 + e^{-x})` is the logistic sigmoid function,
+    i.e. :math:`\operatorname{logit} P(Y \le k) = c_k - \eta`. Differencing the
+    cumulative probabilities gives the Probability Mass Function (PMF)
+
+    .. math::
+        P(Y = k \mid \eta, \mathbf{c}) = \sigma(c_k - \eta) - \sigma(c_{k-1} - \eta),
+        \quad k \in \{0, 1, \dots, K-1\}
+
+    with the conventions :math:`c_{-1} = -\infty` and :math:`c_{K-1} = +\infty`, so
+    that the first and last categories have probabilities
+    :math:`P(Y = 0) = \sigma(c_0 - \eta)` and
+    :math:`P(Y = K-1) = 1 - \sigma(c_{K-2} - \eta)`. The support is
+    :math:`k \in \{0, 1, \dots, K-1\}`, and increasing :math:`\eta` shifts
+    probability mass towards the higher categories.
+
+    The category probabilities are computed by applying the inverse of
+    :class:`~numpyro.distributions.transforms.SimplexToOrderedTransform`, with
+    :math:`\eta` as its anchor point, to the cutpoints; they are stored in
+    :attr:`probs` as for any categorical distribution.
 
     **References:**
 
     1. *Stan Functions Reference, v2.20 section 12.6*,
        Stan Development Team
+    2. *Regression Models for Ordinal Data*,
+       P. McCullagh (1980), Journal of the Royal Statistical Society: Series B, 42(2)
 
-    :param numpy.ndarray predictor: prediction in real domain; typically this is output
-        of a linear model.
-    :param numpy.ndarray cutpoints: positions in real domain to separate categories.
+    :param numpy.ndarray predictor: prediction :math:`\eta` in real domain; typically
+        this is output of a linear model.
+    :param numpy.ndarray cutpoints: positions :math:`c_0 < \dots < c_{K-2}` in real
+        domain to separate categories; the trailing dimension has size :math:`K - 1`
+        and the leading dimensions are batch dimensions that are broadcast against
+        the shape of ``predictor``.
     """
 
     arg_constraints = {
