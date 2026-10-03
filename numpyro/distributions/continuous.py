@@ -1142,28 +1142,95 @@ class Chi2(Gamma):
 
 
 class GaussianStateSpace(TransformedDistribution):
-    r"""
-    Gaussian state space model.
+    r"""Joint distribution of a linear Gaussian state sequence.
+
+    For a fixed initial state :math:`\mathbf{z}_0 \in \mathbb{R}^d`, a
+    transition matrix :math:`\mathbf{A} \in \mathbb{R}^{d \times d}`, and
+    independent innovations with covariance :math:`\mathbf{Q}`, the states evolve
+    according to
 
     .. math::
-        \mathbf{z}_{t} &= \mathbf{A} \mathbf{z}_{t - 1} + \boldsymbol{\epsilon}_t\\
-        &= \mathbf{A}^t \mathbf{z}_0 + \sum_{k=1}^{t} \mathbf{A}^{t-k} \boldsymbol{\epsilon}_k,
 
-    where :math:`\mathbf{z}_t` is the state vector at step :math:`t`, :math:`\mathbf{A}`
-    is the transition matrix, :math:`\mathbf{z}_0` is the initial value, and
-    :math:`\boldsymbol\epsilon` is the innovation noise.
+        \mathbf{z}_t = \mathbf{A}\mathbf{z}_{t-1} + \boldsymbol{\epsilon}_t,
+        \qquad \boldsymbol{\epsilon}_t \sim \mathcal{N}(\mathbf{0}, \mathbf{Q}),
+        \qquad t = 1, \ldots, T.
 
+    A sample contains :math:`(\mathbf{z}_1, \ldots, \mathbf{z}_T)` and has
+    event shape ``(num_steps, d)``. The deterministic initial state is not included
+    in the sample. The support is :math:`\mathbb{R}^{T \times d}`, and the joint
+    density is
 
-    :param num_steps: Number of steps.
-    :param transition_matrix: State space transition matrix :math:`\mathbf{A}`.
-    :param covariance_matrix: Covariance of the innovation noise
-        :math:`\boldsymbol\epsilon`.
-    :param precision_matrix: Precision matrix of the innovation noise
-        :math:`\boldsymbol\epsilon`.
-    :param scale_tril: Scale matrix of the innovation noise
-        :math:`\boldsymbol\epsilon`.
-    :param initial_value: Initial state vector :math:`\mathbf{z}_0`. If ``None``,
-        defaults to zero.
+    .. math::
+
+        p(\mathbf{z}_{1:T} \mid \mathbf{z}_0) =
+        \prod_{t=1}^{T} \mathcal{N}
+        (\mathbf{z}_t; \mathbf{A}\mathbf{z}_{t-1}, \mathbf{Q}).
+
+    Sampling applies :class:`~numpyro.distributions.transforms.RecursiveLinearTransform`
+    to independent multivariate Normal innovations. ``log_prob`` recovers those
+    innovations as :math:`\mathbf{z}_t - \mathbf{A}\mathbf{z}_{t-1}` and sums
+    their log densities over time. The transformation has unit Jacobian
+    determinant. This distribution describes the states themselves; it does not
+    include an observation model or marginalize latent states.
+
+    The marginal mean and covariance at step :math:`t` are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{z}_t] &= \mathbf{A}^t\mathbf{z}_0, \\
+        \mathbf{P}_t &= \mathbf{A}\mathbf{P}_{t-1}\mathbf{A}^{\mathsf{T}}
+            + \mathbf{Q}, \qquad \mathbf{P}_0 = \mathbf{0}.
+
+    ``variance`` returns the diagonal of each :math:`\mathbf{P}_t`, with shape
+    ``batch_shape + (num_steps, d)``. In contrast, ``covariance_matrix``,
+    ``precision_matrix``, and ``scale_tril`` describe the innovation noise, not
+    the covariance of the state sequence. With :math:`\mathbf{A}=\mathbf{I}`,
+    this is a multivariate Gaussian random walk.
+
+    Specify exactly one of ``covariance_matrix``, ``precision_matrix``, or
+    ``scale_tril``. These matrices may have leading batch dimensions, but the
+    transition matrix must be two-dimensional and is shared across the batch.
+
+    :param num_steps: Positive number of sampled steps :math:`T`.
+    :param transition_matrix: Square transition matrix :math:`\mathbf{A}` of
+        shape ``(d, d)``, shared across time.
+    :param covariance_matrix: Positive-definite innovation covariance
+        :math:`\mathbf{Q}`, of shape ``(..., d, d)``, shared across time.
+    :param precision_matrix: Inverse innovation covariance
+        :math:`\mathbf{Q}^{-1}`, of shape ``(..., d, d)``.
+    :param scale_tril: Lower-triangular Cholesky factor :math:`\mathbf{L}` such
+        that :math:`\mathbf{Q}=\mathbf{L}\mathbf{L}^{\mathsf{T}}`, of shape
+        ``(..., d, d)``.
+    :param initial_value: Deterministic initial state :math:`\mathbf{z}_0`, of
+        shape ``(..., d)``. Defaults to zero when ``None``.
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+
+    **Example:**
+
+    Two independent position/velocity trajectories with different initial
+    positions share the same transition and innovation covariance:
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> from numpyro import distributions as dist
+        >>> process = dist.GaussianStateSpace(
+        ...     num_steps=3,
+        ...     transition_matrix=jnp.array([[1., 1.], [0., 1.]]),
+        ...     scale_tril=0.1 * jnp.eye(2),
+        ...     initial_value=jnp.array([[0., 1.], [10., 1.]]),
+        ... )
+        >>> process.batch_shape, process.event_shape
+        ((2,), (3, 2))
+        >>> process.mean[0].tolist()
+        [[1.0, 1.0], [2.0, 1.0], [3.0, 1.0]]
+        >>> paths = process.sample(random.key(0), sample_shape=(4,))
+        >>> paths.shape
+        (4, 2, 3, 2)
+        >>> process.log_prob(paths).shape
+        (4, 2)
     """
 
     arg_constraints = {
