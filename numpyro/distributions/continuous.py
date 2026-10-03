@@ -5075,8 +5075,32 @@ class ZeroSumNormal(TransformedDistribution):
 
 
 class Wishart(TransformedDistribution):
-    """
+    r"""
     Wishart distribution for covariance matrices.
+
+    The Wishart distribution is the multivariate generalization of the
+    :class:`Gamma` distribution and the conjugate prior for the precision matrix of a
+    multivariate normal distribution. If :math:`\mathbf{X} \sim W(\mathbf{V}, \nu)`,
+    its density over the :math:`p \times p` positive definite matrix
+    :math:`\mathbf{X}` is
+
+    .. math::
+
+        p(\mathbf{X} \mid \mathbf{V}, \nu) =
+        \frac{|\mathbf{X}|^{(\nu - p - 1)/2}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{V}^{-1} \mathbf{X})\right)}
+        {2^{\nu p/2} |\mathbf{V}|^{\nu/2} \Gamma_p(\nu/2)},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{V}` is the positive definite scale matrix and :math:`\Gamma_p` is
+    the multivariate gamma function. The rate matrix is :math:`\mathbf{V}^{-1}`.
+
+    The mean and the elementwise variance are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{X}] = \nu \mathbf{V}, \qquad
+        \mathrm{Var}[X_{ij}] = \nu \left(V_{ij}^2 + V_{ii} V_{jj}\right).
 
     :param concentration: Positive concentration parameter analogous to the
         concentration of a :class:`Gamma` distribution. The concentration must be larger
