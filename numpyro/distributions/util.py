@@ -210,10 +210,7 @@ def _binomial(key, p, n, shape):
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
     key = random.split(key, jnp.size(p))
-    if jax.default_backend() == "cpu":
-        ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
-    else:
-        ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
+    ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
     return jnp.reshape(ret, shape)
 
 

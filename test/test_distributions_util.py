@@ -16,6 +16,7 @@ from jax.test_util import check_grads
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import (
+    _binomial_dispatch,
     add_diag,
     binary_cross_entropy_with_logits,
     binomial,
@@ -314,6 +315,18 @@ def test_binomial_mean(n, p):
     samples = binomial(random.key(1), p, n, shape=(100, 100)).astype(np.float32)
     expected_mean = n * p
     assert_allclose(jnp.mean(samples), expected_mean, rtol=0.05)
+
+
+def test_binomial_vmap_matches_map():
+    # the vmapped sampler must give the same draws as mapping the per-element
+    # sampler sequentially (same keys, same algorithm per element)
+    p = jnp.array([0.0, 1e-6, 0.01, 0.3, 0.5, 0.7, 0.99, 1.0, jnp.nan, 0.5, 0.2])
+    n = jnp.array([10, 10, 20, 50, 1000, 1000, 20, 10, 10, 0, 100000])
+    keys = random.split(random.key(0), p.shape[0])
+    expected = lax.map(lambda x: _binomial_dispatch(*x), (keys, p, n))
+    actual = vmap(lambda *x: _binomial_dispatch(*x))(keys, p, n)
+    assert_array_equal(actual, expected)
+    assert_array_equal(binomial(random.key(0), p, n), expected)
 
 
 @pytest.mark.parametrize("concentration", [1, 10, 100])
