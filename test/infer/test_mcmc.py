@@ -703,6 +703,12 @@ def test_transfer_states_to_host(num_chains):
     samples = mcmc.get_samples(group_by_chain=True)
     assert samples["x"].shape == (num_chains, 20, 3)
     assert_allclose(samples["x"].reshape(-1, 3), samples_flat["x"])
+    # the pattern documented in examples/annotation.py for merging extra samples
+    # into the mcmc instance: update both layouts in place
+    mcmc.get_samples().update({"y": samples_flat["x"] + 1})
+    mcmc.get_samples(group_by_chain=True).update({"y": samples["x"] + 1})
+    assert_allclose(mcmc.get_samples()["y"], samples_flat["x"] + 1)
+    assert_allclose(mcmc.get_samples(group_by_chain=True)["y"], samples["x"] + 1)
 
     mcmc.transfer_states_to_host()
     # both layouts are served from the host without going back to the device

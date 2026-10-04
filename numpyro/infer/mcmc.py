@@ -617,8 +617,10 @@ class MCMC(object):
 
     def _get_states(self):
         if self._states is None and self._states_flat is not None:
-            # single chain: the collection is stored without the chain axis
-            self._states = jax.tree.map(lambda x: x[None, ...], self._states_flat)
+            # single chain: the collection is stored without the chain axis. Derive
+            # the chain-grouped layout on demand without retaining it, so that a
+            # `group_by_chain=True` call does not leave a second copy on the device.
+            return jax.tree.map(lambda x: x[None, ...], self._states_flat)
         return self._states
 
     def _get_states_flat(self):
