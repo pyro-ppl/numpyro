@@ -68,6 +68,27 @@ def test_fori_collect_return_last(progbar):
     jax.tree.all(jax.tree.map(assert_allclose, tree, expected_tree))
 
 
+def test_fori_collect_progbar_diagnostics_final_state():
+    calls = []
+
+    def diagnostics_fn(x):
+        calls.append(int(x))
+        return ""
+
+    # progress_rate=3 does not divide 62: the last step is off the update grid
+    # but the final bar must still show the final state's diagnostics.
+    fori_collect(
+        0,
+        62,
+        lambda x: x + 1,
+        jnp.int32(0),
+        progress_rate=3,
+        diagnostics_fn=diagnostics_fn,
+    )
+    assert calls[-1] == 62
+    assert len(calls) < 62  # not evaluated (host sync) on every step
+
+
 def test_fori_collect_no_recompilation():
     def f(x):
         return x + 1

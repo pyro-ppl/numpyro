@@ -453,11 +453,11 @@ def fori_collect(
                     # Formatting the diagnostics reads device scalars, which
                     # blocks the host until step `i` has finished and prevents
                     # step `i + 1` from being dispatched asynchronously. tqdm
-                    # only displays the postfix every `progress_rate` steps, so
+                    # only displays the postfix every `t.miniters` steps (set to
+                    # `progress_rate`; tqdm's monitor thread lowers it to 1 when
+                    # a refresh is overdue by more than `maxinterval`), so
                     # compute it only when it can be shown.
-                    if diagnostics_fn and (
-                        (i + 1) % progress_rate == 0 or i + 1 == upper
-                    ):
+                    if diagnostics_fn and ((i + 1) % t.miniters == 0 or i + 1 == upper):
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
         last_val, collection, _, _ = vals

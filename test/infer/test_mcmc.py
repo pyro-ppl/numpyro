@@ -485,20 +485,6 @@ def test_mcmc_progbar():
     )
 
 
-def test_mcmc_progbar_diagnostics(capsys):
-    def model():
-        numpyro.sample("x", dist.Normal(0, 1))
-
-    # 62 steps gives progress_rate=3, which does not divide 62, so the final
-    # diagnostics string is produced by the last-step branch.
-    mcmc = MCMC(NUTS(model), num_warmup=31, num_samples=31)
-    mcmc.progress_bar = True  # re-enable on CI
-    mcmc.run(random.key(0))
-    err = capsys.readouterr().err
-    assert "acc. prob=" in err
-    assert err.rstrip().endswith("]")
-
-
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 @pytest.mark.parametrize("adapt_step_size", [True, False])
 def test_diverging(kernel_cls, adapt_step_size):
