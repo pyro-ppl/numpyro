@@ -474,6 +474,10 @@ def soft_vmap(
         Defaults to the size of batch dimensions.
     :returns: output of `fn(xs)`.
     """
+    # Convert NumPy inputs up front (a no-op for jax arrays) so that leaves which
+    # `fn` passes through unchanged come back as jax arrays rather than as views
+    # of the caller's NumPy arrays.
+    xs = jax.tree.map(jnp.asarray, xs)
     flatten_xs = jax.tree.flatten(xs)[0]
     batch_shape = np.shape(flatten_xs[0])[:batch_ndims]
     for x in flatten_xs[1:]:
@@ -490,9 +494,13 @@ def soft_vmap(
     chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
     if chunk_size > 1:
         pad = chunk_size - batch_size % chunk_size if batch_size % chunk_size else 0
-        xs = jax.tree.map(
-            lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs
-        )
+        if pad > 0:
+            # jnp.pad copies its input when run eagerly, even for zero widths
+            # (XLA drops it under jit), so only pad when there is something to add.
+            xs = jax.tree.map(
+                lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)),
+                xs,
+            )
         num_chunks = batch_size // chunk_size + int(pad > 0)
         prepend_shape = (-1,) if num_chunks > 1 else ()
         xs = jax.tree.map(
