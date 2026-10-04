@@ -322,6 +322,17 @@ def _fori_collect_loop(_body_fn, upper, init_val, collection, start_idx, thinnin
     )
 
 
+def _init_collection(init_val, collection_size):
+    # The collection has to depend on the (possibly batched) init value so that
+    # it can be donated under vmap/pmap (see #1802). Under jit, XLA fuses
+    # `zeros * x` into a single output buffer placed (and sharded) like `x`,
+    # whereas running it eagerly allocates the collection twice.
+    return jax.tree.map(
+        lambda x: jnp.zeros((collection_size, *x.shape), x.dtype) * x[None],
+        init_val,
+    )
+
+
 def fori_collect(
     lower: int,
     upper: int,
@@ -406,11 +417,9 @@ def fori_collect(
         collection = update_collection(collection, val)
         return val, collection, start_idx, thinning
 
-    def map_fn(x):
-        nx = jnp.asarray(x)
-        return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype) * nx[None, ...]
-
-    collection = jax.tree.map(map_fn, init_val_transformed)
+    collection = maybe_jit(_init_collection, static_argnums=1)(
+        jax.tree.map(jnp.asarray, init_val_transformed), collection_size
+    )
 
     if not progbar:
         last_val, collection, _, _ = maybe_jit(
