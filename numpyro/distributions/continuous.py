@@ -5318,8 +5318,27 @@ class Wishart(TransformedDistribution):
 
 
 class WishartCholesky(Distribution):
-    """
+    r"""
     Cholesky factor of a Wishart distribution for covariance matrices.
+
+    If :math:`\mathbf{X} \sim W(\mathbf{V}, \nu)` is a :class:`Wishart` distributed
+    :math:`p \times p` positive definite matrix, this distribution describes its lower
+    triangular Cholesky factor :math:`\mathbf{L}` with positive diagonal, such that
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`. Including the Jacobian
+    :math:`2^p \prod_{i=1}^p L_{ii}^{p - i + 1}` of the Cholesky transformation, its
+    density is
+
+    .. math::
+
+        p(\mathbf{L} \mid \mathbf{V}, \nu) =
+        \frac{|\mathbf{L} \mathbf{L}^\top|^{(\nu - p - 1)/2}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{V}^{-1} \mathbf{L} \mathbf{L}^\top)\right)}
+        {2^{\nu p/2} |\mathbf{V}|^{\nu/2} \Gamma_p(\nu/2)}
+        \, 2^p \prod_{i=1}^p L_{ii}^{p - i + 1},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{V}` is the positive definite scale matrix and :math:`\Gamma_p` is
+    the multivariate gamma function. The rate matrix is :math:`\mathbf{V}^{-1}`.
 
     :param concentration: Positive concentration parameter analogous to the
         concentration of a :class:`Gamma` distribution. The concentration must be larger
