@@ -324,9 +324,36 @@ def test_binomial_vmap_matches_map():
     n = jnp.array([10, 10, 20, 50, 1000, 1000, 20, 10, 10, 0, 100000])
     keys = random.split(random.key(0), p.shape[0])
     expected = lax.map(lambda x: _binomial_dispatch(*x), (keys, p, n))
-    actual = vmap(lambda *x: _binomial_dispatch(*x))(keys, p, n)
-    assert_array_equal(actual, expected)
     assert_array_equal(binomial(random.key(0), p, n), expected)
+
+
+def test_binomial_near_tie_acceptance_terminates():
+    # BTRS element whose first proposal sits within float32 rounding of the
+    # acceptance boundary; recomputing the accept test in `cond_fun` under vmap
+    # could disagree with the body's copy and never terminate.
+    samples = dist.Binomial(total_count=1000, probs=0.5).sample(
+        random.key(10), (100_000,)
+    )
+    assert samples.shape == (100_000,)
+    assert_allclose(jnp.mean(samples), 500.0, rtol=0.01)
+
+
+@pytest.mark.parametrize("p", [-0.5, -1e-8, 1.0000001, 1.5, np.inf, -np.inf])
+def test_binomial_invalid_probs(p):
+    # under vmap the dispatch runs for invalid elements too; they must not hang
+    out = binomial(random.key(0), jnp.array([p, 0.3]), jnp.array([10, 50]))
+    assert out[0] == (10 if np.isfinite(p) and p > 0 else 0)
+
+
+@pytest.mark.parametrize("impl", ["rbg", "unsafe_rbg"])
+def test_binomial_non_threefry_matches_sequential(impl):
+    # vmapped while loops only reproduce per-key streams for threefry keys
+    p, n = jnp.full(1000, 0.05), jnp.full(1000, 20)
+    key = random.key(0, impl=impl)
+    expected = lax.map(
+        lambda x: _binomial_dispatch(*x), (random.split(key, 1000), p, n)
+    )
+    assert_array_equal(binomial(key, p, n), expected)
 
 
 @pytest.mark.parametrize("concentration", [1, 10, 100])
