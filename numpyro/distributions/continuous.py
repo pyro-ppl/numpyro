@@ -5102,12 +5102,12 @@ class Wishart(TransformedDistribution):
         \mathbb{E}[\mathbf{X}] = \nu \mathbf{V}, \qquad
         \mathrm{Var}[X_{ij}] = \nu \left(V_{ij}^2 + V_{ii} V_{jj}\right).
 
-    :param concentration: Positive concentration parameter analogous to the
-        concentration of a :class:`Gamma` distribution. The concentration must be larger
-        than the dimensionality of the scale matrix.
+    :param concentration: Degrees of freedom :math:`\nu`, analogous to the
+        concentration of a :class:`Gamma` distribution. Must be greater than
+        :math:`p - 1`, where :math:`p` is the dimension of the scale matrix.
     :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
         distribution.
-    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+    :param rate_matrix: Rate matrix analogous to the rate of a :class:`Gamma`
         distribution.
     :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
     """
