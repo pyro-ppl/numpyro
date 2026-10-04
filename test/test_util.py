@@ -126,17 +126,27 @@ def test_ravel_pytree(pytree):
 
 @pytest.mark.parametrize("batch_shape", [(), (1,), (10,), (3, 4)])
 @pytest.mark.parametrize("chunk_size", [None, 1, 5, 16])
-def test_soft_vmap(batch_shape, chunk_size):
+@pytest.mark.parametrize("xp", [np, jnp], ids=["numpy", "jax"])
+def test_soft_vmap(batch_shape, chunk_size, xp):
     def f(x):
+        # "c" passes through unchanged, so a NumPy input would leak into the output
+        # unless soft_vmap converts its inputs.
         return {
-            k: ((v[..., None] * jnp.ones(4)) if k == "a" else ~v) for k, v in x.items()
+            k: (v[..., None] * jnp.ones(4)) if k == "a" else ~v if k == "b" else v
+            for k, v in x.items()
         }
 
-    xs = {"a": jnp.ones(batch_shape + (4,)), "b": jnp.zeros(batch_shape).astype(bool)}
+    xs = {
+        "a": xp.ones(batch_shape + (4,)),
+        "b": xp.zeros(batch_shape, dtype=bool),
+        "c": xp.ones(batch_shape + (2,)),
+    }
     ys = soft_vmap(f, xs, len(batch_shape), chunk_size)
-    assert set(ys.keys()) == {"a", "b"}
+    assert set(ys.keys()) == {"a", "b", "c"}
+    assert all(isinstance(y, jax.Array) for y in ys.values())
     assert_allclose(ys["a"], xs["a"][..., None] * jnp.ones(4))
     assert_allclose(ys["b"], ~xs["b"])
+    assert_allclose(ys["c"], xs["c"])
 
 
 def test_format_shapes():
