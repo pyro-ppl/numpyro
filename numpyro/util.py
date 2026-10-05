@@ -446,6 +446,10 @@ def fori_collect(
             vals = (val, collection, start_idx, thinning)
         else:
             with tqdm.trange(upper, miniters=progress_rate) as t:
+                if t.disable:
+                    # e.g. TQDM_DISABLE=1: nothing is rendered, and a disabled
+                    # bar has no `miniters` attribute.
+                    diagnostics_fn = None
                 for i in t:
                     vals = _body_fn(i, *vals)
 
@@ -457,7 +461,9 @@ def fori_collect(
                     # `progress_rate`; tqdm's monitor thread lowers it to 1 when
                     # a refresh is overdue by more than `maxinterval`), so
                     # compute it only when it can be shown.
-                    if diagnostics_fn and ((i + 1) % t.miniters == 0 or i + 1 == upper):
+                    if diagnostics_fn and (
+                        (i + 1) % max(t.miniters, 1) == 0 or i + 1 == upper
+                    ):
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
         last_val, collection, _, _ = vals
