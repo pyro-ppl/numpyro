@@ -5324,9 +5324,10 @@ class WishartCholesky(Distribution):
     If :math:`\mathbf{X} \sim W(\mathbf{V}, \nu)` is a :class:`Wishart` distributed
     :math:`p \times p` positive definite matrix, this distribution describes its lower
     triangular Cholesky factor :math:`\mathbf{L}` with positive diagonal, such that
-    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`. Including the Jacobian
-    :math:`2^p \prod_{i=1}^p L_{ii}^{p - i + 1}` of the Cholesky transformation, its
-    density is
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`. By the change of variables
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`, with Jacobian
+    :math:`|\partial \mathbf{X} / \partial \mathbf{L}| = 2^p \prod_{i=1}^p L_{ii}^{p - i + 1}`,
+    its density is
 
     .. math::
 
@@ -5340,12 +5341,17 @@ class WishartCholesky(Distribution):
     :math:`\mathbf{V}` is the positive definite scale matrix and :math:`\Gamma_p` is
     the multivariate gamma function. The rate matrix is :math:`\mathbf{V}^{-1}`.
 
-    :param concentration: Positive concentration parameter analogous to the
-        concentration of a :class:`Gamma` distribution. The concentration must be larger
-        than the dimensionality of the scale matrix.
+    Samples are drawn with the Bartlett decomposition,
+    :math:`\mathbf{L} = \mathbf{L}_V \mathbf{A}`, where :math:`\mathbf{L}_V` is
+    :code:`scale_tril`, :math:`A_{ii} \sim \sqrt{\chi^2_{\nu - i + 1}}` and
+    :math:`A_{ij} \sim \mathcal{N}(0, 1)` for :math:`i > j`.
+
+    :param concentration: Degrees of freedom :math:`\nu`, analogous to the
+        concentration of a :class:`Gamma` distribution. Must be greater than
+        :math:`p - 1`, where :math:`p` is the dimension of the scale matrix.
     :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
         distribution.
-    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+    :param rate_matrix: Rate matrix analogous to the rate of a :class:`Gamma`
         distribution.
     :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
     """
