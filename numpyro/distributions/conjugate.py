@@ -516,10 +516,11 @@ class GammaPoisson(Distribution):
         validate_args: Optional[bool] = None,
     ):
         self.concentration, self.rate = promote_shapes(concentration, rate)
+        batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
+        # Validate this distribution's own parameters before building the internal
+        # Gamma, so that an invalid rate is reported against the public class.
+        super(GammaPoisson, self).__init__(batch_shape, validate_args=validate_args)
         self._gamma = Gamma(concentration, rate)
-        super(GammaPoisson, self).__init__(
-            self._gamma.batch_shape, validate_args=validate_args
-        )
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -663,12 +664,14 @@ class NegativeBinomialLogits(GammaPoisson):
     distribution.
 
     :param total_count: Number of successful trials.
-    :param logits: Log-odds of success for each trial (:math:`\ln \frac{p}{1-p}`).
+    :param logits: Log-odds parameter (:math:`\ln \frac{p}{1-p}`) in
+        :math:`[-\infty, \infty)`; :math:`-\infty` puts all mass at zero.
     """
 
     arg_constraints = {
         "total_count": constraints.positive,
-        "logits": constraints.real,
+        # +inf is a Gamma rate of zero, which has no normalizer.
+        "logits": constraints.less_than(float("inf")),
     }
     support = constraints.nonnegative_integer
 
@@ -694,11 +697,23 @@ class NegativeBinomialLogits(GammaPoisson):
             - k \ln(1+\exp(-\mathrm{logits}(p)))
             - \ln\Gamma(1 + k) - \ln\Gamma(\alpha) + \ln\Gamma(k + \alpha)
         """
+        # A zero count contributes nothing even where softplus(-logits) is infinite.
+        log_1mp = jnp.where(value == 0, 0.0, nn.softplus(-self.logits))
         return -(
             self.total_count * nn.softplus(self.logits)
-            + value * nn.softplus(-self.logits)
+            + value * log_1mp
             + _log_beta_1(self.total_count, value)
         )
+
+    @property
+    def mean(self) -> Array:
+        # r exp(logits), rather than concentration / rate with rate = exp(-logits),
+        # whose gradient is 0 * inf at logits = -inf.
+        return self.total_count * jnp.exp(self.logits)
+
+    @property
+    def variance(self) -> Array:
+        return self.mean * (1 + jnp.exp(self.logits))
 
 
 class NegativeBinomial2(GammaPoisson):
