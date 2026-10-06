@@ -3378,16 +3378,42 @@ class CAR(Distribution):
         \frac{1}{\tau n_i}\right).
 
     Here :math:`n_i` is the weighted row sum; it equals the number of neighbors
-    only for a binary adjacency matrix. For symmetric, nonnegative :math:`W`
-    with zero diagonal and positive row sums, :math:`|\rho| < 1` is sufficient
-    for :math:`Q` to be positive definite. The exact admissible interval is
-    determined by the eigenvalues of
-    :math:`D^{-1/2} W D^{-1/2}`, while this class restricts ``correlation`` to
-    :math:`(-1, 1)`.
+    only for a binary adjacency matrix. Let :math:`\lambda_{\min}` and
+    :math:`\lambda_{\max}` be the extreme eigenvalues of
+    :math:`D^{-1/2} W D^{-1/2}`. Then :math:`Q` is positive definite exactly
+    when :math:`\rho\lambda_i < 1` for every eigenvalue, which for
+    :math:`\lambda_{\min} < 0 < \lambda_{\max}` is the interval
 
-    When validation is enabled, symmetry and positive row sums are checked for
-    NumPy and SciPy sparse inputs. Nonnegative weights and a zero diagonal are
-    the caller's responsibility. With ``is_sparse=True``, the adjacency matrix
+    .. math::
+        \frac{1}{\lambda_{\min}} < \rho
+        < \frac{1}{\lambda_{\max}}.
+
+    For symmetric, nonnegative :math:`W` with positive row sums,
+    :math:`\lambda_{\max}=1` and :math:`\lambda_{\min}\geq -1`, with equality
+    exactly when some connected component is bipartite; a zero diagonal also
+    gives :math:`\lambda_{\min}<0`. Thus :math:`|\rho| < 1` is always
+    sufficient, but it can exclude admissible negative values. This class
+    restricts ``correlation`` to :math:`(-1, 1)`.
+
+    ``log_prob`` computes the log determinant without factorizing :math:`Q`.
+    If :math:`\lambda_1,\ldots,\lambda_N` are the eigenvalues above, it uses
+    the identity [2]
+
+    .. math::
+        \log |Q| = N\log\tau + \sum_i\log n_i
+        + \sum_i\log(1-\rho\lambda_i).
+
+    With a NumPy or SciPy sparse adjacency matrix, ``log_prob`` computes the
+    eigenvalues with NumPy on the host; when the distribution is constructed
+    inside a traced function, as in a model, they enter the compiled
+    computation as constants. With a JAX adjacency matrix, the eigendecomposition
+    remains in the traced graph and is recomputed on each evaluation; JAX
+    adjacency inputs are therefore supported but not recommended.
+
+    When validation is enabled, symmetry and positive row sums are checked by
+    assertions for NumPy and SciPy sparse inputs. JAX adjacency inputs are not
+    validated. Nonnegative weights and a zero diagonal are the caller's
+    responsibility. With ``is_sparse=True``, the adjacency matrix
     is stored in SciPy CSR format and converted to JAX ``BCOO`` for the
     quadratic form in ``log_prob``. The normalized adjacency is nevertheless
     densified on the host for NumPy eigenvalue computation, and
@@ -3401,13 +3427,16 @@ class CAR(Distribution):
         identical. The value one is the excluded intrinsic-CAR boundary; this
         class implements the proper CAR distribution and also permits negative
         correlations.
-    :param float conditional_precision: positive scale :math:`\tau` for the
+    :param float conditional_precision: positive multiplier :math:`\tau` of the
         conditional precision, so that
         :math:`\operatorname{Var}(x_i \mid x_{-i}) = 1/(\tau n_i)` when the
         adjacency diagonal is zero
-    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
-        indicates adjacency between sites and 0 otherwise. :class:`jax.numpy.ndarray` ``adj_matrix`` is
-        supported but is **not** recommended over :class:`numpy.ndarray` or :class:`scipy.sparse.spmatrix`.
+    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric,
+        nonnegative weight matrix :math:`W` with zero diagonal and positive row
+        sums, shape ``(..., N, N)`` (two-dimensional only when
+        ``is_sparse=True``). The standard CAR uses a binary matrix (one for
+        neighboring sites, zero otherwise). A :class:`jax.numpy.ndarray` is
+        supported but not recommended (see above).
     :param bool is_sparse: whether to use a sparse form of ``adj_matrix`` in calculations (must be True if
         ``adj_matrix`` is a :class:`scipy.sparse.spmatrix`)
 
