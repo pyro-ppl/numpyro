@@ -557,7 +557,14 @@ class Cauchy(Distribution):
         :type value: ArrayLike
         """
         scaled = (value - self.loc) / self.scale
-        return jnp.arctan(scaled) / jnp.pi + 0.5
+        # In the lower tail, use arctan(z) / pi + 1/2 = -arctan(1 / z) / pi to avoid
+        # cancellation when adding 1/2.
+        lower = jnp.where(scaled < -1, scaled, -1.0)
+        return jnp.where(
+            scaled < -1,
+            -jnp.arctan(1 / lower) / jnp.pi,
+            jnp.arctan(scaled) / jnp.pi + 0.5,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -569,7 +576,18 @@ class Cauchy(Distribution):
         :param q: Probability value in :math:`[0,1]`.
         :type q: ArrayLike
         """
-        return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
+        # In the tails, use tan(pi * (q - 1/2)) = -1 / tan(pi * q) = 1 / tan(pi * (1 - q))
+        # so that tan is evaluated near 0 instead of near pi / 2. This keeps precision and
+        # gives -inf/inf at q = 0/1 (pi / 2 rounds up in float32, which flips the sign).
+        q = jnp.asarray(q)
+        x = jnp.where(
+            q < 0.25,
+            -1 / jnp.tan(jnp.pi * q),
+            jnp.where(
+                q > 0.75, 1 / jnp.tan(jnp.pi * (1 - q)), jnp.tan(jnp.pi * (q - 0.5))
+            ),
+        )
+        return self.loc + self.scale * x
 
     def entropy(self) -> Array:
         r"""Entropy of the Cauchy distribution.
@@ -4376,7 +4394,16 @@ class SoftLaplace(Distribution):
         :param q: Quantile level :math:`q \in [0, 1]`.
         :return: The value :math:`x` such that :math:`F(x) = q`.
         """
-        return jnp.log(jnp.tan(q * (jnp.pi / 2))) * self.scale + self.loc
+        # Use tan(pi * q / 2) = 1 / tan(pi * (1 - q) / 2) for q > 1/2 so that tan is
+        # evaluated away from pi / 2, which is inaccurate in the upper tail and gives
+        # NaN at q = 1.
+        q = jnp.asarray(q)
+        z = jnp.where(
+            q <= 0.5,
+            jnp.log(jnp.tan(q * (jnp.pi / 2))),
+            -jnp.log(jnp.tan((1 - q) * (jnp.pi / 2))),
+        )
+        return z * self.scale + self.loc
 
     @property
     def mean(self) -> Array:

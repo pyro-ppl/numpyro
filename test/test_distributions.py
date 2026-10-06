@@ -1974,6 +1974,33 @@ def test_discrete_uniform_icdf(low, high):
     assert_allclose(d.icdf(d.cdf(support)), support)
 
 
+@pytest.mark.parametrize(
+    "jax_dist, params, ppf",
+    [
+        (dist.Cauchy, (1.0, 2.0), osp.cauchy(1.0, 2.0).ppf),
+        (
+            dist.SoftLaplace,
+            (1.0, 2.0),
+            lambda q: 1.0 + 2.0 * np.log(np.tan(np.pi * q / 2)),
+        ),
+    ],
+)
+def test_tan_icdf_tails(jax_dist, params, ppf):
+    # tan is evaluated close to pi / 2 in the tails unless the icdf is rewritten, which
+    # loses precision in float32 and flips the sign of the result at q = 0 and q = 1
+    d = jax_dist(*params)
+    quantiles = np.array(
+        [1e-7, 1e-5, 0.3, 0.5, 0.7, 1 - 1e-5, 1 - 1e-7], dtype=np.float32
+    )
+    assert_allclose(d.icdf(quantiles), ppf(quantiles.astype(np.float64)), rtol=1e-5)
+    assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, rtol=1e-5)
+    assert_array_equal(d.icdf(np.array([0.0, 1.0])), [-np.inf, np.inf])
+
+
+def test_half_cauchy_icdf_bounds():
+    assert_array_equal(dist.HalfCauchy(2.0).icdf(np.array([0.0, 1.0])), [0.0, np.inf])
+
+
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
 def test_independent_shape(jax_dist, sp_dist, params):
     d = jax_dist(*params)
