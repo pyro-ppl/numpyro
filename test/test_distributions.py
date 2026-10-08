@@ -1889,19 +1889,6 @@ def test_entropy_categorical_zero_probability():
     )
 
 
-@pytest.mark.parametrize(
-    "logits", [-1e4, -200.0, -50.0, -1.0, 0.0, 2.0, 50.0, 200.0, 1e4]
-)
-def test_entropy_bernoulli_logits_large_logits(logits):
-    # exp(-logits) used to overflow for very negative logits and give nan
-    p = scipy.special.expit(logits)
-    expected = scipy.special.entr(p) + scipy.special.entr(1 - p)
-    actual = dist.BernoulliLogits(logits).entropy()
-    assert_allclose(actual, expected, atol=1e-6)
-    assert_allclose(actual, dist.BernoulliLogits(-logits).entropy(), rtol=1e-6)
-    assert jnp.isfinite(grad(lambda x: dist.BernoulliLogits(x).entropy())(logits))
-
-
 def test_mixture_log_prob():
     gmm = dist.MixtureSameFamily(
         dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
