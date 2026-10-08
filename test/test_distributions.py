@@ -5348,6 +5348,22 @@ def test_uniform_log_prob_outside_support():
         d.log_prob(-0.5)
 
 
+@pytest.mark.parametrize("value", [1e-20, 1e-10, 1e10, 1e20])
+def test_inverse_gamma_log_prob_extreme_values(value):
+    # the PowerTransform log-det overflowed / underflowed here (+-inf in float32)
+    d = dist.InverseGamma(2.0, 1.5)
+    expected = osp.invgamma(2.0, scale=1.5).logpdf(value)
+    assert_allclose(d.log_prob(value), expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("exponent", [-2.0, -1.0, 0.5, 3.0])
+@pytest.mark.parametrize("x", [1e-30, 1e-6, 1e6, 1e30])
+def test_power_transform_log_abs_det_jacobian(exponent, x):
+    t = PowerTransform(exponent)
+    expected = np.log(abs(exponent)) + (exponent - 1) * np.log(x)
+    assert_allclose(t.log_abs_det_jacobian(x, t(x)), expected, rtol=1e-5)
+
+
 @pytest.mark.parametrize("rate", [0, 1, 2, 5, 10, 1e-6, 1e2])
 @pytest.mark.parametrize("value", [0, 1, 2, 5, 10])
 def test_poisson_dtype_consistency(rate, value):
