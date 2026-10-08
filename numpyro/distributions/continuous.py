@@ -2867,7 +2867,7 @@ class LogUniform(TransformedDistribution):
         .. math::
             \mathbb{E}[X] = \frac{b - a}{\ln b - \ln a}
         """
-        return (self.high - self.low) / jnp.log(self.high / self.low)
+        return (self.high - self.low) / (jnp.log(self.high) - jnp.log(self.low))
 
     @property
     def variance(self) -> Array:
@@ -2878,7 +2878,9 @@ class LogUniform(TransformedDistribution):
             - \left(\frac{b - a}{\ln b - \ln a}\right)^{2}
         """
         return (
-            0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
+            0.5
+            * (self.high**2 - self.low**2)
+            / (jnp.log(self.high) - jnp.log(self.low))
             - self.mean**2
         )
 

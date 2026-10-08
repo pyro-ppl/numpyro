@@ -5984,3 +5984,38 @@ def test_geometric_logits_extreme_moments():
 
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
+
+
+@pytest.mark.parametrize("low, high", [(1e-30, 1e10), (0.5, 3.0)])
+@pytest.mark.parametrize("use_jit", [False, True])
+def test_loguniform_moments_wide_bounds(low, high, use_jit):
+    log_bounds = jnp.log(jnp.array([low, high], dtype=jnp.float32))
+
+    def moments(log_bounds):
+        bounds = jnp.exp(log_bounds)
+        d = dist.LogUniform(bounds[0], bounds[1])
+        return jnp.stack([d.mean, d.variance])
+
+    fn = moments
+    derivative = jax.jacfwd(moments)
+    if use_jit:
+        fn, derivative = jax.jit(fn), jax.jit(derivative)
+    actual = fn(log_bounds)
+    bounds = np.exp(np.asarray(log_bounds, dtype=np.float64))
+    expected = np.array(osp.loguniform.stats(*bounds, moments="mv"))
+    assert_allclose(actual, expected, rtol=2e-5)
+    step = 1e-4
+    reference = []
+    for index in range(2):
+        delta = np.zeros(2)
+        delta[index] = step
+        plus = np.exp(np.asarray(log_bounds, dtype=np.float64) + delta)
+        minus = np.exp(np.asarray(log_bounds, dtype=np.float64) - delta)
+        reference.append(
+            (
+                np.array(osp.loguniform.stats(*plus, moments="mv"))
+                - np.array(osp.loguniform.stats(*minus, moments="mv"))
+            )
+            / (2 * step)
+        )
+    assert_allclose(derivative(log_bounds), np.stack(reference, axis=-1), rtol=2e-4)
