@@ -1203,8 +1203,6 @@ class PowerTransform(Transform[NumLike]):
     def log_abs_det_jacobian(
         self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
-        # log|exponent * y / x| in log space: the ratio itself overflows or
-        # underflows for extreme x (e.g. exponent=-1, x=1e20 in float32)
         return jnp.log(jnp.abs(self.exponent)) + (self.exponent - 1) * jnp.log(x)
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
