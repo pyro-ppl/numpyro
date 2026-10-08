@@ -4200,7 +4200,7 @@ class Pareto(TransformedDistribution):
         return constraints.greater_than(self.scale)
 
     def entropy(self) -> Array:
-        return jnp.log(self.scale / self.alpha) + 1 + 1 / self.alpha
+        return jnp.log(self.scale) - jnp.log(self.alpha) + 1 + 1 / self.alpha
 
 
 class RelaxedBernoulliLogits(TransformedDistribution):

@@ -5984,3 +5984,30 @@ def test_geometric_logits_extreme_moments():
 
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
+
+
+@pytest.mark.parametrize("use_jit", [False, True])
+def test_pareto_entropy_extreme_parameters(use_jit):
+    scale = np.array([1e-30, 1e30, 2.0], dtype=np.float32)
+    alpha = np.array([1e10, 1e-10, 3.0], dtype=np.float32)
+    log_scale, log_alpha = jnp.log(scale), jnp.log(alpha)
+
+    def entropy(log_scale, log_alpha):
+        return dist.Pareto(jnp.exp(log_scale), jnp.exp(log_alpha)).entropy().sum()
+
+    fn = jax.value_and_grad(entropy, argnums=(0, 1))
+    if use_jit:
+        fn = jax.jit(fn)
+    actual, (scale_grad, alpha_grad) = fn(log_scale, log_alpha)
+    expected = osp.pareto.entropy(
+        alpha.astype(np.float64), scale=scale.astype(np.float64)
+    )
+    assert_allclose(
+        dist.Pareto(jnp.asarray(scale), jnp.asarray(alpha)).entropy(),
+        expected,
+        rtol=2e-5,
+    )
+    expected = expected.sum()
+    assert_allclose(actual, expected, rtol=2e-5)
+    assert_allclose(scale_grad, np.ones(3), rtol=2e-5)
+    assert_allclose(alpha_grad, -1.0 - 1.0 / alpha.astype(np.float64), rtol=2e-5)
