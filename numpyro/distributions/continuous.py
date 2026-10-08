@@ -2142,8 +2142,9 @@ class Kumaraswamy(Distribution):
         u = random.uniform(
             key, shape=sample_shape + self.batch_shape, minval=finfo.tiny
         )
-        u_con0 = jnp.clip(u ** (1 / self.concentration0), None, 1 - finfo.eps)
-        log_sample = jnp.log1p(-u_con0) / self.concentration1
+        log_sample = (
+            jnp.log(-jnp.expm1(jnp.log(u) / self.concentration0)) / self.concentration1
+        )
         return jnp.clip(jnp.exp(log_sample), finfo.tiny, 1 - finfo.eps)
 
     @validate_sample

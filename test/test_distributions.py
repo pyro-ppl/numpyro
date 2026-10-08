@@ -5984,3 +5984,37 @@ def test_geometric_logits_extreme_moments():
 
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
+
+
+@pytest.mark.parametrize("a, b", [(2.0, 1e8), (0.75, 3.0)])
+@pytest.mark.parametrize("use_jit", [False, True])
+def test_kumaraswamy_sampling_large_concentration(a, b, use_jit):
+    key = random.key(0)
+    log_params = jnp.log(jnp.array([a, b], dtype=jnp.float32))
+
+    def sample(log_params):
+        params = jnp.exp(log_params)
+        return dist.Kumaraswamy(*params).sample(key, (32,))
+
+    fn, derivative = sample, jax.jacfwd(sample)
+    if use_jit:
+        fn, derivative = jax.jit(fn), jax.jit(derivative)
+    samples = np.asarray(fn(log_params), dtype=np.float64)
+    a, b = np.exp(np.asarray(log_params, dtype=np.float64))
+    uniforms = np.asarray(
+        random.uniform(key, (32,), minval=jnp.finfo(jnp.result_type(float)).tiny),
+        dtype=np.float64,
+    )
+    # The CDF is an independent inverse-transform oracle, evaluated in float64.
+    powers = samples**a
+    cdf = -np.expm1(b * np.log1p(-powers))
+    assert_allclose(cdf, 1 - uniforms, rtol=2e-5, atol=1e-6)
+    # Implicitly differentiate b * log(1 - x**a) = log(u).
+    expected_grad = np.stack(
+        [
+            -samples * np.log(samples),
+            (1 - powers) * np.log1p(-powers) / (a * samples ** (a - 1)),
+        ],
+        axis=-1,
+    )
+    assert_allclose(derivative(log_params), expected_grad, rtol=2e-5, atol=1e-9)
