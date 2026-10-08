@@ -349,7 +349,9 @@ class AIES(EnsembleSampler):
         # first); the whole ensemble is evaluated once, at the first step.
         log_density = jax.lax.cond(
             i == 0,
-            lambda: self._batch_log_density(jnp.concatenate([active, inactive])),
+            lambda: self._batch_log_density(jnp.concatenate([active, inactive])).astype(
+                log_density.dtype
+            ),
             lambda: log_density,
         )
         active_log_density, inactive_log_density = jnp.split(log_density, 2)
