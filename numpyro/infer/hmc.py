@@ -723,7 +723,7 @@ class HMC(MCMCKernel):
             if init_params is None:
                 init_params = new_init_params
             if self._init_fn is None:
-                self._init_fn, self._sample_fn = hmc(
+                self._init_fn, self._sample_fn_base = hmc(
                     potential_fn_gen=potential_fn,
                     kinetic_fn=self._kinetic_fn,
                     algo=self._algo,
@@ -734,7 +734,7 @@ class HMC(MCMCKernel):
             self._inv_transforms = transforms.inv_transforms
             self._dynamic_support = transforms.dynamic_support
         elif self._init_fn is None:
-            self._init_fn, self._sample_fn = hmc(
+            self._init_fn, self._sample_fn_base = hmc(
                 potential_fn=self._potential_fn,
                 kinetic_fn=self._kinetic_fn,
                 algo=self._algo,
@@ -908,14 +908,15 @@ class HMC(MCMCKernel):
             rng_key=rng_key,
         )
         if is_prng_key(rng_key):
+            self._sample_fn = self._sample_fn_base
             init_state = hmc_init_fn(init_params, rng_key)
         else:
             # Note it's safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
-            assert self._sample_fn is not None
-            sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
+            assert self._sample_fn_base is not None
+            sample_fn = vmap(self._sample_fn_base, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
 
