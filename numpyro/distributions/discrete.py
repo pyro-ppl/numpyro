@@ -314,16 +314,15 @@ class BernoulliLogits(Distribution):
 
         where :math:`p = \sigma(\alpha)` is the mean of the distribution.
 
-        The implementation is of following form to maintain numerical stability across
-        the full range of log-odds values:
+        The entropy is even in :math:`\alpha`, and the implementation uses the following
+        form, in which both terms are small and positive, to stay finite and accurate
+        across the full range of log-odds values:
 
         .. math::
-            H[X] = \frac{(1 + e^{-\alpha}) \ln(1 + e^{-\alpha})
-                + e^{-\alpha} \alpha}{1 + e^{-\alpha}}
+            H[X] = \ln(1 + e^{-|\alpha|}) + |\alpha| \, \sigma(-|\alpha|)
         """
-        logits = jnp.asarray(self.logits)
-        nexp = jnp.exp(-logits)
-        return ((1 + nexp) * jnp.log1p(nexp) + nexp * logits) / (1 + nexp)
+        abs_logits = jnp.abs(jnp.asarray(self.logits))
+        return softplus(-abs_logits) + abs_logits * expit(-abs_logits)
 
 
 def Bernoulli(
