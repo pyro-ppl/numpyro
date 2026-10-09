@@ -942,6 +942,38 @@ class CategoricalLogits(Distribution):
 
 
 def Categorical(probs=None, logits=None, *, validate_args: Optional[bool] = None):
+    r"""Create a Categorical distribution over :math:`K` discrete outcomes.
+
+    For a category probability vector :math:`\mathbf{p}`, the probability mass
+    function is
+
+    .. math::
+        P(X = k \mid \mathbf{p}) = p_k,
+        \quad k \in \{0, 1, \dots, K-1\},
+        \quad \sum_{k=0}^{K-1} p_k = 1.
+
+    Alternatively, unnormalized logits :math:`\boldsymbol{\alpha}` define the
+    probabilities through a softmax:
+
+    .. math::
+        P(X = k \mid \boldsymbol{\alpha}) =
+        \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)},
+        \quad k \in \{0, 1, \dots, K-1\}.
+
+    The trailing dimension of either parameter indexes the :math:`K` categories;
+    preceding dimensions are batch dimensions. Exactly one of probs and logits
+    must be supplied. The factory returns a :class:`CategoricalProbs` distribution
+    when probs is supplied and a :class:`CategoricalLogits` distribution when
+    logits is supplied.
+
+    :param probs: Category probability vectors on the simplex, with categories on
+        the trailing dimension.
+    :param logits: Real-valued unnormalized log probabilities, with categories on
+        the trailing dimension.
+    :param validate_args: If True, enforce parameter constraints during initialization.
+    :return: A Categorical distribution parameterized by probs or logits.
+    :raises ValueError: If both parameterizations or neither is supplied.
+    """
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return CategoricalProbs(probs, validate_args=validate_args)
