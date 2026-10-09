@@ -624,12 +624,49 @@ class SineBivariateVonMises(Distribution):
 
 
 class ProjectedNormal(Distribution):
-    """
+    r"""
     Projected isotropic normal distribution of arbitrary dimension.
 
     This distribution over directional data is qualitatively similar to the von
     Mises and von Mises-Fisher distributions, but permits tractable variational
     inference via reparametrized gradients.
+
+    If :math:`\mathbf{z} \sim \mathcal{N}(\boldsymbol{\mu}, \mathbf{I}_d)`, then
+    :math:`\mathbf{x} = \mathbf{z} / \lVert \mathbf{z} \rVert` follows a projected
+    normal distribution on the unit sphere :math:`S^{d-1}`. Its density with respect
+    to the surface measure on the sphere is obtained by integrating the isotropic
+    normal density along the ray through :math:`\mathbf{x}`,
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-\lVert \boldsymbol{\mu} \rVert^2 / 2}}{(2\pi)^{d/2}}
+        \int_0^\infty r^{d-1}
+        \exp\left( -\frac{r^2}{2} + r\, \boldsymbol{\mu}^\top \mathbf{x} \right) dr.
+
+    Writing :math:`t = \boldsymbol{\mu}^\top \mathbf{x}`, the integral has a closed
+    form for :math:`d = 2` and :math:`d = 3`,
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-(\lVert \boldsymbol{\mu} \rVert^2 - t^2) / 2}}{(2\pi)^{(d-1)/2}}
+        I_{d-1}(t),
+
+    .. math::
+
+        I_1(t) = \frac{1}{2} \left[ t \left( 1 + \operatorname{erf}
+        \left( \frac{t}{\sqrt{2}} \right) \right)
+        + \sqrt{\frac{2}{\pi}}\, e^{-t^2 / 2} \right],
+
+    .. math::
+
+        I_2(t) = \frac{t\, e^{-t^2 / 2}}{\sqrt{2\pi}}
+        + \frac{(1 + t^2)}{2} \left( 1 + \operatorname{erf}
+        \left( \frac{t}{\sqrt{2}} \right) \right).
+
+    The mean and the mode are both
+    :math:`\boldsymbol{\mu} / \lVert \boldsymbol{\mu} \rVert`.
 
     To use this distribution with autoguides and HMC, use ``handlers.reparam``
     with a :class:`~numpyro.infer.reparam.ProjectedNormalReparam`
