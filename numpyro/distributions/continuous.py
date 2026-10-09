@@ -5824,6 +5824,35 @@ class InverseWishartCholesky(Distribution):
 
     This distribution samples the Cholesky factor :math:`\mathbf{L}` such that
     :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^T \sim W^{-1}(\mathbf{\Psi}, \nu)`.
+    Here :math:`\mathbf{L}` is lower triangular with positive diagonal, and its density is
+    taken with respect to Lebesgue measure on its :math:`p(p+1)/2` free entries. By the
+    change of variables :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^T`, with Jacobian
+    :math:`|\partial \mathbf{X} / \partial \mathbf{L}| = 2^p \prod_{i=1}^p L_{ii}^{p - i + 1}`,
+    and :math:`|\mathbf{X}| = \prod_{i=1}^p L_{ii}^2`, its density is
+
+    .. math::
+
+        p(\mathbf{L} \mid \mathbf{\Psi}, \nu) =
+        \frac{|\mathbf{\Psi}|^{\nu/2}}{2^{\nu p/2} \Gamma_p(\nu/2)}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{\Psi} \mathbf{L}^{-T} \mathbf{L}^{-1})\right)
+        \, 2^p \prod_{i=1}^p L_{ii}^{-(\nu + i)},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{\Psi}` is the positive definite scale matrix and :math:`\Gamma_p`
+    is the multivariate gamma function. The rate matrix is :math:`\mathbf{\Psi}^{-1}`.
+
+    .. note:: :code:`mean` returns the Cholesky factor of
+        :math:`\mathbb{E}[\mathbf{X}] = \mathbf{\Psi} / (\nu - p - 1)`, not
+        :math:`\mathbb{E}[\mathbf{L}]`, and :code:`variance` is not implemented (NaN).
+
+    Samples are drawn with a Bartlett decomposition of the precision
+    :math:`\mathbf{X}^{-1}`: :math:`\mathbf{L} = \mathbf{L}_\Psi \mathbf{A}^{-1}`, where
+    :math:`\mathbf{L}_\Psi` is :code:`scale_tril` and :math:`\mathbf{A}` is lower
+    triangular with :math:`A_{ii} \sim \sqrt{\chi^2_{\nu - p + i}}` and
+    :math:`A_{ij} \sim \mathcal{N}(0, 1)` for :math:`i > j`, so that
+    :math:`\mathbf{A}^T \mathbf{A} \sim W(\mathbf{I}, \nu)`. The degrees of freedom
+    increase with :math:`i`, unlike :class:`WishartCholesky`, because
+    :math:`\mathbf{A}^T` is the upper-triangular Bartlett factor.
 
     :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
         Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
@@ -5836,6 +5865,7 @@ class InverseWishartCholesky(Distribution):
     **References**
 
     [1] https://en.wikipedia.org/wiki/Inverse-Wishart_distribution
+    [2] https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition
     """
 
     arg_constraints = {
