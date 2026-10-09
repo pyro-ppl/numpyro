@@ -3368,22 +3368,128 @@ def _to_sparse(A):
 
 class CAR(Distribution):
     r"""
-    The Conditional Autoregressive (CAR) distribution is a special case of the multivariate
-    normal in which the precision matrix is structured according to the adjacency matrix of
-    sites. The amount of autocorrelation between sites is controlled by ``correlation``. The
-    distribution is a popular prior for areal spatial data.
+    The Conditional Autoregressive (CAR) distribution is a multivariate normal
+    whose precision matrix is structured by an adjacency matrix. It is commonly
+    used as a prior for areal spatial data.
+
+    Let :math:`W` be ``adj_matrix``, let
+    :math:`n_i = \sum_j W_{ij}`, and define
+    :math:`D = \operatorname{diag}(n_1, \ldots, n_N)`. With
+    :math:`\rho` denoting ``correlation`` and :math:`\tau` denoting
+    ``conditional_precision``, the precision matrix is
+
+    .. math::
+        Q = \tau (D - \rho W).
+
+    Therefore, for :math:`x, \mu \in \mathbb{R}^N`, with :math:`\mu`
+    denoting ``loc``, the density is
+
+    .. math::
+        p(x) = \frac{|Q|^{1/2}}{(2\pi)^{N/2}}
+        \exp\left(-\frac{1}{2}(x-\mu)^\top Q(x-\mu)\right).
+
+    If :math:`W` has a zero diagonal, the corresponding full conditional is
+
+    .. math::
+        x_i \mid x_{-i} \sim \mathcal{N}\left(
+        \mu_i + \frac{\rho}{n_i}\sum_j W_{ij}(x_j-\mu_j),
+        \frac{1}{\tau n_i}\right).
+
+    Here :math:`n_i` is the weighted row sum; it equals the number of neighbors
+    only for a binary adjacency matrix. Let :math:`\lambda_{\min}` and
+    :math:`\lambda_{\max}` be the extreme eigenvalues of
+    :math:`D^{-1/2} W D^{-1/2}`. Then :math:`Q` is positive definite exactly
+    when :math:`\rho\lambda_i < 1` for every eigenvalue, which for
+    :math:`\lambda_{\min} < 0 < \lambda_{\max}` is the interval
+
+    .. math::
+        \frac{1}{\lambda_{\min}} < \rho
+        < \frac{1}{\lambda_{\max}}.
+
+    For symmetric, nonnegative :math:`W` with positive row sums,
+    :math:`\lambda_{\max}=1` and :math:`\lambda_{\min}\geq -1`, with equality
+    exactly when some connected component is bipartite; a zero diagonal also
+    gives :math:`\lambda_{\min}<0`. Thus :math:`|\rho| < 1` is always
+    sufficient, but it can exclude admissible negative values. This class
+    restricts ``correlation`` to :math:`(-1, 1)`.
+
+    ``log_prob`` computes the log determinant without factorizing :math:`Q`.
+    If :math:`\lambda_1,\ldots,\lambda_N` are the eigenvalues above, it uses
+    the identity [2]
+
+    .. math::
+        \log |Q| = N\log\tau + \sum_i\log n_i
+        + \sum_i\log(1-\rho\lambda_i).
+
+    With a NumPy or SciPy sparse adjacency matrix, ``log_prob`` computes the
+    eigenvalues with NumPy on the host; when the distribution is constructed
+    inside a traced function, as in a model, they enter the compiled
+    computation as constants. With a JAX adjacency matrix, the eigendecomposition
+    remains in the traced graph and is recomputed on each evaluation; JAX
+    adjacency inputs are therefore supported but not recommended.
+
+    When validation is enabled, symmetry and positive row sums are checked by
+    assertions for NumPy and SciPy sparse inputs. JAX adjacency inputs are not
+    validated. Nonnegative weights and a zero diagonal are the caller's
+    responsibility. With ``is_sparse=True``, the adjacency matrix
+    is stored in SciPy CSR format and converted to JAX ``BCOO`` for the
+    quadratic form in ``log_prob``. The normalized adjacency is nevertheless
+    densified on the host for NumPy eigenvalue computation, and
+    ``precision_matrix`` and sampling are dense. Thus, ``is_sparse=True`` does
+    not provide fully sparse inference. This mode accepts only two-dimensional
+    NumPy or SciPy sparse adjacency inputs.
 
     :param float or ndarray loc: mean of the multivariate normal
-    :param float correlation: autoregression parameter. For most cases, the value should lie
-        between 0 (sites are independent, collapses to an iid multivariate normal) and
-        1 (perfect autocorrelation between sites), but the specification allows for negative
+    :param float correlation: autoregression parameter. At zero, sites are
+        independent with variances :math:`1/(\tau n_i)`, which need not be
+        identical. The value one is the excluded intrinsic-CAR boundary; this
+        class implements the proper CAR distribution and also permits negative
         correlations.
-    :param float conditional_precision: positive precision for the multivariate normal
-    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
-        indicates adjacency between sites and 0 otherwise. :class:`jax.numpy.ndarray` ``adj_matrix`` is
-        supported but is **not** recommended over :class:`numpy.ndarray` or :class:`scipy.sparse.spmatrix`.
+    :param float conditional_precision: positive multiplier :math:`\tau` of the
+        conditional precision, so that
+        :math:`\operatorname{Var}(x_i \mid x_{-i}) = 1/(\tau n_i)` when the
+        adjacency diagonal is zero
+    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric,
+        nonnegative weight matrix :math:`W` with zero diagonal and positive row
+        sums, shape ``(..., N, N)`` (two-dimensional only when
+        ``is_sparse=True``). The standard CAR uses a binary matrix (one for
+        neighboring sites, zero otherwise). A :class:`jax.numpy.ndarray` is
+        supported but not recommended (see above).
     :param bool is_sparse: whether to use a sparse form of ``adj_matrix`` in calculations (must be True if
         ``adj_matrix`` is a :class:`scipy.sparse.spmatrix`)
+
+    **Example**
+
+    ``CAR.log_prob`` agrees with a multivariate normal constructed from the
+    precision matrix above:
+
+    .. doctest::
+
+        >>> import jax.numpy as jnp
+        >>> import numpy as np
+        >>> from numpyro.distributions import CAR, MultivariateNormal
+        >>> loc = jnp.zeros(3)
+        >>> adjacency = np.array([[0.0, 1.0, 1.0],
+        ...                       [1.0, 0.0, 1.0],
+        ...                       [1.0, 1.0, 0.0]])
+        >>> rho, tau = 0.4, 2.0
+        >>> degree = adjacency.sum(axis=-1)
+        >>> precision = tau * (jnp.diag(degree) - rho * adjacency)
+        >>> car = CAR(loc, rho, tau, adjacency)
+        >>> normal = MultivariateNormal(loc, precision_matrix=precision)
+        >>> value = jnp.array([0.2, -0.1, 0.3])
+        >>> bool(jnp.allclose(car.log_prob(value), normal.log_prob(value)))
+        True
+
+    **References**
+
+    [1] Besag, J. (1974). Spatial interaction and the statistical analysis of
+    lattice systems. *Journal of the Royal Statistical Society: Series B*,
+    36(2), 192--225. https://doi.org/10.1111/j.2517-6161.1974.tb00999.x
+
+    [2] Jin, X., Carlin, B. P., and Banerjee, S. (2005). Generalized
+    hierarchical multivariate CAR models for areal data. *Biometrics*, 61(4),
+    950--961. https://doi.org/10.1111/j.1541-0420.2005.00359.x
     """
 
     arg_constraints = {
