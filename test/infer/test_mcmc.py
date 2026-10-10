@@ -685,6 +685,44 @@ def test_chain_jit_args_smoke(chain_method, compile_args):
     mcmc.run(random.key(2), data2)
 
 
+@pytest.mark.parametrize("num_chains", [1, 2])
+def test_transfer_states_to_host(num_chains):
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1).expand([3]))
+
+    mcmc = MCMC(
+        NUTS(model),
+        num_warmup=10,
+        num_samples=20,
+        num_chains=num_chains,
+        chain_method="sequential",
+        progress_bar=False,
+    )
+    mcmc.run(random.key(0))
+    samples_flat = mcmc.get_samples()
+    samples = mcmc.get_samples(group_by_chain=True)
+    assert samples["x"].shape == (num_chains, 20, 3)
+    assert_allclose(samples["x"].reshape(-1, 3), samples_flat["x"])
+    # the pattern documented in examples/annotation.py for merging extra samples
+    # into the mcmc instance: update both layouts in place
+    mcmc.get_samples().update({"y": samples_flat["x"] + 1})
+    mcmc.get_samples(group_by_chain=True).update({"y": samples["x"] + 1})
+    assert_allclose(mcmc.get_samples()["y"], samples_flat["x"] + 1)
+    assert_allclose(mcmc.get_samples(group_by_chain=True)["y"], samples["x"] + 1)
+
+    mcmc.transfer_states_to_host()
+    # both layouts are served from the host without going back to the device
+    for group_by_chain, shape in [
+        (False, (num_chains * 20,)),
+        (True, (num_chains, 20)),
+    ]:
+        x = mcmc.get_samples(group_by_chain=group_by_chain)["x"]
+        assert isinstance(x, np.ndarray) and x.shape == shape + (3,)
+        diverging = mcmc.get_extra_fields(group_by_chain=group_by_chain)["diverging"]
+        assert isinstance(diverging, np.ndarray) and diverging.shape == shape
+    assert_allclose(mcmc.get_samples()["x"], samples_flat["x"])
+
+
 def test_extra_fields():
     def model():
         numpyro.sample("x", dist.Normal(0, 1), sample_shape=(5,))
