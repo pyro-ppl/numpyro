@@ -1340,9 +1340,17 @@ class TransformedDistribution(Distribution):
 
 
 class FoldedDistribution(TransformedDistribution):
-    """
+    r"""
     Equivalent to ``TransformedDistribution(base_dist, AbsTransform())``,
     but additionally supports :meth:`log_prob` .
+
+    If :math:`X` has density :math:`p_X`, then :math:`Y = |X|` has density
+
+    .. math::
+      p_Y(y) = p_X(y) + p_X(-y), \qquad y \ge 0,
+
+    so :meth:`log_prob` computes
+    :math:`\log p_Y(y) = \operatorname{logsumexp}\{\log p_X(y), \log p_X(-y)\}`.
 
     :param Distribution base_dist: A univariate distribution to reflect.
     """
