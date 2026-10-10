@@ -1203,7 +1203,7 @@ class PowerTransform(Transform[NumLike]):
     def log_abs_det_jacobian(
         self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
     ) -> NumLike:
-        return jnp.log(jnp.abs(jnp.multiply(self.exponent, y) / x))
+        return jnp.log(jnp.abs(self.exponent)) + (self.exponent - 1) * jnp.log(x)
 
     def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return lax.broadcast_shapes(shape, getattr(self.exponent, "shape", ()))
