@@ -624,12 +624,50 @@ class SineBivariateVonMises(Distribution):
 
 
 class ProjectedNormal(Distribution):
-    """
+    r"""
     Projected isotropic normal distribution of arbitrary dimension.
 
     This distribution over directional data is qualitatively similar to the von
     Mises and von Mises-Fisher distributions, but permits tractable variational
     inference via reparametrized gradients.
+
+    If :math:`\mathbf{z} \sim \mathcal{N}(\boldsymbol{\mu}, \mathbf{I}_d)`, then
+    :math:`\mathbf{x} = \mathbf{z} / \lVert \mathbf{z} \rVert` follows a projected
+    normal distribution on the unit sphere :math:`S^{d-1}`. Its support is
+    :data:`~numpyro.distributions.constraints.sphere`, namely
+    :math:`\{\mathbf{x} \in \mathbb{R}^d : \lVert \mathbf{x} \rVert = 1\}`.
+    Its density with respect to the surface measure on the sphere is obtained by
+    integrating the isotropic normal density along the ray through
+    :math:`\mathbf{x}` [1],
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-\lVert \boldsymbol{\mu} \rVert^2 / 2}}{(2\pi)^{d/2}}
+        \int_0^\infty r^{d-1}
+        \exp\left( -\frac{r^2}{2} + r\, \boldsymbol{\mu}^\top \mathbf{x} \right) dr,
+
+    where :math:`\boldsymbol{\mu}` is :attr:`concentration`. While the radial
+    integral has a closed form for every nonnegative integer power,
+    :meth:`log_prob` implements the resulting density only for :math:`d \in \{2, 3\}`.
+    Writing :math:`t = \boldsymbol{\mu}^\top \mathbf{x}` and
+    :math:`M_k(t) = \int_0^\infty r^k\, \phi(r-t)\, dr`, where :math:`\phi` is the
+    standard normal density, these implemented forms are
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-(\lVert \boldsymbol{\mu} \rVert^2 - t^2) / 2}}{(2\pi)^{(d-1)/2}}
+        M_{d-1}(t),
+
+        M_1(t) = t\, \Phi(t) + \phi(t),
+
+        M_2(t) = t\, \phi(t) + (1 + t^2)\, \Phi(t).
+
+    For :math:`\boldsymbol{\mu} \ne 0`, the intrinsic (Fréchet) mean direction
+    and mode are both :math:`\boldsymbol{\mu} / \lVert \boldsymbol{\mu} \rVert`.
+    For :math:`\boldsymbol{\mu} = 0`, the distribution is uniform on the sphere
+    and has no unique mean direction or mode.
 
     To use this distribution with autoguides and HMC, use ``handlers.reparam``
     with a :class:`~numpyro.infer.reparam.ProjectedNormalReparam`
@@ -641,12 +679,10 @@ class ProjectedNormal(Distribution):
                                        ProjectedNormal(zeros(3)))
             ...
 
-    .. note:: This implements :meth:`log_prob` only for dimensions {2,3}.
-
     [1] D. Hernandez-Stumpfhauser, F.J. Breidt, M.J. van der Woerd (2017)
         "The General Projected Normal Distribution of Arbitrary Dimension:
         Modeling and Bayesian Inference"
-        https://projecteuclid.org/euclid.ba/1453211962
+        https://doi.org/10.1214/16-BA1031
     """
 
     arg_constraints = {"concentration": constraints.real_vector}
@@ -656,6 +692,11 @@ class ProjectedNormal(Distribution):
     def __init__(
         self, concentration: ArrayLike, *, validate_args: Optional[bool] = None
     ):
+        r"""
+        :param concentration: Mean vector :math:`\boldsymbol{\mu} \in \mathbb{R}^d`
+            of the isotropic normal distribution before projection.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         assert jnp.ndim(concentration) >= 1
         self.concentration = concentration
         batch_shape = jnp.shape(concentration)[:-1]
@@ -672,6 +713,7 @@ class ProjectedNormal(Distribution):
 
     @property
     def mode(self) -> jax.Array:
+        """Mode direction for nonzero :attr:`concentration`."""
         return safe_normalize(self.concentration)
 
     def sample(
@@ -685,6 +727,15 @@ class ProjectedNormal(Distribution):
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
     ) -> Array:
+        r"""Evaluate the log probability density at ``value``.
+
+        This method implements the closed forms described above for event
+        dimensions 2 and 3 only.
+
+        :param value: Point on :attr:`support` at which to evaluate the log PDF.
+        :param intermediates: Not used.
+        :return: Log probability density under the projected normal distribution.
+        """
         if self._validate_args:
             event_shape = jnp.shape(value)[-1:]
             if event_shape != self.event_shape:
