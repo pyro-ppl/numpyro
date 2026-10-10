@@ -645,7 +645,7 @@ class ProjectedNormal(Distribution):
         p(\mathbf{x} \mid \boldsymbol{\mu}) =
         \frac{e^{-\lVert \boldsymbol{\mu} \rVert^2 / 2}}{(2\pi)^{d/2}}
         \int_0^\infty r^{d-1}
-        \exp\left( -\frac{r^2}{2} + r\, \boldsymbol{\mu}^\top \mathbf{x} \right) dr.
+        \exp\left( -\frac{r^2}{2} + r\, \boldsymbol{\mu}^\top \mathbf{x} \right) dr,
 
     where :math:`\boldsymbol{\mu}` is :attr:`concentration`. While the radial
     integral has a closed form for every nonnegative integer power,
@@ -660,15 +660,11 @@ class ProjectedNormal(Distribution):
         \frac{e^{-(\lVert \boldsymbol{\mu} \rVert^2 - t^2) / 2}}{(2\pi)^{(d-1)/2}}
         M_{d-1}(t),
 
-    .. math::
-
         M_1(t) = t\, \Phi(t) + \phi(t),
 
-    .. math::
+        M_2(t) = t\, \phi(t) + (1 + t^2)\, \Phi(t).
 
-        M_2(t) = t\, \phi(t) + (1 + t^2)\, \Phi(t),
-
-    For :math:`\boldsymbol{\mu} \ne 0`, the intrinsic (Frechet) mean direction
+    For :math:`\boldsymbol{\mu} \ne 0`, the intrinsic (Fréchet) mean direction
     and mode are both :math:`\boldsymbol{\mu} / \lVert \boldsymbol{\mu} \rVert`.
     For :math:`\boldsymbol{\mu} = 0`, the distribution is uniform on the sphere
     and has no unique mean direction or mode.
@@ -682,8 +678,6 @@ class ProjectedNormal(Distribution):
             direction = numpyro.sample("direction",
                                        ProjectedNormal(zeros(3)))
             ...
-
-    .. note:: This implements :meth:`log_prob` only for dimensions {2,3}.
 
     [1] D. Hernandez-Stumpfhauser, F.J. Breidt, M.J. van der Woerd (2017)
         "The General Projected Normal Distribution of Arbitrary Dimension:
@@ -739,8 +733,7 @@ class ProjectedNormal(Distribution):
         dimensions 2 and 3 only.
 
         :param value: Point on :attr:`support` at which to evaluate the log PDF.
-        :param intermediates: Reserved for compatibility with reparameterized
-            evaluation.
+        :param intermediates: Not used.
         :return: Log probability density under the projected normal distribution.
         """
         if self._validate_args:
