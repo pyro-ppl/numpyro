@@ -941,6 +941,7 @@ class HMC(MCMCKernel):
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_sample_fn"] = None
+        state["_sample_fn_base"] = None
         state["_init_fn"] = None
         return state
 
