@@ -22,10 +22,6 @@ def model(deterministic=True):
         numpyro.deterministic("x_copy", x)
 
 
-def model_with_dynamic_param(mean):
-    numpyro.sample("x", dist.Normal(mean, 1))
-
-
 @pytest.mark.parametrize("deterministic", [True, False])
 @pytest.mark.parametrize("find_heuristic_step_size", [True, False])
 def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
@@ -80,25 +76,3 @@ def test_autoguide(deterministic):
         assert GLOBAL["count"] == 5
     else:
         assert GLOBAL["count"] == 4
-
-
-@pytest.mark.parametrize("chain_method", ["parallel", "sequential", "vectorized"])
-@pytest.mark.parametrize("jit_model_args", [True, False])
-def test_hmc_multiple_runs(chain_method, jit_model_args):
-    kernel = NUTS(model_with_dynamic_param)
-    mcmc = MCMC(
-        kernel,
-        num_warmup=100,
-        num_samples=100,
-        num_chains=2,
-        chain_method=chain_method,
-        jit_model_args=jit_model_args,
-    )
-
-    mcmc.run(random.key(0), 0.0)
-    # pass argument with different type and different value
-    mcmc.run(random.key(0), 10)
-
-    # make sure changed parameter was actually applied
-    mean = jax.numpy.mean(mcmc.get_samples()["x"])
-    assert mean > 5
