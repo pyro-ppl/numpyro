@@ -527,7 +527,7 @@ class Cauchy(Distribution):
         return (
             -jnp.log(jnp.pi)
             - jnp.log(self.scale)
-            - jnp.log1p(((value - self.loc) / self.scale) ** 2)
+            - 2 * jnp.log(jnp.hypot(1.0, (value - self.loc) / self.scale))
         )
 
     @property
@@ -4682,7 +4682,7 @@ class StudentT(Distribution):
             + gammaln(0.5 * self.df)
             - gammaln(0.5 * (self.df + 1.0))
         )
-        return -0.5 * (self.df + 1.0) * jnp.log1p(y**2.0 / self.df) - z
+        return -(self.df + 1.0) * jnp.log(jnp.hypot(1.0, y / jnp.sqrt(self.df))) - z
 
     @property
     def mean(self) -> Array:
