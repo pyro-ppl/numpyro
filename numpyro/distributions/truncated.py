@@ -35,6 +35,26 @@ from numpyro.util import is_prng_key
 
 
 class LeftTruncatedDistribution(Distribution):
+    r"""A symmetric location-scale base distribution :math:`f` truncated from below at ``low``.
+
+    .. math::
+        p(x \mid a) = \frac{f(x)}{1 - F(a)}, \qquad x \geq a,
+
+    where :math:`F` is the cdf of the base distribution and :math:`a` is ``low``.
+
+    :param base_dist: one of :class:`~numpyro.distributions.continuous.Cauchy`,
+        :class:`~numpyro.distributions.continuous.Laplace`,
+        :class:`~numpyro.distributions.continuous.Logistic`,
+        :class:`~numpyro.distributions.continuous.Normal`,
+        :class:`~numpyro.distributions.continuous.SoftLaplace` or
+        :class:`~numpyro.distributions.continuous.StudentT` instance.
+    :param low: the value at which the base distribution is truncated from below.
+
+    .. note::
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
+    """
+
     arg_constraints = {"low": constraints.real}
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
@@ -147,6 +167,26 @@ class LeftTruncatedDistribution(Distribution):
 
 
 class RightTruncatedDistribution(Distribution):
+    r"""A symmetric location-scale base distribution :math:`f` truncated from above at ``high``.
+
+    .. math::
+        p(x \mid b) = \frac{f(x)}{F(b)}, \qquad x \leq b,
+
+    where :math:`F` is the cdf of the base distribution and :math:`b` is ``high``.
+
+    :param base_dist: one of :class:`~numpyro.distributions.continuous.Cauchy`,
+        :class:`~numpyro.distributions.continuous.Laplace`,
+        :class:`~numpyro.distributions.continuous.Logistic`,
+        :class:`~numpyro.distributions.continuous.Normal`,
+        :class:`~numpyro.distributions.continuous.SoftLaplace` or
+        :class:`~numpyro.distributions.continuous.StudentT` instance.
+    :param high: the value at which the base distribution is truncated from above.
+
+    .. note::
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
+    """
+
     arg_constraints = {"high": constraints.real}
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
@@ -244,6 +284,28 @@ class RightTruncatedDistribution(Distribution):
 
 
 class TwoSidedTruncatedDistribution(Distribution):
+    r"""A symmetric location-scale base distribution :math:`f` truncated to ``[low, high]``.
+
+    .. math::
+        p(x \mid a, b) = \frac{f(x)}{F(b) - F(a)}, \qquad a \leq x \leq b,
+
+    where :math:`F` is the cdf of the base distribution, :math:`a` is ``low`` and
+    :math:`b` is ``high``.
+
+    :param base_dist: one of :class:`~numpyro.distributions.continuous.Cauchy`,
+        :class:`~numpyro.distributions.continuous.Laplace`,
+        :class:`~numpyro.distributions.continuous.Logistic`,
+        :class:`~numpyro.distributions.continuous.Normal`,
+        :class:`~numpyro.distributions.continuous.SoftLaplace` or
+        :class:`~numpyro.distributions.continuous.StudentT` instance.
+    :param low: the lower truncation point.
+    :param high: the upper truncation point.
+
+    .. note::
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
+    """
+
     arg_constraints = {
         "low": constraints.dependent(is_discrete=False, event_dim=0),
         "high": constraints.dependent(is_discrete=False, event_dim=0),
@@ -414,7 +476,7 @@ def TruncatedDistribution(
 
     :param base_dist: The base distribution to be truncated. This should be a univariate
         distribution. Currently, only the following distributions are supported:
-        Cauchy, Laplace, Logistic, Normal, and StudentT.
+        Cauchy, Laplace, Logistic, Normal, SoftLaplace, and StudentT.
     :param low: the value which is used to truncate the base distribution from below.
         Setting this parameter to None to not truncate from below.
     :param high: the value which is used to truncate the base distribution from above.
