@@ -3740,10 +3740,10 @@ def test_transformed_distribution_log_prob_reuses_intermediates():
 def test_transformed_transformed_distribution():
     loc, scale = -2, 3
     dist1 = dist.TransformedDistribution(
-        dist.Normal(2, 3), transforms.PowerTransform(2.0)
+        dist.Gamma(2, 3), transforms.PowerTransform(2.0)
     )
     dist2 = dist.TransformedDistribution(dist1, transforms.AffineTransform(-2, 3))
-    assert isinstance(dist2.base_dist, dist.Normal)
+    assert isinstance(dist2.base_dist, dist.Gamma)
     assert len(dist2.transforms) == 2
     assert isinstance(dist2.transforms[0], transforms.PowerTransform)
     assert isinstance(dist2.transforms[1], transforms.AffineTransform)
@@ -3752,6 +3752,110 @@ def test_transformed_transformed_distribution():
     assert_allclose(loc + scale * dist1.sample(rng_key), dist2.sample(rng_key))
     intermediates = dist2.sample_with_intermediates(rng_key)
     assert len(intermediates) == 2
+
+
+@pytest.mark.parametrize(
+    "base_dist, transform",
+    [
+        (lambda: dist.Normal(0, 1), lambda: transforms.ExpTransform()),
+        (lambda: dist.Beta(5, 5), lambda: transforms.AffineTransform(1, 1)),
+        (lambda: dist.Uniform(0, 1), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Uniform(1, 2), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Beta(2, 2), lambda: transforms.SigmoidTransform().inv),
+        (lambda: dist.Exponential(1.0), lambda: transforms.PowerTransform(0.5)),
+        (lambda: dist.Poisson(3.0), lambda: transforms.AffineTransform(1, 2)),
+        (
+            lambda: dist.Dirichlet(jnp.ones(3)),
+            lambda: transforms.AffineTransform(0, 2),
+        ),
+        (
+            lambda: dist.Normal(jnp.zeros(3), 1),
+            lambda: transforms.StickBreakingTransform(),
+        ),
+        (
+            lambda: dist.Uniform(0, 1),
+            lambda: [transforms.ExpTransform(), transforms.ExpTransform()],
+        ),
+    ],
+)
+def test_transformed_distribution_support_in_domain(base_dist, transform):
+    d = dist.TransformedDistribution(base_dist(), transform(), validate_args=True)
+    d.sample(random.key(0))
+
+
+@pytest.mark.parametrize(
+    "base_dist, transform",
+    [
+        (lambda: dist.Normal(0, 1), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Normal(0, 1), lambda: transforms.PowerTransform(2.0)),
+        (lambda: dist.Exponential(1.0), lambda: transforms.SigmoidTransform().inv),
+        (lambda: dist.Uniform(-1, 1), lambda: transforms.ExpTransform().inv),
+        (
+            lambda: dist.Uniform(jnp.array([1.0, -1.0]), 2.0),
+            lambda: transforms.ExpTransform().inv,
+        ),
+        (
+            lambda: dist.Normal(jnp.zeros(3), 1).to_event(1),
+            lambda: transforms.ExpTransform().inv,
+        ),
+        (
+            lambda: dist.Normal(0, 1),
+            lambda: [transforms.ExpTransform().inv, transforms.ExpTransform()],
+        ),
+        (
+            lambda: dist.Normal(0, 1),
+            lambda: transforms.ComposeTransform(
+                [transforms.SigmoidTransform().inv, transforms.ExpTransform()]
+            ),
+        ),
+    ],
+)
+def test_transformed_distribution_support_not_in_domain(base_dist, transform):
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(base_dist(), transform(), validate_args=True)
+    # No check is performed when validation is disabled.
+    dist.TransformedDistribution(base_dist(), transform(), validate_args=False)
+
+
+def test_transformed_distribution_support_in_domain_nested():
+    # Nested transformed distributions are flattened, so the check is against
+    # the innermost base distribution and the first of all transforms.
+    d = dist.TransformedDistribution(
+        dist.LogNormal(0, 1), transforms.ExpTransform().inv, validate_args=True
+    )
+    assert isinstance(d.base_dist, dist.Normal)
+
+    d = dist.TransformedDistribution(
+        dist.Normal(0, 1), transforms.ExpTransform().inv, validate_args=False
+    )
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(d, transforms.ExpTransform(), validate_args=True)
+
+
+def test_transformed_distribution_support_in_domain_event_dim():
+    # The domain has event_dim 1, so batch dims of the base distribution are
+    # reinterpreted as event dims before the check.
+    transform = [transforms.ExpTransform().inv, transforms.StickBreakingTransform()]
+    d = dist.TransformedDistribution(
+        dist.Exponential(jnp.ones((4, 3))), transform, validate_args=True
+    )
+    assert d.batch_shape == (4,)
+    assert d.event_shape == (4,)
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(
+            dist.Normal(jnp.zeros((4, 3)), 1.0), transform, validate_args=True
+        )
+
+
+def test_transformed_distribution_support_in_domain_jit():
+    # Bounds that depend on traced values cannot be checked and are skipped.
+    def f(low):
+        d = dist.TransformedDistribution(
+            dist.Uniform(low, 1.0), transforms.ExpTransform().inv, validate_args=True
+        )
+        return d.log_prob(-0.5)
+
+    jax.jit(f)(-1.0)
 
 
 def _make_iaf(input_dim, hidden_dims, rng_key):
