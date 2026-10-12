@@ -35,7 +35,7 @@ from numpyro.util import is_prng_key
 
 
 class LeftTruncatedDistribution(Distribution):
-    r"""A location-scale base distribution :math:`f` truncated from below at ``low``.
+    r"""A symmetric location-scale base distribution :math:`f` truncated from below at ``low``.
 
     .. math::
         p(x \mid a) = \frac{f(x)}{1 - F(a)}, \qquad x \geq a,
@@ -51,8 +51,8 @@ class LeftTruncatedDistribution(Distribution):
     :param low: the value at which the base distribution is truncated from below.
 
     .. note::
-        ``mean`` and ``variance`` are only implemented for ``Normal`` and ``Cauchy``
-        base distributions.
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
     """
 
     arg_constraints = {"low": constraints.real}
@@ -167,7 +167,7 @@ class LeftTruncatedDistribution(Distribution):
 
 
 class RightTruncatedDistribution(Distribution):
-    r"""A location-scale base distribution :math:`f` truncated from above at ``high``.
+    r"""A symmetric location-scale base distribution :math:`f` truncated from above at ``high``.
 
     .. math::
         p(x \mid b) = \frac{f(x)}{F(b)}, \qquad x \leq b,
@@ -183,8 +183,8 @@ class RightTruncatedDistribution(Distribution):
     :param high: the value at which the base distribution is truncated from above.
 
     .. note::
-        ``mean`` and ``variance`` are only implemented for ``Normal`` and ``Cauchy``
-        base distributions.
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
     """
 
     arg_constraints = {"high": constraints.real}
@@ -284,7 +284,7 @@ class RightTruncatedDistribution(Distribution):
 
 
 class TwoSidedTruncatedDistribution(Distribution):
-    r"""A location-scale base distribution :math:`f` truncated to ``[low, high]``.
+    r"""A symmetric location-scale base distribution :math:`f` truncated to ``[low, high]``.
 
     .. math::
         p(x \mid a, b) = \frac{f(x)}{F(b) - F(a)}, \qquad a \leq x \leq b,
@@ -302,8 +302,8 @@ class TwoSidedTruncatedDistribution(Distribution):
     :param high: the upper truncation point.
 
     .. note::
-        ``mean`` and ``variance`` are only implemented for ``Normal`` and ``Cauchy``
-        base distributions.
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
     """
 
     arg_constraints = {
@@ -476,7 +476,7 @@ def TruncatedDistribution(
 
     :param base_dist: The base distribution to be truncated. This should be a univariate
         distribution. Currently, only the following distributions are supported:
-        Cauchy, Laplace, Logistic, Normal, and StudentT.
+        Cauchy, Laplace, Logistic, Normal, SoftLaplace, and StudentT.
     :param low: the value which is used to truncate the base distribution from below.
         Setting this parameter to None to not truncate from below.
     :param high: the value which is used to truncate the base distribution from above.
