@@ -1281,6 +1281,9 @@ def test_empty_summary():
 @pytest.mark.parametrize("chain_method", ["parallel", "sequential", "vectorized"])
 @pytest.mark.parametrize("jit_model_args", [True, False])
 def test_hmc_multiple_runs(kernel_cls, chain_method, jit_model_args):
+    if chain_method == "parallel" and jax.device_count() == 1:
+        pytest.skip("parallel method requires device_count greater than 1.")
+
     def model(mean):
         numpyro.sample("x", dist.Normal(mean, 1))
 
