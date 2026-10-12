@@ -700,6 +700,7 @@ class HMC(MCMCKernel):
         self._init_fn = None
         self._potential_fn_gen = None
         self._postprocess_fn = None
+        self._sample_fn_base = None
         self._sample_fn = None
         self._inv_transforms = None
         self._dynamic_support = None
@@ -848,6 +849,7 @@ class HMC(MCMCKernel):
         kernel = copy.copy(self)
         kernel._model = wrapper(self._model)
         kernel._init_fn = None
+        kernel._sample_fn_base = None
         kernel._sample_fn = None
         kernel._potential_fn_gen = None
         kernel._postprocess_fn = None
