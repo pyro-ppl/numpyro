@@ -1352,7 +1352,7 @@ class FoldedDistribution(TransformedDistribution):
     so :meth:`log_prob` computes
     :math:`\log p_Y(y) = \operatorname{logsumexp}\{\log p_X(y), \log p_X(-y)\}`.
 
-    :param Distribution base_dist: A univariate distribution to reflect.
+    :param Distribution base_dist: A univariate continuous distribution to reflect.
     """
 
     support = constraints.positive
