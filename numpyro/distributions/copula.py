@@ -17,13 +17,61 @@ from numpyro.util import is_prng_key
 
 
 class GaussianCopula(Distribution):
-    """
-    A distribution that links the `batch_shape[:-1]` of marginal distribution `marginal_dist`
-    with a multivariate Gaussian copula modelling the correlation between the axes.
+    r"""
+    Couple continuous univariate marginals with a Gaussian copula.
 
-    :param Distribution marginal_dist: Distribution whose last batch axis is to be coupled.
-    :param array_like correlation_matrix: Correlation matrix of coupling multivariate normal distribution.
-    :param array_like correlation_cholesky: Correlation Cholesky factor of coupling multivariate normal distribution.
+    Let :math:`F_i` and :math:`f_i` denote the CDF and density of the
+    :math:`i`-th marginal, and let :math:`\Phi` be the standard normal CDF.
+    For a positive definite correlation matrix :math:`R`, samples are constructed as
+
+    .. math::
+
+        Z \sim \mathcal{N}(0, R), \qquad X_i = F_i^{-1}(\Phi(Z_i)).
+
+    For interior points with :math:`0 < F_i(x_i) < 1`, write
+    :math:`z_i = \Phi^{-1}(F_i(x_i))`. The joint density is
+
+    .. math::
+
+        p(x) = \frac{\exp\left[-\frac{1}{2}z^\top(R^{-1}-I)z\right]}
+                    {\sqrt{\det R}} \prod_{i=1}^D f_i(x_i),
+
+    or equivalently
+
+    .. math::
+
+        \log p(x) = -\frac{1}{2}\log\det R
+                    -\frac{1}{2}z^\top(R^{-1}-I)z
+                    + \sum_{i=1}^D \log f_i(x_i).
+
+    The support is the Cartesian product of the marginal supports. Each coordinate
+    retains its marginal mean and variance, when these moments exist. In particular,
+    :math:`R=I` gives independent marginals. The matrix :math:`R` describes correlation
+    in the latent normal variables; it generally differs from the Pearson correlation
+    of :math:`X` after the nonlinear marginal transformations.
+
+    When present, the final batch axis of ``marginal_dist`` supplies the event coordinates
+    and must broadcast to :math:`D`, the dimension of the correlation matrix. The remaining
+    batch axes broadcast with those of the correlation parameters. Scalar marginals
+    are shared across all :math:`D` event coordinates. The marginal
+    distribution must implement ``cdf`` and ``icdf`` as well as ``log_prob``.
+
+    .. note::
+
+        ``log_prob`` clamps marginal CDF values away from zero and one before taking
+        normal quantiles, so the formula above describes the mathematical density
+        rather than exact numerical behavior at boundaries or in extreme tails.
+
+    See the `Gaussian copula reference
+    <https://www.statsmodels.org/stable/generated/statsmodels.distributions.copula.api.GaussianCopula.html>`_
+    for the probability integral transform construction.
+
+    :param Distribution marginal_dist: Continuous univariate distribution whose final
+        batch axis is to be coupled.
+    :param array_like correlation_matrix: Latent normal correlation matrix :math:`R`.
+        Specify exactly one of this or ``correlation_cholesky``.
+    :param array_like correlation_cholesky: Lower triangular correlation Cholesky factor
+        :math:`L`, where :math:`R = LL^\top`.
     """
 
     arg_constraints = {
@@ -114,6 +162,44 @@ class GaussianCopula(Distribution):
 
 
 class GaussianCopulaBeta(GaussianCopula):
+    r"""
+    Gaussian copula with beta marginals on :math:`[0,1]^D`.
+
+    Write :math:`\alpha_i = \text{concentration1}_i > 0` and
+    :math:`\beta_i = \text{concentration0}_i > 0`. Each marginal has density
+
+    .. math::
+
+        f_i(x_i) = \frac{x_i^{\alpha_i-1}(1-x_i)^{\beta_i-1}}
+                           {B(\alpha_i,\beta_i)}, \qquad 0 < x_i < 1,
+
+    where :math:`B` is the beta function. Substituting these densities and their CDFs
+    into :class:`GaussianCopula` gives the joint density and sampling construction.
+    The coordinate-wise moments are
+
+    .. math::
+
+        \mathbb{E}[X_i] = \frac{\alpha_i}{\alpha_i+\beta_i}, \qquad
+        \operatorname{Var}(X_i) =
+            \frac{\alpha_i\beta_i}
+            {(\alpha_i+\beta_i)^2(\alpha_i+\beta_i+1)}.
+
+    The correlation parameters describe the latent normal variables, rather than
+    the Pearson correlation of the beta variables. Parameter batch axes and numerical
+    CDF clamping in ``log_prob`` follow :class:`GaussianCopula`.
+
+    See the `beta distribution reference
+    <https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html>`_
+    for the marginal density.
+
+    :param array_like concentration1: Positive first beta shape parameter :math:`\alpha`.
+    :param array_like concentration0: Positive second beta shape parameter :math:`\beta`.
+    :param array_like correlation_matrix: Latent normal correlation matrix :math:`R`.
+        Specify exactly one of this or ``correlation_cholesky``.
+    :param array_like correlation_cholesky: Lower triangular correlation Cholesky factor
+        :math:`L`, where :math:`R = LL^\top`.
+    """
+
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
