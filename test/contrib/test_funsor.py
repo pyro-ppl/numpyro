@@ -15,7 +15,14 @@ import jax.numpy as jnp
 from funsor import Bint, Real, Tensor
 import numpyro
 from numpyro.contrib.control_flow import scan
-from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
+from numpyro.contrib.funsor import (
+    config_enumerate,
+    enum,
+    infer_discrete,
+    markov,
+    to_data,
+    to_funsor,
+)
 from numpyro.contrib.funsor.enum_messenger import NamedMessenger, plate as enum_plate
 from numpyro.contrib.funsor.infer_util import log_density
 import numpyro.distributions as dist
@@ -590,3 +597,25 @@ def test_singleton_plate_works(i_size, j_size, k_size):
     model = enum(numpyro.handlers.seed(model, rng_seed=0), first_available_dim=-4)
 
     log_density(model, (), {}, {})
+
+
+@pytest.mark.parametrize("logits", [False, True])
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_zero_inflated_shifted_support_enumeration(logits, batch_size):
+    gates = np.array([0.4, 0.8])[:batch_size]
+    kwargs = {"gate_logits": np.log(gates / (1 - gates))} if logits else {"gate": gates}
+
+    @config_enumerate
+    def model():
+        with numpyro.plate("batch", batch_size):
+            x = numpyro.sample(
+                "x", dist.ZeroInflatedDistribution(dist.DiscreteUniform(3, 7), **kwargs)
+            )
+            numpyro.sample("y", dist.Bernoulli(jnp.where(x == 7, 0.9, 0.1)), obs=1)
+        return x
+
+    actual = log_density(enum(model, first_available_dim=-2), (), {}, {})[0]
+    expected = np.log(0.1 * gates + 0.26 * (1 - gates)).sum()
+    assert_allclose(actual, expected, rtol=1e-6)
+    actual_map = infer_discrete(model, first_available_dim=-2, temperature=0)()
+    assert_allclose(actual_map, np.array([7, 0])[:batch_size])

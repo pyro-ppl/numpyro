@@ -592,10 +592,11 @@ class enum(BaseEnumMessenger):
         if msg["infer"].get("expand", False):
             raise NotImplementedError("expand=True not implemented")
 
-        size = msg["fn"].enumerate_support(expand=False).shape[0]
-        raw_value = jnp.arange(0, size)
+        support = msg["fn"].enumerate_support(expand=False)
+        size = support.shape[0]
+        raw_value = support.reshape((size,) + msg["fn"].event_shape)
         funsor_value = funsor.Tensor(
-            raw_value, OrderedDict([(msg["name"], funsor.Bint[size])]), size
+            raw_value, OrderedDict([(msg["name"], funsor.Bint[size])]), "real"
         )
 
         msg["value"] = to_data(funsor_value)
