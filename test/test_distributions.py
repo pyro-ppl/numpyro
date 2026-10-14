@@ -4418,6 +4418,51 @@ def test_jax_issue_19885(capfd: pytest.CaptureFixture) -> None:
     _assert_not_jax_issue_19885(capfd, func_with_warning, jnp.ones((20, 100, 100)))
 
 
+@pytest.mark.parametrize("rank", [1, 2, 3])
+@pytest.mark.parametrize("batch_shape", [(), (2,), (2, 1)])
+@pytest.mark.parametrize("jit", [False, True])
+def test_lowrank_mvn_precision_matrix(rank, batch_shape, jit):
+    event_size = 3
+    factor = random.normal(random.key(0), batch_shape + (event_size, rank))
+    diagonal = jnp.array([1.0, 2.0, 3.0])
+
+    def precision(factor, diagonal):
+        return dist.LowRankMultivariateNormal(
+            jnp.zeros(event_size), factor, diagonal
+        ).precision_matrix
+
+    actual = (
+        jax.jit(precision)(factor, diagonal) if jit else precision(factor, diagonal)
+    )
+    covariance = factor @ jnp.swapaxes(factor, -1, -2) + jnp.diag(diagonal)
+    assert_allclose(actual, jnp.linalg.inv(covariance), rtol=1e-5, atol=1e-6)
+    assert_allclose(
+        actual @ covariance,
+        jnp.broadcast_to(jnp.eye(event_size), covariance.shape),
+        atol=1e-6,
+    )
+    assert_allclose(actual, jnp.swapaxes(actual, -1, -2), atol=1e-6)
+
+
+@pytest.mark.parametrize("rank", [1, 3])
+def test_lowrank_mvn_precision_matrix_grad(rank):
+    factor = random.normal(random.key(0), (3, rank))
+    diagonal = jnp.array([1.0, 2.0, 3.0])
+
+    def precision_sum(factor, diagonal):
+        return dist.LowRankMultivariateNormal(
+            jnp.zeros(3), factor, diagonal
+        ).precision_matrix.sum()
+
+    def inverse_sum(factor, diagonal):
+        return jnp.linalg.inv(factor @ factor.T + jnp.diag(diagonal)).sum()
+
+    actual = jax.grad(precision_sum, argnums=(0, 1))(factor, diagonal)
+    expected = jax.grad(inverse_sum, argnums=(0, 1))(factor, diagonal)
+    for a, b in zip(actual, expected):
+        assert_allclose(a, b, rtol=1e-5, atol=1e-6)
+
+
 def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
     # Create parameters.
     batch_size = 100

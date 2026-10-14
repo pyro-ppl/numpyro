@@ -4109,7 +4109,7 @@ class LowRankMultivariateNormal(Distribution):
         Wt_Dinv = jnp.swapaxes(self.cov_factor, -1, -2) / jnp.expand_dims(
             self.cov_diag, axis=-2
         )
-        A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
+        A = solve_triangular(self._capacitance_tril, Wt_Dinv, lower=True)
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
         return add_diag(-jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
