@@ -62,9 +62,11 @@ class GaussianCopula(Distribution):
         normal quantiles, so the formula above describes the mathematical density
         rather than exact numerical behavior at boundaries or in extreme tails.
 
-    See the `Gaussian copula reference
-    <https://www.statsmodels.org/stable/generated/statsmodels.distributions.copula.api.GaussianCopula.html>`_
-    for the probability integral transform construction.
+    **References**
+
+    [1] `An Introduction to Copulas`, second edition,
+    Roger B. Nelsen (2006)
+    https://doi.org/10.1007/0-387-28678-0
 
     :param Distribution marginal_dist: Continuous univariate distribution whose final
         batch axis is to be coupled.
@@ -185,12 +187,13 @@ class GaussianCopulaBeta(GaussianCopula):
             {(\alpha_i+\beta_i)^2(\alpha_i+\beta_i+1)}.
 
     The correlation parameters describe the latent normal variables, rather than
-    the Pearson correlation of the beta variables. Parameter batch axes and numerical
-    CDF clamping in ``log_prob`` follow :class:`GaussianCopula`.
+    the Pearson correlation of the beta variables. Batch-shape broadcasting and the
+    CDF clamping in ``log_prob`` are inherited from :class:`GaussianCopula`.
 
-    See the `beta distribution reference
-    <https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html>`_
-    for the marginal density.
+    **References**
+
+    [1] SciPy beta distribution reference
+    https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html
 
     :param array_like concentration1: Positive first beta shape parameter :math:`\alpha`.
     :param array_like concentration0: Positive second beta shape parameter :math:`\beta`.
