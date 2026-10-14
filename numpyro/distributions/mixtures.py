@@ -199,9 +199,9 @@ class MixtureSameFamily(_MixtureBase):
     ``mixture_size``, the density (or mass function) of the mixture is
 
     .. math::
-        p(x) = \sum_{k=1}^{K} \pi_k \, p_k(x),
+        p(x) = \sum_{k=1}^{K} \pi_k \, p_k(x).
 
-    :meth:`log_prob` evaluates this density in log space:
+    ``log_prob`` evaluates this density in log space:
 
     .. math::
         \log p(x) = \log \sum_{k=1}^{K} \exp\left(\log \pi_k + \log p_k(x)\right).
@@ -210,8 +210,11 @@ class MixtureSameFamily(_MixtureBase):
 
     .. math::
         \mathbb{E}[X] = \sum_{k=1}^{K} \pi_k \, \mathbb{E}[X_k], \qquad
-        \mathrm{Var}[X] = \sum_{k=1}^{K} \pi_k \left(\mathrm{Var}[X_k]
-        + \mathbb{E}[X_k]^2\right) - \mathbb{E}[X]^2.
+        \mathrm{Var}[X] = \sum_{k=1}^{K} \pi_k \, \mathrm{Var}[X_k]
+        + \sum_{k=1}^{K} \pi_k \left(\mathbb{E}[X_k] - \mathbb{E}[X]\right)^2.
+
+    For multivariate components, the mean and variance are computed elementwise;
+    the variance is the per-dimension marginal variance, not a covariance matrix.
 
     :param mixing_distribution: A :class:`~numpyro.distributions.Categorical`
         specifying the weights for each mixture components. The size of this
