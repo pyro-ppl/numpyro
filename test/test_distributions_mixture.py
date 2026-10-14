@@ -4,6 +4,8 @@
 
 import numpy as np
 import pytest
+from scipy import stats
+from scipy.special import logsumexp
 
 import jax
 import jax.numpy as jnp
@@ -235,3 +237,58 @@ def test_mixture_log_prob_grad_all_components_neg_inf():
     assert jnp.isneginf(mixture.log_prob(value)[0])
     grad = jax.grad(lambda x: mixture.log_prob(x).sum())(value)
     assert not jnp.isnan(grad).any()
+
+
+@pytest.mark.parametrize(
+    "batch_shapes", [((), (3,)), ((2, 1), (1, 3)), ((2, 3), (2, 3))]
+)
+@pytest.mark.parametrize("event_shape", [(), (2,), (2, 2)])
+@pytest.mark.parametrize("jit", [False, True])
+def test_general_mixture_broadcast_components(batch_shapes, event_shape, jit):
+    batch_shape = np.broadcast_shapes(*batch_shapes)
+    locs = [
+        np.full(shape + event_shape, loc)
+        for shape, loc in zip(batch_shapes, [-1.0, 2.0])
+    ]
+    components = [
+        dist.Normal(locs[0], 2.0).to_event(len(event_shape)),
+        dist.Laplace(locs[1], 1.5).to_event(len(event_shape)),
+    ]
+    mixture = dist.MixtureGeneral(
+        dist.Categorical(probs=np.array([0.3, 0.7])), components
+    )
+    mean = np.broadcast_to(0.3 * locs[0] + 0.7 * locs[1], batch_shape + event_shape)
+    variance = 0.3 * (4.0 + (locs[0] - mean) ** 2) + 0.7 * (4.5 + (locs[1] - mean) ** 2)
+    value = np.full(event_shape, 0.25)
+    component_log_probs = [
+        stats.norm.logpdf(value, loc=locs[0], scale=2.0),
+        stats.laplace.logpdf(value, loc=locs[1], scale=1.5),
+    ]
+    if event_shape:
+        axes = tuple(range(-len(event_shape), 0))
+        component_log_probs = [p.sum(axis=axes) for p in component_log_probs]
+    expected_log_prob = logsumexp(
+        np.stack(np.broadcast_arrays(*component_log_probs), axis=-1)
+        + np.log([0.3, 0.7]),
+        axis=-1,
+    )
+
+    def evaluate(value):
+        return mixture.mean, mixture.variance, mixture.log_prob(value)
+
+    actual_mean, actual_variance, actual_log_prob = (
+        jax.jit(evaluate) if jit else evaluate
+    )(value)
+    assert actual_mean.shape == batch_shape + event_shape
+    assert actual_variance.shape == batch_shape + event_shape
+    assert actual_log_prob.shape == batch_shape
+    np.testing.assert_allclose(actual_mean, mean, rtol=1e-6)
+    np.testing.assert_allclose(actual_variance, variance, rtol=1e-6)
+    np.testing.assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-6)
+    if not event_shape:
+        expected_cdf = 0.3 * stats.norm.cdf(value, loc=locs[0], scale=2.0)
+        expected_cdf = expected_cdf + 0.7 * stats.laplace.cdf(
+            value, loc=locs[1], scale=1.5
+        )
+        actual_cdf = (jax.jit(mixture.cdf) if jit else mixture.cdf)(value)
+        np.testing.assert_allclose(actual_cdf, expected_cdf, rtol=1e-6)
