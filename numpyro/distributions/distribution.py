@@ -1511,10 +1511,16 @@ class Delta(Distribution):
 
 
 class Unit(Distribution):
-    """
+    r"""
     Trivial nonnormalized distribution representing the unit type.
 
     The unit type has a single value with no data, i.e. ``value.size == 0``.
+    Its unnormalized density at that value is given by the exponential of
+    ``log_factor``:
+
+    .. math::
+        \log p(\varnothing) = \mathrm{log\_factor}, \qquad
+        p(\varnothing) = \exp(\mathrm{log\_factor})
 
     This is used for :func:`numpyro.factor` statements.
     """
