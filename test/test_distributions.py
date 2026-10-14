@@ -4311,6 +4311,30 @@ def test_get_args():
     assert set(d.get_args()) == {"loc", "precision_matrix", "scale_tril"}
 
 
+@pytest.mark.parametrize(
+    "dist_class",
+    [dist.MultinomialProbs, dist.MultinomialLogits, dist.DirichletMultinomial],
+)
+@pytest.mark.parametrize("total_count", [0, 3, 10])
+@pytest.mark.parametrize("sample_shape", [(), (4,)])
+@pytest.mark.parametrize("use_jit", [False, True])
+def test_multinomial_scalar_total_count_max(
+    dist_class, total_count, sample_shape, use_jit
+):
+    probs = jnp.array([0.2, 0.5, 0.3])
+    parameter = jnp.log(probs) if dist_class is dist.MultinomialLogits else probs
+
+    def sample(count):
+        return dist_class(parameter, count, total_count_max=10).sample(
+            random.key(0), sample_shape
+        )
+
+    samples = (jax.jit(sample) if use_jit else sample)(total_count)
+    assert samples.shape == sample_shape + (3,)
+    assert jnp.all(samples >= 0)
+    assert_allclose(samples.sum(-1), total_count, rtol=0, atol=0)
+
+
 def test_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
     key = random.key(0)
