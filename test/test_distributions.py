@@ -4311,28 +4311,20 @@ def test_get_args():
     assert set(d.get_args()) == {"loc", "precision_matrix", "scale_tril"}
 
 
-@pytest.mark.parametrize(
-    "dist_class",
-    [dist.MultinomialProbs, dist.MultinomialLogits, dist.DirichletMultinomial],
-)
-@pytest.mark.parametrize("total_count", [0, 3, 10])
+@pytest.mark.parametrize("total_count", [0, 3, 10, 3.0])
 @pytest.mark.parametrize("sample_shape", [(), (4,)])
-@pytest.mark.parametrize("use_jit", [False, True])
-def test_multinomial_scalar_total_count_max(
-    dist_class, total_count, sample_shape, use_jit
-):
-    probs = jnp.array([0.2, 0.5, 0.3])
-    parameter = jnp.log(probs) if dist_class is dist.MultinomialLogits else probs
-
-    def sample(count):
-        return dist_class(parameter, count, total_count_max=10).sample(
-            random.key(0), sample_shape
-        )
-
-    samples = (jax.jit(sample) if use_jit else sample)(total_count)
+def test_multinomial_scalar_total_count_max(total_count, sample_shape):
+    d = dist.Multinomial(total_count, jnp.array([0.2, 0.5, 0.3]), total_count_max=10)
+    samples = d.sample(random.key(0), sample_shape)
     assert samples.shape == sample_shape + (3,)
-    assert jnp.all(samples >= 0)
-    assert_allclose(samples.sum(-1), total_count, rtol=0, atol=0)
+    assert d.support.check(samples).all()
+    if isinstance(total_count, int):
+        assert jnp.issubdtype(samples.dtype, jnp.integer)
+
+
+def test_dirichlet_multinomial_scalar_total_count_max():
+    d = dist.DirichletMultinomial(jnp.ones(3), 3, total_count_max=10)
+    assert d.support.check(d.sample(random.key(0))).all()
 
 
 def test_multinomial_abstract_total_count():

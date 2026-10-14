@@ -268,16 +268,14 @@ def _multinomial(key, p, n, n_max, shape=()):
         jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,)
     )[0]
     mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
-    if jnp.ndim(n) > 0:
-        excess = jnp.concatenate(
-            [
-                jnp.expand_dims(n_max - n, -1),
-                jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,)),
-            ],
-            -1,
-        )
-    else:
-        excess = jnp.zeros(p.shape[-1:], dtype=indices.dtype).at[0].set(n_max - n)
+    # Masked trials land in category zero; subtract them back out.
+    excess = jnp.concatenate(
+        [
+            jnp.expand_dims(n_max - n, -1),
+            jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,), dtype=indices.dtype),
+        ],
+        -1,
+    )
     # NB: we transpose to move batch shape to the front
     indices_2D = (jnp.reshape(indices * mask, (n_max, -1))).T
     samples_2D = vmap(_scatter_add_one, (0, 0, 0))(
