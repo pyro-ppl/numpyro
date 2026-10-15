@@ -891,7 +891,7 @@ CONTINUOUS = [
         dist.LowRankMultivariateNormal,
         np.arange(6, dtype=np.float32).reshape((2, 3)),
         np.arange(6, dtype=np.float32).reshape((3, 2)),
-        np.array([1.0, 2.0, 3.0]),
+        np.array([1.0, 2.0, 3.0], dtype=np.float32),
     ),
     T(dist.Normal, 0.0, 1.0),
     T(dist.Normal, 1.0, np.array([1.0, 2.0])),
@@ -1531,12 +1531,19 @@ def test_dist_shape(jax_dist_cls, sp_dist, params, prepend_shape):
         except ValueError:
             pytest.skip("scipy multivariate t doesn't support size with > 1 element")
         assert jnp.shape(sp_samples) == expected_shape
-    if isinstance(jax_dist, (dist.MultivariateNormal, dist.MultivariateStudentT)):
+    if isinstance(
+        jax_dist,
+        (
+            dist.MultivariateNormal,
+            dist.MultivariateStudentT,
+            dist.LowRankMultivariateNormal,
+        ),
+    ):
         assert jax_dist.covariance_matrix.ndim == len(jax_dist.batch_shape) + 2
         assert_allclose(
             jax_dist.precision_matrix,
             jnp.linalg.inv(jax_dist.covariance_matrix),
-            rtol=1e-6,
+            rtol=1e-5 if isinstance(jax_dist, dist.LowRankMultivariateNormal) else 1e-6,
         )
 
 
@@ -4432,6 +4439,18 @@ def test_jax_issue_19885(capfd: pytest.CaptureFixture) -> None:
         return jnp.identity(y.shape[-1]) + jnp.matmul(y, y)
 
     _assert_not_jax_issue_19885(capfd, func_with_warning, jnp.ones((20, 100, 100)))
+
+
+def test_lowrank_mvn_precision_matrix_square():
+    factor = jnp.array([[1.0, 0.0, 0.0], [2.0, 1.0, 0.0], [0.0, 1.0, 2.0]])
+    diagonal = jnp.array([1.0, 2.0, 3.0])
+    distribution = dist.LowRankMultivariateNormal(jnp.zeros(3), factor, diagonal)
+    assert_allclose(
+        distribution.precision_matrix,
+        jnp.linalg.inv(distribution.covariance_matrix),
+        rtol=1e-5,
+        atol=1e-6,
+    )
 
 
 def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
