@@ -1515,14 +1515,21 @@ class Unit(Distribution):
     Trivial nonnormalized distribution representing the unit type.
 
     The unit type has a single value with no data, i.e. ``value.size == 0``.
-    Its unnormalized density at that value is given by the exponential of
-    ``log_factor``:
+    Writing :math:`c` for ``log_factor``, the unnormalized log density at that
+    value is
 
     .. math::
-        \log p(\varnothing) = \mathrm{log\_factor}, \qquad
-        p(\varnothing) = \exp(\mathrm{log\_factor})
+        \log p(\varnothing) = c,
+
+    so the distribution contributes the constant :math:`c` to the joint log
+    density. The batch shape is ``jnp.shape(log_factor)`` and the event shape is
+    ``(0,)``; :meth:`sample` returns an empty array of that shape, and
+    :meth:`log_prob` ignores the contents of ``value`` and broadcasts
+    ``log_factor`` against its batch dimensions.
 
     This is used for :func:`numpyro.factor` statements.
+
+    :param numpy.ndarray log_factor: A possibly batched log probability factor.
     """
 
     arg_constraints = {"log_factor": constraints.real}
