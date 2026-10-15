@@ -4311,6 +4311,22 @@ def test_get_args():
     assert set(d.get_args()) == {"loc", "precision_matrix", "scale_tril"}
 
 
+@pytest.mark.parametrize("total_count", [0, 3, 10, 3.0])
+@pytest.mark.parametrize("sample_shape", [(), (4,)])
+def test_multinomial_scalar_total_count_max(total_count, sample_shape):
+    d = dist.Multinomial(total_count, jnp.array([0.2, 0.5, 0.3]), total_count_max=10)
+    samples = d.sample(random.key(0), sample_shape)
+    assert samples.shape == sample_shape + (3,)
+    assert d.support.check(samples).all()
+    if isinstance(total_count, int):
+        assert jnp.issubdtype(samples.dtype, jnp.integer)
+
+
+def test_dirichlet_multinomial_scalar_total_count_max():
+    d = dist.DirichletMultinomial(jnp.ones(3), 3, total_count_max=10)
+    assert d.support.check(d.sample(random.key(0))).all()
+
+
 def test_multinomial_abstract_total_count():
     probs = jnp.array([0.2, 0.5, 0.3])
     key = random.key(0)

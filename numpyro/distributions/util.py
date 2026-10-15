@@ -263,22 +263,19 @@ def _multinomial(key, p, n, n_max, shape=()):
         return jnp.zeros(shape + p.shape[-1:], dtype=jnp.result_type(int))
     # get indices from categorical distribution then gather the result
     indices = categorical(key, p, (n_max,) + shape)
-    # mask out values when counts is heterogeneous
-    if jnp.ndim(n) > 0:
-        mask = promote_shapes(
-            jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,)
-        )[0]
-        mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
-        excess = jnp.concatenate(
-            [
-                jnp.expand_dims(n_max - n, -1),
-                jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,)),
-            ],
-            -1,
-        )
-    else:
-        mask = 1
-        excess = 0
+    # Mask out trials beyond the count, including scalar counts below n_max.
+    mask = promote_shapes(
+        jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,)
+    )[0]
+    mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
+    # Masked trials land in category zero; subtract them back out.
+    excess = jnp.concatenate(
+        [
+            jnp.expand_dims(n_max - n, -1),
+            jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,), dtype=indices.dtype),
+        ],
+        -1,
+    )
     # NB: we transpose to move batch shape to the front
     indices_2D = (jnp.reshape(indices * mask, (n_max, -1))).T
     samples_2D = vmap(_scatter_add_one, (0, 0, 0))(
