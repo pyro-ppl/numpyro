@@ -1728,6 +1728,31 @@ class Poisson(Distribution):
         return gammaincc(k, self.rate)
 
 
+class _ZeroInflatedSupport(constraints.Constraint[NumLike]):
+    is_discrete = True
+
+    def __init__(self, base_support: constraints.Constraint):
+        self.base_support = base_support
+
+    def __call__(self, x: NumLike) -> ArrayLike:
+        x = jnp.asarray(x)
+        return (x == 0) | self.base_support(x)
+
+    def feasible_like(self, prototype: NumLike) -> Array:
+        return jnp.zeros_like(prototype)
+
+    def __repr__(self) -> str:
+        return f"ZeroInflatedSupport({self.base_support})"
+
+    def tree_flatten(self):
+        return (self.base_support,), (("base_support",), {})
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return isinstance(other, _ZeroInflatedSupport) and self.base_support.eq(
+            other.base_support, static=static
+        )
+
+
 class ZeroInflatedProbs(Distribution):
     r"""
     A generic zero-inflated distribution built from a discrete base distribution.
@@ -1799,16 +1824,27 @@ class ZeroInflatedProbs(Distribution):
         samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
         return jnp.where(mask, 0, samples)
 
+    def _base_log_prob(self, value: ArrayLike) -> Array:
+        value = jnp.asarray(value)
+        support = self.base_dist.support
+        assert support is not None
+        valid = support(value)
+        value = jnp.broadcast_to(value, jnp.shape(valid))
+        safe_value = jnp.where(valid, value, support.feasible_like(value))
+        return jnp.where(valid, self.base_dist.log_prob(safe_value), -jnp.inf)
+
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
+        log_prob = jnp.log1p(-self.gate) + self._base_log_prob(value)
         return jnp.where(value == 0, jnp.log(self.gate + jnp.exp(log_prob)), log_prob)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
         support = self.base_dist.support
         assert support is not None
-        return support
+        if support is constraints.nonnegative_integer or support is constraints.boolean:
+            return support
+        return _ZeroInflatedSupport(support)
 
     @lazy_property
     def mean(self) -> Array:
@@ -1825,7 +1861,26 @@ class ZeroInflatedProbs(Distribution):
         return self.base_dist.has_enumerate_support
 
     def enumerate_support(self, expand: bool = True) -> Array:
-        return self.base_dist.enumerate_support(expand=expand)
+        """Enumerate the base support, adding zero if it is absent.
+
+        Zero membership must be concrete and homogeneous across the batch;
+        different support sizes across batch elements cannot be enumerated.
+        """
+        values = self.base_dist.enumerate_support(expand=expand)
+        support = self.base_dist.support
+        assert support is not None
+        contains_zero = support(0)
+        if not not_jax_tracer(contains_zero):
+            raise NotImplementedError(
+                "Zero membership must be concrete to enumerate support."
+            )
+        if np.all(contains_zero):
+            return values
+        if np.any(contains_zero):
+            raise NotImplementedError(
+                "Inhomogeneous zero membership cannot be enumerated."
+            )
+        return jnp.concatenate([jnp.zeros_like(values[:1]), values], axis=0)
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
@@ -1864,7 +1919,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        log_prob_minus_log_gate = -self.gate_logits + self.base_dist.log_prob(value)
+        log_prob_minus_log_gate = -self.gate_logits + self._base_log_prob(value)
         log_gate = -softplus(-self.gate_logits)
         log_prob = log_prob_minus_log_gate + log_gate
         zero_log_prob = softplus(log_prob_minus_log_gate) + log_gate
@@ -1880,6 +1935,8 @@ def ZeroInflatedDistribution(
 ) -> Union[ZeroInflatedProbs, ZeroInflatedLogits]:
     """
     Generic Zero Inflated distribution.
+
+    Its support is the union of zero and the base distribution's support.
 
     :param Distribution base_dist: the base distribution.
     :param numpy.ndarray gate: probability of extra zeros given via a Bernoulli distribution.

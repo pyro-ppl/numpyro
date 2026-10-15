@@ -73,9 +73,10 @@ def _sample_posterior(
         if node["infer"].get("enumerate") == "parallel":
             log_measure = approx_factors[log_measures[name]]
             value = _get_support_value(log_measure, name)
-            node["value"] = funsor.to_data(
-                value, name_to_dim=node["infer"]["name_to_dim"]
-            )
+            index = funsor.to_data(value, name_to_dim=node["infer"]["name_to_dim"])
+            support = node["fn"].enumerate_support(expand=False)
+            support = support.reshape((support.shape[0],) + node["fn"].event_shape)
+            node["value"] = jnp.take(support, index, axis=0)
 
     data = {
         name: site["value"]

@@ -6027,3 +6027,105 @@ def test_geometric_logits_extreme_moments():
 
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
+
+
+@pytest.mark.parametrize("logits", [False, True])
+@pytest.mark.parametrize("validate", [False, True])
+@pytest.mark.parametrize("expand", [False, True])
+def test_zero_inflated_support_excludes_gap(logits, validate, expand):
+    base = dist.DiscreteUniform(3, 7, validate_args=validate)
+    kwargs = {"gate_logits": jnp.log(0.4 / 0.6)} if logits else {"gate": 0.4}
+    d = dist.ZeroInflatedDistribution(base, validate_args=validate, **kwargs)
+    values = d.enumerate_support(expand=expand)
+    assert_allclose(values, np.array([0, 3, 4, 5, 6, 7]))
+    assert_allclose(jnp.exp(d.log_prob(values)), np.array([0.4] + [0.12] * 5))
+    assert_allclose(jnp.exp(d.log_prob(values)).sum(), 1.0)
+    assert d.support(0)
+    assert not d.support(1)
+    assert not d.support(2)
+    assert_allclose(jax.jit(d.log_prob)(0), np.log(0.4))
+    samples = d.sample(random.key(0), (100,))
+    assert jnp.all(d.support(samples))
+    assert_allclose(d.support.feasible_like(samples), jnp.zeros_like(samples))
+
+
+@pytest.mark.parametrize("logits", [False, True])
+def test_zero_inflated_outside_base_support_without_validation(logits):
+    kwargs = {"gate_logits": 0.0} if logits else {"gate": 0.5}
+    d = dist.ZeroInflatedDistribution(
+        dist.DiscreteUniform(3, 7), validate_args=False, **kwargs
+    )
+    assert jnp.isneginf(d.log_prob(1))
+    assert jnp.isneginf(d.log_prob(8))
+
+
+@pytest.mark.parametrize("logits", [False, True])
+@pytest.mark.parametrize("expand", [False, True])
+def test_zero_inflated_support_broadcast(logits, expand):
+    gate = np.array([0.25, 0.75])
+    kwargs = {"gate_logits": np.log(gate / (1 - gate))} if logits else {"gate": gate}
+    d = dist.ZeroInflatedDistribution(dist.DiscreteUniform(3, 7), **kwargs)
+    values = d.enumerate_support(expand=expand)
+    assert values.shape == ((6, 2) if expand else (6, 1))
+    assert_allclose(jnp.exp(d.log_prob(values)).sum(axis=0), np.ones(2))
+    leaves, treedef = jax.tree_util.tree_flatten(d.support)
+    restored = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert restored == d.support
+    assert_allclose(restored(values), d.support(values))
+
+
+@pytest.mark.parametrize("gate", [0.0, 1.0])
+def test_zero_inflated_shifted_base_gate_boundary(gate):
+    d = dist.ZeroInflatedProbs(dist.DiscreteUniform(3, 7), gate=gate)
+    assert_allclose(jnp.exp(d.log_prob(0)), gate)
+    assert_allclose(jnp.exp(d.log_prob(3)), (1 - gate) / 5)
+
+
+def test_zero_inflated_gate_gradients():
+    base = dist.DiscreteUniform(3, 7)
+    probs_gradient = jax.jit(
+        jax.grad(lambda gate: dist.ZeroInflatedProbs(base, gate).log_prob(0))
+    )(0.4)
+    logits_gradient = jax.jit(
+        jax.grad(lambda gate: dist.ZeroInflatedLogits(base, gate).log_prob(0))
+    )(0.0)
+    assert_allclose(probs_gradient, 2.5)
+    assert_allclose(logits_gradient, 0.5)
+
+
+@pytest.mark.parametrize("base", [dist.Bernoulli, dist.Poisson])
+def test_zero_inflated_preserves_base_support_at_zero(base):
+    d = dist.ZeroInflatedProbs(base(0.5), gate=0.4, validate_args=True)
+    assert d.support is d.base_dist.support
+    expected = 0.4 + 0.6 * jnp.exp(d.base_dist.log_prob(0))
+    assert_allclose(jnp.exp(d.log_prob(0)), expected)
+    assert_allclose(jax.jit(d.log_prob)(0), jnp.log(expected), rtol=1e-6, atol=1e-7)
+
+
+def test_zero_inflated_enumeration_jit():
+    d = dist.ZeroInflatedProbs(dist.Bernoulli(0.5), gate=0.4)
+    assert_allclose(jax.jit(d.enumerate_support)(), d.enumerate_support())
+
+
+@pytest.mark.parametrize("logits", [False, True])
+def test_zero_inflated_distribution_pytree(logits):
+    kwargs = {"gate_logits": 0.0} if logits else {"gate": 0.5}
+    d = dist.ZeroInflatedDistribution(dist.DiscreteUniform(3, 7), **kwargs)
+    leaves, treedef = jax.tree_util.tree_flatten(d)
+    restored = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert_allclose(
+        jax.jit(lambda distribution: distribution.log_prob(0))(restored), d.log_prob(0)
+    )
+
+
+@pytest.mark.parametrize("logits", [False, True])
+def test_zero_inflated_batched_base_scalar_value(logits):
+    base = dist.DiscreteUniform(np.array([3, 5]), np.array([7, 9]), validate_args=True)
+    kwargs = {"gate_logits": 0.0} if logits else {"gate": 0.5}
+    d = dist.ZeroInflatedDistribution(base, validate_args=True, **kwargs)
+    assert_allclose(jnp.exp(d.log_prob(0)), np.array([0.5, 0.5]))
+    assert_allclose(jnp.exp(d.log_prob(np.array([3, 5]))), np.array([0.1, 0.1]))
+    assert_allclose(jax.jit(d.log_prob)(0), np.log(np.array([0.5, 0.5])))
+    assert_allclose(
+        jax.jit(lambda distribution: distribution.log_prob(0))(d), d.log_prob(0)
+    )
