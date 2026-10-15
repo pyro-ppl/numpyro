@@ -850,8 +850,20 @@ class ExpandedDistribution(Distribution):
 
 
 class ImproperUniform(Distribution):
-    """
+    r"""
     A helper distribution with zero :meth:`log_prob` over the `support` domain.
+
+    The density is flat on the support :math:`\mathcal{S}`,
+
+    .. math::
+        p(x) \propto 1, \qquad \log p(x) = 0 \quad \text{for } x \in \mathcal{S},
+
+    and is *improper*: it does not integrate to one, so it only contributes a
+    constant to the joint log density of a model. This makes it useful as a flat
+    prior whose posterior is determined by the likelihood and by the support
+    constraint alone. When ``validate_args`` is enabled, values outside the
+    support get :math:`\log p(x) = -\infty` (the check is reduced over the event
+    dimensions, so a single invalid event entry rejects the whole event).
 
     .. note:: `sample` method is not implemented for this distribution. In autoguide and mcmc,
         initial parameters for improper sites are derived from `init_to_uniform` or `init_to_value`
@@ -932,9 +944,24 @@ class ImproperUniform(Distribution):
 
 
 class Independent(Distribution):
-    """
+    r"""
     Reinterprets batch dimensions of a distribution as event dims by shifting
     the batch-event dim boundary further to the left.
+
+    If the base distribution has density :math:`p_{\text{base}}` with batch shape
+    :math:`(b_1, \ldots, b_n)` and :math:`k` is ``reinterpreted_batch_ndims``, the
+    resulting distribution has batch shape :math:`(b_1, \ldots, b_{n-k})`, event
+    shape :math:`(b_{n-k+1}, \ldots, b_n)` followed by the base event shape, and
+    density
+
+    .. math::
+        \log p(x) = \sum_{i_1=1}^{b_{n-k+1}} \cdots \sum_{i_k=1}^{b_n}
+        \log p_{\text{base}}\big(x_{i_1, \ldots, i_k}\big),
+
+    i.e. the reinterpreted components are treated as independent and their log
+    densities are summed. The entropy sums the same way, while ``mean`` and
+    ``variance`` are unchanged elementwise. The support becomes
+    ``constraints.independent(base_dist.support, k)``.
 
     From a practical standpoint, this is useful when changing the result of
     :meth:`log_prob`. For example, a univariate Normal distribution can be
@@ -1162,11 +1189,39 @@ class MaskedDistribution(Distribution):
 
 
 class TransformedDistribution(Distribution):
-    """
+    r"""
     Returns a distribution instance obtained as a result of applying
     a sequence of transforms to a base distribution. For an example,
     see :class:`~numpyro.distributions.LogNormal` and
     :class:`~numpyro.distributions.HalfNormal`.
+
+    If :math:`X \sim p_X` and :math:`Y = g_m \circ \cdots \circ g_1(X)` for
+    bijective transforms :math:`g_1, \ldots, g_m`, the change-of-variables formula
+    gives
+
+    .. math::
+        \log p_Y(y) = \log p_X(x_0)
+        - \sum_{i=1}^{m} \log\left|\det J_{g_i}(x_{i-1})\right|,
+        \qquad x_m = y, \quad x_{i-1} = g_i^{-1}(x_i),
+
+    where :math:`J_{g_i}` is the Jacobian of :math:`g_i`. For univariate
+    transforms the cdf is :math:`F_Y(y) = F_X(g^{-1}(y))` when the composition
+    :math:`g` is increasing and :math:`1 - F_X(g^{-1}(y))` when it is decreasing,
+    with the direction given by the product of the transforms' ``sign``
+    attributes; ``icdf`` applies the same rule.
+
+    .. note::
+        ``sample`` applies the transforms in list order; ``log_prob`` inverts them
+        in reverse order and subtracts each ``log_abs_det_jacobian``, summed over the
+        event dimensions that the transform treats as batch dimensions.
+        :meth:`sample_with_intermediates` records the input of every transform so
+        that ``log_prob(value, intermediates)`` can skip the inverses. Nesting a
+        ``TransformedDistribution`` flattens its transforms into the list; the base
+        distribution is expanded and its batch dimensions reinterpreted as event
+        dimensions as needed to match the domain of the composed transform. The
+        ``support`` is the codomain of the last transform, lifted with
+        ``constraints.independent`` over any extra event dimensions; ``mean`` and
+        ``variance`` are not implemented.
 
     :param base_distribution: the base distribution over which to apply transforms.
     :param transforms: a single transform or a list of transforms.

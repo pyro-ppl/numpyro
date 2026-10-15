@@ -471,8 +471,27 @@ def TruncatedDistribution(
     *,
     validate_args: Optional[bool] = None,
 ):
-    """
-    A function to generate a truncated distribution.
+    r"""Truncate a symmetric location-scale distribution to ``[low, high]``.
+
+    If the base distribution has density :math:`f` and cdf :math:`F`, the truncated
+    density is
+
+    .. math::
+        p(x \mid a, b) = \frac{f(x)}{F(b) - F(a)}, \qquad a \leq x \leq b,
+
+    where :math:`a` is ``low`` and :math:`b` is ``high``; an omitted bound
+    contributes :math:`F(a) = 0` or :math:`F(b) = 1`. The cdf and inverse cdf are
+
+    .. math::
+        F_{a,b}(x) = \frac{F(x) - F(a)}{F(b) - F(a)}, \qquad
+        F_{a,b}^{-1}(q) = F^{-1}\big(F(a) + q\,[F(b) - F(a)]\big),
+
+    and samples are drawn by inverse-cdf sampling.
+
+    Depending on which bounds are given this returns ``base_dist`` itself (neither),
+    a :class:`LeftTruncatedDistribution` (``low`` only), a
+    :class:`RightTruncatedDistribution` (``high`` only) or a
+    :class:`TwoSidedTruncatedDistribution` (both).
 
     :param base_dist: The base distribution to be truncated. This should be a univariate
         distribution. Currently, only the following distributions are supported:
@@ -481,6 +500,23 @@ def TruncatedDistribution(
         Setting this parameter to None to not truncate from below.
     :param high: the value which is used to truncate the base distribution from above.
         Setting this parameter to None to not truncate from above.
+
+    .. note::
+        ``mean`` and ``variance`` are available in closed form only for a ``Normal``
+        base; a ``Cauchy`` base returns ``nan`` and any other base raises
+        ``NotImplementedError``.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from numpyro import distributions as dist
+        >>> d = dist.TruncatedDistribution(dist.Laplace(0.0, 1.0), low=-1.0, high=2.0)
+        >>> type(d).__name__
+        'TwoSidedTruncatedDistribution'
+        >>> lower_only = dist.TruncatedDistribution(dist.Laplace(0.0, 1.0), low=-1.0)
+        >>> type(lower_only).__name__
+        'LeftTruncatedDistribution'
     """
     if high is None:
         if low is None:
@@ -507,6 +543,44 @@ def TruncatedCauchy(
     high: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
+    r"""A :class:`~numpyro.distributions.continuous.Cauchy` distribution truncated
+    to ``[low, high]``.
+
+    With location :math:`\mu`, scale :math:`\gamma`, and bounds :math:`a` (``low``)
+    and :math:`b` (``high``), the density is
+
+    .. math::
+        p(x \mid \mu, \gamma, a, b) = \frac{1}{
+            \gamma \left[1 + \left(\frac{x - \mu}{\gamma}\right)^2\right]
+            \left[\arctan\frac{b - \mu}{\gamma} - \arctan\frac{a - \mu}{\gamma}\right]
+        }, \qquad a \leq x \leq b,
+
+    which follows from the Cauchy cdf
+    :math:`F(x) = \frac{1}{2} + \frac{1}{\pi}\arctan\frac{x - \mu}{\gamma}`; an omitted
+    bound contributes :math:`\arctan(\pm\infty) = \pm\pi/2`. The cdf is
+
+    .. math::
+        P(X \leq x) = \frac{
+            \arctan\frac{x - \mu}{\gamma} - \arctan\frac{a - \mu}{\gamma}
+        }{
+            \arctan\frac{b - \mu}{\gamma} - \arctan\frac{a - \mu}{\gamma}
+        }.
+
+    This is :func:`TruncatedDistribution` applied to ``Cauchy(loc, scale)``, so it
+    returns a :class:`LeftTruncatedDistribution`, :class:`RightTruncatedDistribution`
+    or :class:`TwoSidedTruncatedDistribution` depending on which bounds are given,
+    or the plain ``Cauchy`` when neither is.
+
+    :param loc: location :math:`\mu` of the base Cauchy distribution.
+    :param scale: scale :math:`\gamma > 0` of the base Cauchy distribution.
+    :param low: lower truncation point, or None to not truncate from below.
+    :param high: upper truncation point, or None to not truncate from above.
+
+    .. note::
+        ``mean`` and ``variance`` return ``nan``: a one-sided truncated Cauchy has no
+        finite moments, and the closed-form moments of the two-sided case are not
+        implemented.
+    """
     return TruncatedDistribution(
         Cauchy(loc, scale), low=low, high=high, validate_args=validate_args
     )
@@ -520,6 +594,51 @@ def TruncatedNormal(
     high: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
+    r"""A :class:`~numpyro.distributions.continuous.Normal` distribution truncated
+    to ``[low, high]``.
+
+    With :math:`\alpha = (a - \mu) / \sigma` and :math:`\beta = (b - \mu) / \sigma`
+    for bounds :math:`a` (``low``) and :math:`b` (``high``), and
+    :math:`Z = \Phi(\beta) - \Phi(\alpha)`, the density is
+
+    .. math::
+        p(x \mid \mu, \sigma, a, b) = \frac{1}{\sigma Z}\,
+        \phi\!\left(\frac{x - \mu}{\sigma}\right), \qquad a \leq x \leq b,
+
+    where :math:`\phi` and :math:`\Phi` are the standard normal pdf and cdf. An
+    omitted bound contributes :math:`\alpha = -\infty` or :math:`\beta = \infty`, with
+    :math:`\phi(\pm\infty) = 0`, :math:`\alpha\,\phi(\alpha) \to 0`,
+    :math:`\Phi(-\infty) = 0` and :math:`\Phi(\infty) = 1`. The mean and variance are
+
+    .. math::
+        \mathbb{E}[X] = \mu + \sigma\,\frac{\phi(\alpha) - \phi(\beta)}{Z}, \qquad
+        \operatorname{Var}[X] = \sigma^2 \left[
+            1 + \frac{\alpha\,\phi(\alpha) - \beta\,\phi(\beta)}{Z}
+            - \left(\frac{\phi(\alpha) - \phi(\beta)}{Z}\right)^2
+        \right].
+
+    This is :func:`TruncatedDistribution` applied to ``Normal(loc, scale)``, so it
+    returns a :class:`LeftTruncatedDistribution`, :class:`RightTruncatedDistribution`
+    or :class:`TwoSidedTruncatedDistribution` depending on which bounds are given,
+    or the plain ``Normal`` when neither is.
+
+    :param loc: location :math:`\mu` of the base Normal distribution.
+    :param scale: scale :math:`\sigma > 0` of the base Normal distribution.
+    :param low: lower truncation point, or None to not truncate from below.
+    :param high: upper truncation point, or None to not truncate from above.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from numpyro import distributions as dist
+        >>> d = dist.TruncatedNormal(0.0, 1.0, low=-1.0, high=2.0)
+        >>> type(d).__name__
+        'TwoSidedTruncatedDistribution'
+        >>> positive = dist.TruncatedNormal(0.0, 1.0, low=0.0)
+        >>> type(positive).__name__
+        'LeftTruncatedDistribution'
+    """
     return TruncatedDistribution(
         Normal(loc, scale), low=low, high=high, validate_args=validate_args
     )
@@ -1126,12 +1245,37 @@ def TruncatedGamma(
     high: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
-    """
-    A function to generate a truncated gamma distribution.
+    r"""A :class:`~numpyro.distributions.continuous.Gamma` distribution truncated
+    to ``[low, high]``.
 
-    :param concentration: concentration parameter of the base
+    With the base density
+
+    .. math::
+        \mathrm{Gamma}(x \mid \alpha, \lambda) =
+        \frac{\lambda^\alpha}{\Gamma(\alpha)}\, x^{\alpha - 1} e^{-\lambda x},
+        \qquad x > 0,
+
+    and bounds :math:`a` (``low``) and :math:`b` (``high``), the truncated density is
+
+    .. math::
+        p(x \mid \alpha, \lambda, a, b) = \frac{
+            \mathrm{Gamma}(x \mid \alpha, \lambda)
+        }{
+            P(\alpha, \lambda b) - P(\alpha, \lambda a)
+        }, \qquad a \leq x \leq b,
+
+    where :math:`P(\alpha, z)` is the regularized lower incomplete gamma function
+    (:func:`~jax.scipy.special.gammainc`); an omitted bound contributes
+    :math:`P(\alpha, 0) = 0` or :math:`P(\alpha, \infty) = 1`.
+
+    Depending on which bounds are given this returns the plain ``Gamma`` (neither), a
+    :class:`LeftTruncatedGamma` (``low`` only), a :class:`RightTruncatedGamma`
+    (``high`` only) or a :class:`TwoSidedTruncatedGamma` (both). See those classes
+    for how the normalizer is evaluated in the tails and for the ``icdf`` algorithm.
+
+    :param concentration: concentration parameter :math:`\alpha` of the base
         :class:`~numpyro.distributions.continuous.Gamma` distribution.
-    :param rate: rate parameter of the base distribution.
+    :param rate: rate parameter :math:`\lambda` of the base distribution.
     :param low: the value which is used to truncate the base distribution from
         below. Setting this parameter to None to not truncate from below.
     :param high: the value which is used to truncate the base distribution from
@@ -1161,6 +1305,60 @@ def TruncatedGamma(
 
 
 class TruncatedPolyaGamma(Distribution):
+    r"""An approximation of the Polya-Gamma distribution :math:`\mathrm{PG}(1, 0)`
+    restricted to :math:`[0, 2.5]`.
+
+    :math:`X \sim \mathrm{PG}(1, 0)` is defined by the infinite convolution of
+    exponential variates
+
+    .. math::
+        X = \frac{1}{2\pi^2} \sum_{k=1}^{\infty} \frac{g_k}{(k - 1/2)^2},
+        \qquad g_k \overset{\text{iid}}{\sim} \mathrm{Gamma}(1, 1),
+
+    so that :math:`\mathbb{E}[e^{-tX}] = 1 / \cosh\!\big(\sqrt{t/2}\big)` and
+    :math:`\mathbb{E}[X] = 1/4`. Its density has the alternating series representation
+
+    .. math::
+        p(x) = \sum_{n=0}^{\infty} (-1)^n \frac{2n + 1}{\sqrt{2\pi x^3}}
+        \exp\!\left(-\frac{(2n + 1)^2}{8x}\right), \qquad x > 0.
+
+    :math:`\mathrm{PG}(1, 0)` is the mixing distribution in the Pólya-Gamma
+    augmentation of logistic models (see reference 1); the Gibbs conditional there
+    is the tilted :math:`\mathrm{PG}(1, \psi)`.
+
+    :param batch_shape: batch shape of the distribution.
+
+    .. note::
+        ``sample`` and ``log_prob`` are both series truncations:
+
+        * ``sample`` keeps the first ``num_gamma_variates`` (class attribute, 8)
+          terms of the Gamma series and clips the result at ``truncation_point``
+          (2.5). The discarded terms have expected value
+          :math:`\frac{1}{2\pi^2}\sum_{k > 8} (k - 1/2)^{-2} \approx 0.0063`, so the
+          sampler mean is about :math:`0.244` rather than :math:`1/4`.
+        * ``log_prob`` evaluates the first ``num_log_prob_terms`` (class attribute,
+          7) terms of the alternating series. The discarded tail is alternating and
+          decreasing on the support, so the partial sum is positive and an upper
+          bound on the density. The truncation error of the partial sum is below
+          :math:`10^{-6}` for :math:`x < 1.39` (float32 rounding in the alternating
+          sum adds up to about :math:`10^{-5}`), about :math:`5 \times 10^{-3}` at
+          :math:`x = 2` and about :math:`0.7` at :math:`x = 2.5`, where the density
+          is :math:`2.8 \times 10^{-5}`. The density is not renormalized to the
+          support: the mass of :math:`\mathrm{PG}(1, 0)` above :math:`2.5` is
+          :math:`5.6 \times 10^{-6}`.
+
+        ``mean`` and ``variance`` are not implemented.
+
+    **References:**
+
+    1. Polson, N. G., Scott, J. G., & Windle, J. (2013). Bayesian inference for
+       logistic models using Pólya-Gamma latent variables. *Journal of the American
+       Statistical Association*, 108(504), 1339-1349.
+    2. Devroye, L. (2009). On exact simulation algorithms for some distributions
+       related to Jacobi theta functions. *Statistics & Probability Letters*,
+       79(21), 2251-2259.
+    """
+
     truncation_point = 2.5
     num_log_prob_terms = 7
     num_gamma_variates = 8
