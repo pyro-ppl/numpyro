@@ -1492,7 +1492,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 ) - jnp.reciprocal((log_high - log_low) * low)
 
             def high_eq_neg1() -> Array:
-                return (log_x - log_low) / (jnp.square(log_high - log_low) * high)
+                return -(log_x - log_low) / (jnp.square(log_high - log_low) * high)
 
             # Including approximation for alpha = -1
             tangent_out = (
