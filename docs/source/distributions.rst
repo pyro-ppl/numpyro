@@ -691,6 +691,22 @@ ZeroInflatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
 
+ZeroInflatedLogits
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ZeroInflatedProbs
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ZeroInflatedPoisson
 ^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson

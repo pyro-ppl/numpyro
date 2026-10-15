@@ -1729,6 +1729,37 @@ class Poisson(Distribution):
 
 
 class ZeroInflatedProbs(Distribution):
+    r"""
+    A generic zero-inflated distribution built from a discrete base distribution.
+
+    Let :math:`B` be a discrete base distribution with PMF :math:`b(k)` and gate
+    :math:`g` (the probability of a structural zero). The zero-inflated PMF is
+
+    .. math::
+
+        P(X = 0) = g + (1 - g)\, b(0), \qquad
+        P(X = k) = (1 - g)\, b(k) \;\text{for } k \neq 0.
+
+    Zeros can come either from the structural component (with probability
+    :math:`g`) or from the base distribution itself (with probability
+    :math:`(1 - g)\, b(0)`). The mean and variance are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \mathbb{E}[B], \qquad
+        \operatorname{Var}(X) = (1 - g)\left(\operatorname{Var}(B) + \mathbb{E}[B]^2\right)
+        - (1 - g)^2\, \mathbb{E}[B]^2.
+
+    .. note::
+        ``gate`` is the probability of a structural zero, matching the convention
+        used by :class:`ZeroInflatedPoisson`.
+
+    :param Distribution base_dist: a discrete base distribution with empty
+        ``event_shape``.
+    :param numpy.ndarray gate: probability of extra (structural) zeros, in
+        :math:`[0, 1]`.
+    """
+
     arg_constraints = {"gate": constraints.unit_interval}
     pytree_data_fields = ("base_dist", "gate")
 
@@ -1798,6 +1829,25 @@ class ZeroInflatedProbs(Distribution):
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
+    r"""
+    A generic zero-inflated distribution parameterized by the gate logits.
+
+    This is the same distribution as :class:`ZeroInflatedProbs`, with the gate
+    :math:`g` given on the logit scale :math:`z` through the sigmoid,
+
+    .. math::
+
+        g = \sigma(z) = \frac{1}{1 + e^{-z}}.
+
+    The PMF is therefore :math:`P(X = 0) = g + (1 - g)\, b(0)` and
+    :math:`P(X = k) = (1 - g)\, b(k)` for :math:`k \neq 0`, with :math:`1 - g = \sigma(-z)`.
+
+    :param Distribution base_dist: a discrete base distribution with empty
+        ``event_shape``.
+    :param numpy.ndarray gate_logits: logits :math:`z` of the structural-zero
+        probability.
+    """
+
     arg_constraints = {"gate_logits": constraints.real}
 
     def __init__(
