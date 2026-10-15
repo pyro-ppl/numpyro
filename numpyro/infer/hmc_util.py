@@ -225,12 +225,12 @@ def welford_covariance(diagonal=True):
             else:
                 cov = scaled_cov + shrinkage * jnp.identity(mean.shape[0])
         if jnp.ndim(cov) == 2:
-            # copy the implementation of distributions.util.cholesky_of_inverse here
             tril_inv = jnp.swapaxes(
                 jnp.linalg.cholesky(cov[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1
             )
-            identity = jnp.identity(cov.shape[-1])
-            cov_inv_sqrt = solve_triangular(tril_inv, identity, lower=True)
+            cov_inv_sqrt = solve_triangular(
+                tril_inv, jnp.identity(cov.shape[-1], dtype=cov.dtype), lower=True
+            )
         else:
             tril_inv = jnp.sqrt(cov)
             cov_inv_sqrt = jnp.reciprocal(tril_inv)
