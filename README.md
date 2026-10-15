@@ -279,13 +279,12 @@ you can install NumPyro using the `pip install numpyro` command.
 > [!IMPORTANT]
 > **Default Platform:** JAX will use GPU by default if CUDA-supported `jaxlib` package is installed. You can use [set_platform](https://num.pyro.ai/en/stable/utilities.html#set-platform) utility `numpyro.set_platform("cpu")` to switch to CPU at the beginning of your program.
 
-You can also install NumPyro from source:
+You can also install NumPyro from source with [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
 git clone https://github.com/pyro-ppl/numpyro.git
 cd numpyro
-# install jax/jaxlib first for CUDA support
-pip install -e '.[dev]'  # contains additional dependencies for NumPyro development
+uv sync --extra cpu --group dev --group test
 ```
 
 You can also install NumPyro with conda:
