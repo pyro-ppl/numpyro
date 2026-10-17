@@ -476,18 +476,22 @@ class MixtureGeneral(_MixtureBase):
     @property
     def component_mean(self) -> Array:
         return jnp.stack(
-            [d.mean for d in self.component_distributions], axis=self.mixture_dim
+            jnp.broadcast_arrays(*[d.mean for d in self.component_distributions]),
+            axis=self.mixture_dim,
         )
 
     @property
     def component_variance(self) -> Array:
         return jnp.stack(
-            [d.variance for d in self.component_distributions], axis=self.mixture_dim
+            jnp.broadcast_arrays(*[d.variance for d in self.component_distributions]),
+            axis=self.mixture_dim,
         )
 
     def component_cdf(self, samples: ArrayLike) -> Array:
         return jnp.stack(
-            [d.cdf(samples) for d in self.component_distributions],
+            jnp.broadcast_arrays(
+                *[d.cdf(samples) for d in self.component_distributions]
+            ),
             axis=self.mixture_dim,
         )
 
@@ -510,7 +514,9 @@ class MixtureGeneral(_MixtureBase):
                 mask = support(value)
                 log_prob = jnp.where(mask, log_prob, -jnp.inf)
             component_log_probs.append(log_prob)
-        component_log_probs = jnp.stack(component_log_probs, axis=-1)
+        component_log_probs = jnp.stack(
+            jnp.broadcast_arrays(*component_log_probs), axis=-1
+        )
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
