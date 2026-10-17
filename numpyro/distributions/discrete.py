@@ -2175,10 +2175,33 @@ def HurdleDistribution(
 
     A hurdle model is a two-part model: a Bernoulli "hurdle" selects between an
     exact zero (with probability ``gate``) and a positive draw from the
-    (zero-truncated, for discrete bases) base distribution. Returns a
-    :class:`HurdleProbs` if ``gate`` is supplied, or a :class:`HurdleLogits` if
-    ``gate_logits`` is supplied. Exactly one of the two must be provided. See
-    :class:`HurdleProbs` for the full mechanism, assumptions, and PMF/PDF.
+    (zero-truncated, for discrete bases) base distribution. Writing :math:`g` for
+    the gate and :math:`B` for the base PMF, a discrete base gives
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g)\, \frac{B(k)}{1 - B(0)} \;\text{for } k \geq 1,
+
+    while a continuous base with density :math:`b` on :math:`\mathbb{R}_{>0}` gives
+    a point mass :math:`P(X = 0) = g` mixed with :math:`p(x) = (1 - g)\, b(x)` for
+    :math:`x > 0`. When ``gate_logits`` :math:`= z` is supplied instead,
+    :math:`g = \sigma(z) = 1 / (1 + e^{-z})`. With base mean :math:`\mu_B` and
+    variance :math:`\sigma_B^2`, the moments for a discrete base are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \frac{\mu_B}{1 - B(0)}, \qquad
+        \operatorname{Var}[X] = (1 - g)\, \frac{\mu_B^2 + \sigma_B^2}{1 - B(0)}
+        - \mathbb{E}[X]^2,
+
+    and for a continuous base the same expressions without the :math:`1 - B(0)`
+    divisor.
+
+    Returns a :class:`HurdleProbs` if ``gate`` is supplied, or a
+    :class:`HurdleLogits` if ``gate_logits`` is supplied. Exactly one of the two
+    must be provided. See :class:`HurdleProbs` for the full mechanism and
+    assumptions.
 
     :param Distribution base_dist: the base distribution.
     :param ArrayLike gate: probability of a structural zero.
