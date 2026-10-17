@@ -1258,19 +1258,19 @@ class DoublyTruncatedPowerLaw(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        r"""Logarithmic probability distribution:
+        r"""Log probability density for :math:`a \leq x \leq b`.
 
-        Z inequal minus one:
-
-        .. math::
-
-            \frac{(\alpha + 1)x^\alpha}{b^{\alpha + 1} - a^{\alpha + 1}}
-
-        Z equal minus one:
+        For :math:`\alpha \ne -1`:
 
         .. math::
 
-            \frac{x^\alpha}{\log(b) - \log(a)}
+            \log\left(\frac{(\alpha + 1)x^\alpha}{b^{\alpha + 1} - a^{\alpha + 1}}\right)
+
+        For :math:`\alpha = -1`:
+
+        .. math::
+
+            -\log(x) - \log\left(\log(b) - \log(a)\right)
 
         Derivations are calculated by Wolfram Alpha via the Jacobian matrix accordingly.
         """
@@ -1380,14 +1380,15 @@ class DoublyTruncatedPowerLaw(Distribution):
         return f(value, self.alpha, self.low, self.high)
 
     def cdf(self, value: ArrayLike) -> Array:
-        r"""Cumulated probability distribution:
-        Z inequal minus one:
+        r"""Cumulative distribution function for :math:`a \leq x \leq b`.
+
+        For :math:`\alpha \ne -1`:
 
         .. math::
 
             \frac{x^{\alpha + 1} - a^{\alpha + 1}}{b^{\alpha + 1} - a^{\alpha + 1}}
 
-        Z equal minus one:
+        For :math:`\alpha = -1`:
 
         .. math::
 
@@ -1520,13 +1521,14 @@ class DoublyTruncatedPowerLaw(Distribution):
         return f(value, self.alpha, self.low, self.high)
 
     def icdf(self, q: ArrayLike) -> Array:
-        r"""Inverse cumulated probability distribution:
-        Z inequal minus one:
+        r"""Inverse cumulative distribution function for :math:`0 \leq q \leq 1`.
+
+        For :math:`\alpha = -1`:
 
         .. math::
             a \left(\frac{b}{a}\right)^{q}
 
-        Z equal minus one:
+        For :math:`\alpha \ne -1`:
 
         .. math::
             \left(a^{1 + \alpha} + q (b^{1 + \alpha} - a^{1 + \alpha})\right)^{\frac{1}{1 + \alpha}}
@@ -1691,8 +1693,8 @@ class LowerTruncatedPowerLaw(Distribution):
     We can define the power law distribution as,
 
     .. math::
-        f(x; \alpha, a) = (-\alpha-1)a^{-\alpha - 1}x^{-\alpha},
-        \qquad x \geq a, \qquad \alpha < -1,
+        f(x; \alpha, a) = (-\alpha-1)a^{-\alpha - 1}x^{\alpha},
+        \qquad x \geq a > 0, \qquad \alpha < -1,
 
     where, :math:`a` is the lower bound. The cdf of the distribution is given by,
 
