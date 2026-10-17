@@ -120,13 +120,16 @@ class LeftTruncatedDistribution(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         # For left truncated distribution: CDF(x) = (F(x) - F(low)) / (1 - F(low))
-        # where F is the base distribution CDF
-        base_cdf_value = self.base_dist.cdf(value)
-        base_cdf_low = self.base_dist.cdf(self.low)
-
-        # Handle the case where value < low (should be 0)
-        # and value >= low (should be the truncated CDF)
-        truncated_cdf = (base_cdf_value - base_cdf_low) / (1.0 - base_cdf_low)
+        # where F is the base distribution CDF.
+        # Translating low into the tail probability T(low) = 1 - F(low) (which we
+        # get by reflecting low through loc) makes the formula stable when the
+        # truncation point is in the upper tail, where F(low) rounds to 1.
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
+        tail_prob_value = self.base_dist.cdf(loc - sign * (loc - value))
+        truncated_cdf = (tail_prob_value - self._tail_prob_at_low) / (
+            self._tail_prob_at_high - self._tail_prob_at_low
+        )
 
         # Clamp to [0, 1] and handle values below the truncation point
         result = jnp.where(
@@ -365,10 +368,18 @@ class TwoSidedTruncatedDistribution(Distribution):
         # fall back to cdf, if log_cdf not available
         log_cdf = getattr(self.base_dist, "log_cdf", None)
         if callable(log_cdf):
+            loc = self.base_dist.loc
+            # when the interval lies in the upper tail (low >= loc), reflect
+            # both endpoints through loc and use the accurate lower-tail
+            # log_cdf of the reflected values: log_cdf(low) - log_cdf(high)
+            # would otherwise lose all precision, making log_prob +inf.
+            reflect = self.low >= loc
+            p_first = jnp.where(reflect, 2 * loc - self.low, self.high)
+            p_second = jnp.where(reflect, 2 * loc - self.high, self.low)
             return logsumexp(
-                a=jnp.stack([log_cdf(self.high), log_cdf(self.low)], axis=-1),
+                a=jnp.stack([log_cdf(p_first), log_cdf(p_second)], axis=-1),
                 axis=-1,
-                b=jnp.array([1, -1]),  # subtract low from high
+                b=jnp.array([1, -1]),  # subtract second from first
             )
 
         else:
@@ -406,16 +417,16 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         # For two-sided truncated distribution: CDF(x) = (F(x) - F(low)) / (F(high) - F(low))
-        # where F is the base distribution CDF
-        base_cdf_value = self.base_dist.cdf(value)
-        base_cdf_low = self.base_dist.cdf(self.low)
-        base_cdf_high = self.base_dist.cdf(self.high)
-
-        # Calculate the normalization constant (F(high) - F(low))
-        normalization = base_cdf_high - base_cdf_low
-
-        # Calculate the truncated CDF
-        truncated_cdf = (base_cdf_value - base_cdf_low) / normalization
+        # where F is the base distribution CDF.
+        # When the interval lies in the upper tail (low >= loc), both the
+        # numerator and the denominator are expressed in terms of reflected
+        # tail probabilities to avoid 0 / 0 from F(low) rounding to 1.
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
+        tail_prob_value = self.base_dist.cdf(loc - sign * (loc - value))
+        truncated_cdf = (tail_prob_value - self._tail_prob_at_low) / (
+            self._tail_prob_at_high - self._tail_prob_at_low
+        )
 
         # Handle values outside the truncation interval
         result = jnp.where(
