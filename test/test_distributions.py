@@ -4769,6 +4769,69 @@ def test_truncated_cdf_batch_shapes(batch_shape):
             assert cdf_value.shape == batch_shape
 
 
+@pytest.mark.parametrize("value", [6.0, 6.5, 7.0])
+def test_truncated_normal_upper_tail(value):
+    # regression test for https://github.com/pyro-ppl/numpyro/issues/2330:
+    # when the truncation interval lies in the upper tail, cdf(low) rounds
+    # to 1 (e.g. in float32 at 6 standard deviations), which used to produce
+    # nan cdfs and inf log probs.
+    loc, scale, low, high = 0.0, 1.0, 6.0, 7.0
+    a, b = (low - loc) / scale, (high - loc) / scale
+
+    two_sided = dist.TwoSidedTruncatedDistribution(dist.Normal(loc, scale), low, high)
+    left_truncated = dist.LeftTruncatedDistribution(dist.Normal(loc, scale), low)
+
+    assert jnp.isfinite(two_sided.cdf(value))
+    assert jnp.isfinite(two_sided.log_prob(value))
+    assert jnp.isfinite(left_truncated.cdf(value))
+
+    assert_allclose(
+        two_sided.cdf(value),
+        jax_truncnorm.cdf(value, a=a, b=b, loc=loc, scale=scale),
+        rtol=1e-5,
+        atol=1e-6,
+    )
+    assert_allclose(
+        two_sided.log_prob(value),
+        jax_truncnorm.logpdf(value, a=a, b=b, loc=loc, scale=scale),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    assert_allclose(
+        left_truncated.cdf(value),
+        jax_truncnorm.cdf(value, a=a, b=jnp.inf, loc=loc, scale=scale),
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+
+def test_truncated_normal_upper_tail_extreme():
+    # when x64 is enabled, truncation up to 9 standard deviations is also
+    # representable and should agree with scipy, see gh-2330.
+    if jnp.result_type(float) == jnp.float32:
+        pytest.skip("requires enabled x64")
+
+    low, high = 9.0, 10.0
+    two_sided = dist.TwoSidedTruncatedDistribution(dist.Normal(), low, high)
+    left_truncated = dist.LeftTruncatedDistribution(dist.Normal(), low)
+    for value in (9.0, 9.5, 9.9, 10.0):
+        assert_allclose(
+            two_sided.cdf(value), osp.truncnorm.cdf(value, low, high), rtol=1e-9
+        )
+        assert_allclose(
+            two_sided.log_prob(value),
+            osp.truncnorm.logpdf(value, low, high),
+            rtol=1e-9,
+        )
+    assert_allclose(
+        left_truncated.cdf(9.5), osp.truncnorm.cdf(9.5, low, jnp.inf), rtol=1e-9
+    )
+
+    grad_log_prob = jax.grad(lambda value: two_sided.log_prob(value))(9.5)
+    assert jnp.isfinite(grad_log_prob)
+    assert_allclose(grad_log_prob, -9.5, rtol=1e-9)
+
+
 param_cens_dist = pytest.mark.parametrize(
     "base_dist_class, base_params",
     [
