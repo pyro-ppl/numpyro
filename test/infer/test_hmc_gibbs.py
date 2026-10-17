@@ -26,6 +26,26 @@ from numpyro.infer import (
 from numpyro.infer.util import log_density
 
 
+@pytest.mark.parametrize(
+    "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
+)
+def test_gibbs_rejects_noncontiguous_zero_inflated_support(kernel_cls, inner_cls):
+    def model():
+        numpyro.sample(
+            "x", dist.ZeroInflatedDistribution(dist.DiscreteUniform(3, 7), gate=0.4)
+        )
+
+    kernel = kernel_cls(inner_cls(model))
+    with pytest.raises(NotImplementedError, match="non-contiguous support at site 'x'"):
+        kernel.init(
+            random.key(0),
+            num_warmup=1,
+            init_params=None,
+            model_args=(),
+            model_kwargs={},
+        )
+
+
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
     N, P = X.shape
 

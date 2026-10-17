@@ -32,6 +32,7 @@ from numpyro._typing import (
     SiteValues,
     TraceT,
 )
+from numpyro.distributions import constraints
 from numpyro.handlers import condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.initialization import init_to_sample
@@ -209,6 +210,19 @@ def discrete_support_sizes(
     :param sites: names of discrete sites in `model_trace`.
     :return: `{site_name: support_sizes}`.
     """
+    for name in sites:
+        support = model_trace[name]["fn"].support
+        if not isinstance(
+            support,
+            (
+                constraints._Boolean,
+                constraints._IntegerInterval,
+                constraints._IntegerGreaterThan,
+            ),
+        ):
+            raise NotImplementedError(
+                f"Gibbs sampling does not support the non-contiguous support at site '{name}'."
+            )
     return {
         name: np.broadcast_to(
             model_trace[name]["fn"].enumerate_support(False).shape[0],

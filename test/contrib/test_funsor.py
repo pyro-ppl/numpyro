@@ -599,6 +599,18 @@ def test_singleton_plate_works(i_size, j_size, k_size):
     log_density(model, (), {}, {})
 
 
+def test_shifted_discrete_uniform_enumeration():
+    @config_enumerate
+    def model():
+        x = numpyro.sample("x", dist.DiscreteUniform(3, 7))
+        numpyro.sample("y", dist.Bernoulli(jnp.where(x == 7, 0.9, 0.1)), obs=1)
+        return x
+
+    actual = log_density(enum(model, first_available_dim=-1), (), {}, {})[0]
+    assert_allclose(actual, np.log(0.26), rtol=1e-6)
+    assert_allclose(infer_discrete(model, first_available_dim=-1, temperature=0)(), 7)
+
+
 @pytest.mark.parametrize("logits", [False, True])
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_zero_inflated_shifted_support_enumeration(logits, batch_size):
