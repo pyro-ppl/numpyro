@@ -1896,6 +1896,28 @@ def test_entropy_categorical_zero_probability():
     )
 
 
+@pytest.mark.parametrize("alpha", [-1.0, -1.5, 0.0])
+@pytest.mark.parametrize("jit", [False, True])
+@pytest.mark.parametrize("batched_high", [False, True])
+def test_doubly_truncated_power_law_cdf_high_gradient(alpha, jit, batched_high):
+    low = jnp.array([0.5, 1.0, 1.5])
+    value = jnp.array([2.0, 3.0, 4.0])
+    high = jnp.array([5.0, 8.0, 9.0]) if batched_high else jnp.array(8.0)
+
+    def fn(high):
+        return dist.DoublyTruncatedPowerLaw(alpha, low, high).cdf(value).sum()
+
+    actual_grad = jax.grad(fn)
+    if jit:
+        actual_grad = jax.jit(actual_grad)
+    eps = 1e-3
+    perturbations = jnp.eye(high.size).reshape((-1,) + high.shape) * eps
+    expected_grad = jax.vmap(lambda delta: fn(high + delta) - fn(high - delta))(
+        perturbations
+    ).reshape(high.shape) / (2 * eps)
+    assert_allclose(actual_grad(high), expected_grad, rtol=3e-3, atol=1e-4)
+
+
 def test_mixture_log_prob():
     gmm = dist.MixtureSameFamily(
         dist.Categorical(logits=np.zeros(2)), dist.Normal(0, 1).expand([2])
