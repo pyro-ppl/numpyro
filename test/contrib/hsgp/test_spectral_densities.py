@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from functools import reduce
+from functools import partial, reduce
 from operator import mul
 
 import numpy as np
@@ -10,6 +10,7 @@ from scipy.special import gammaln, ive, kve
 
 import jax
 import jax.numpy as jnp
+from jax.test_util import check_grads
 
 from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_matern,
@@ -118,26 +119,28 @@ def test_diag_spectral_density_squared_exponential_floored(length):
     assert np.allclose(spd, expected, rtol=1e-4, atol=0.0)
 
 
-def test_sqrt_spectral_density_squared_exponential_gradient():
-    """``jnp.sqrt`` of the density must have a finite gradient w.r.t. ``length`` where
-    the density underflows (``sqrt(0)`` used to give ``inf * 0 = nan``); compare with
-    the analytic float64 derivative of ``sum_j sqrt(S_j)``.
+@pytest.mark.parametrize("length", [0.2, 2.0])
+@pytest.mark.parametrize(
+    "diag_spectral_density",
+    [
+        diag_spectral_density_squared_exponential,
+        partial(diag_spectral_density_matern, nu=1.5),
+        partial(diag_spectral_density_rational_quadratic, scale_mixture=1.0),
+    ],
+    ids=["squared_exponential", "matern", "rational_quadratic"],
+)
+def test_sqrt_diag_spectral_density_grads(diag_spectral_density, length):
+    """``jnp.sqrt`` of the density must have a correct gradient w.r.t. ``length``
+    where the density underflows for ``m=100`` (``sqrt(0)`` used to give
+    ``inf * 0 = nan``); reverse mode is checked against finite differences.
     """
-    m, ell, alpha, length = 100, 1.0, 1.0, 1.0
 
     def sqrt_spd_sum(length):
         return jnp.sqrt(
-            diag_spectral_density_squared_exponential(
-                alpha=alpha, length=length, ell=ell, m=m, dim=1
-            )
+            diag_spectral_density(alpha=1.0, length=length, ell=1.0, m=100, dim=1)
         ).sum()
 
-    w = np.arange(1, m + 1, dtype=np.float64) * np.pi / 2 / ell
-    sqrt_spd = np.sqrt(alpha * np.sqrt(2 * np.pi) * length) * np.exp(
-        -0.25 * w**2 * length**2
-    )
-    expected = np.sum(sqrt_spd * (0.5 / length - 0.5 * w**2 * length))
-    assert np.allclose(jax.grad(sqrt_spd_sum)(length), expected, rtol=1e-4)
+    check_grads(sqrt_spd_sum, (length,), order=1, modes=["rev"])
 
 
 @pytest.mark.parametrize("nu", [1.5, 30.5, 60.5])
@@ -206,33 +209,6 @@ def test_diag_spectral_density_rational_quadratic(
     assert jnp.all(diag_spectral_density >= 0.0)
 
 
-def _log_spectral_density_rational_quadratic_reference(
-    w: np.ndarray, alpha: float, length: float, scale_mixture: float
-) -> tuple[np.ndarray, np.ndarray]:
-    """float64 ``log S(w)`` of the 1d rational quadratic kernel and its derivative
-    with respect to ``length``, via SciPy's exponentially scaled ``K_nu``.
-    """
-    a = np.sqrt(2 * scale_mixture) * length
-    nu = scale_mixture - 0.5
-    z = a * w
-    log_spd = (
-        np.log(alpha)
-        + 0.5 * np.log(2 * np.pi)
-        + (1 - scale_mixture) * np.log(2)
-        + np.log(a)
-        + nu * np.log(z)
-        + np.log(kve(nu, z))
-        - z
-        - gammaln(scale_mixture)
-    )
-    # d/dz log K_nu(z) = -(K_{nu-1}(z) + K_{nu+1}(z)) / (2 K_nu(z))
-    dlog_bessel_dz = -(kve(nu - 1, z) + kve(nu + 1, z)) / (2 * kve(nu, z))
-    dlog_spd_dlength = (1 + nu) / length + np.sqrt(
-        2 * scale_mixture
-    ) * w * dlog_bessel_dz
-    return log_spd, dlog_spd_dlength
-
-
 def test_spectral_density_rational_quadratic_gradient_at_zero_frequency():
     """At ``w = 0`` the ``S(0)`` branch is selected; its gradient w.r.t. ``length``
     must not pick up NaNs from the (unselected) ``K_nu(0)`` branch.
@@ -262,39 +238,22 @@ def test_diag_spectral_density_rational_quadratic_floored(length, scale_mixture)
         alpha=alpha, length=length, scale_mixture=scale_mixture, ell=ell, m=m, dim=1
     )
     w = np.arange(1, m + 1, dtype=np.float64) * np.pi / 2 / ell
-    log_expected, _ = _log_spectral_density_rational_quadratic_reference(
-        w, alpha, float(length), float(scale_mixture)
+    a = np.sqrt(2 * scale_mixture) * length
+    nu = scale_mixture - 0.5
+    log_expected = (
+        np.log(alpha)
+        + 0.5 * np.log(2 * np.pi)
+        + (1 - scale_mixture) * np.log(2)
+        + np.log(a)
+        + nu * np.log(a * w)
+        + np.log(kve(nu, a * w))
+        - a * w
+        - gammaln(scale_mixture)
     )
     tiny = np.finfo(spd.dtype).tiny
     expected = np.maximum(np.exp(log_expected), tiny)
     assert np.all(spd >= tiny)
     assert np.allclose(spd, expected, rtol=1e-4, atol=0.0)
-
-
-def test_sqrt_spectral_density_rational_quadratic_gradient():
-    """``jnp.sqrt`` of the density must have a finite gradient w.r.t. ``length`` where
-    the density underflows; compare with the float64 derivative of ``sum_j sqrt(S_j)``.
-    """
-    m, ell, alpha, length, scale_mixture = 100, 1.0, 1.0, 1.0, 1.0
-
-    def sqrt_spd_sum(length):
-        return jnp.sqrt(
-            diag_spectral_density_rational_quadratic(
-                alpha=alpha,
-                length=length,
-                scale_mixture=scale_mixture,
-                ell=ell,
-                m=m,
-                dim=1,
-            )
-        ).sum()
-
-    w = np.arange(1, m + 1, dtype=np.float64) * np.pi / 2 / ell
-    log_spd, dlog_spd = _log_spectral_density_rational_quadratic_reference(
-        w, alpha, length, scale_mixture
-    )
-    expected = np.sum(np.exp(0.5 * log_spd) * 0.5 * dlog_spd)
-    assert np.allclose(jax.grad(sqrt_spd_sum)(length), expected, rtol=1e-4)
 
 
 @pytest.mark.parametrize(
