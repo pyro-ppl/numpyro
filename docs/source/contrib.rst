@@ -312,9 +312,17 @@ diag_spectral_density_squared_exponential
 -----------------------------------------
 .. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_squared_exponential
 
+log_diag_spectral_density_squared_exponential
+---------------------------------------------
+.. autofunction:: numpyro.contrib.hsgp.spectral_densities.log_diag_spectral_density_squared_exponential
+
 diag_spectral_density_matern
 ----------------------------
 .. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_matern
+
+log_diag_spectral_density_matern
+--------------------------------
+.. autofunction:: numpyro.contrib.hsgp.spectral_densities.log_diag_spectral_density_matern
 
 spectral_density_rational_quadratic
 -----------------------------------

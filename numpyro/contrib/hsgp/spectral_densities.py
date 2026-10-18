@@ -7,6 +7,8 @@ This module contains spectral densities for various kernel functions.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from jax import Array, vmap
 import jax.numpy as jnp
 from jax.scipy import special
@@ -17,6 +19,16 @@ from numpyro.contrib.hsgp.laplacian import sqrt_eigenvalues
 
 def align_param(dim, param):
     return jnp.broadcast_to(param, jnp.broadcast_shapes(jnp.shape(param), (dim,)))
+
+
+def _log_spectral_density_squared_exponential(
+    dim: int, w: ArrayLike, alpha: ArrayLike, length: ArrayLike
+) -> Array:
+    length = align_param(dim, length)
+    log_c = jnp.log(alpha) + jnp.sum(
+        0.5 * jnp.log(2 * jnp.pi) + jnp.log(length), axis=-1
+    )
+    return log_c - 0.5 * jnp.sum(w**2 * length**2, axis=-1)
 
 
 def spectral_density_squared_exponential(
@@ -52,10 +64,28 @@ def spectral_density_squared_exponential(
     :return: spectral density value
     :rtype: Array
     """
+    return jnp.exp(
+        _log_spectral_density_squared_exponential(
+            dim=dim, w=w, alpha=alpha, length=length
+        )
+    )
+
+
+def _log_spectral_density_matern(
+    dim: int, nu: float, w: ArrayLike, alpha: ArrayLike, length: ArrayLike
+) -> Array:
     length = align_param(dim, length)
-    c = jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1) * alpha
-    e = jnp.exp(-0.5 * jnp.sum(w**2 * length**2, axis=-1))
-    return c * e
+    log_c = (
+        jnp.log(alpha)
+        + dim * jnp.log(2.0)
+        + (dim / 2) * jnp.log(jnp.pi)
+        + nu * jnp.log(2 * nu)
+        + special.gammaln(nu + dim / 2)
+        - special.gammaln(nu)
+        + jnp.sum(jnp.log(length), axis=-1)
+    )
+    s = jnp.sum(length**2 * w**2, axis=-1)
+    return log_c - (nu + dim / 2) * jnp.log(2 * nu + s)
 
 
 def spectral_density_matern(
@@ -92,18 +122,57 @@ def spectral_density_matern(
     :return: spectral density value
     :rtype: Array
     """  # noqa: E501
-    length = align_param(dim, length)
-    c1 = (
-        alpha
-        * (2 ** (dim))
-        * (jnp.pi ** (dim / 2))
-        * ((2 * nu) ** nu)
-        * special.gamma(nu + dim / 2)
+    return jnp.exp(
+        _log_spectral_density_matern(dim=dim, nu=nu, w=w, alpha=alpha, length=length)
     )
-    s = jnp.sum(length**2 * w**2, axis=-1)
-    c2 = jnp.prod(length, axis=-1) * (2 * nu + s) ** (-nu - dim / 2)
-    c3 = special.gamma(nu)
-    return c1 * c2 / c3
+
+
+def _eval_at_sqrt_eigenvalues(
+    fn: Callable[[Array], Array],
+    ell: float | int | list[float | int],
+    m: int | list[int],
+    dim: int,
+) -> Array:
+    """Evaluate ``fn`` at each of the first :math:`D \\times m^\\star` square root eigenvalues."""
+    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)  # dim x prod(m)
+    return vmap(fn, in_axes=-1)(sqrt_eigenvalues_)
+
+
+def log_diag_spectral_density_squared_exponential(
+    alpha: ArrayLike,
+    length: ArrayLike,
+    ell: float | int | list[float | int],
+    m: int | list[int],
+    dim: int,
+) -> Array:
+    """
+    Logarithm of :func:`diag_spectral_density_squared_exponential`.
+
+    The spectral density of the squared exponential kernel decays as
+    :math:`\\exp(-\\ell^2 \\omega^2 / 2)` and underflows to exactly zero in single precision
+    for all but the first few eigenvalues when ``m`` is large. This function evaluates
+    the density in log space, so the result stays finite and
+    ``jnp.exp(0.5 * log_diag_spectral_density_squared_exponential(...))`` is a square root
+    of the density with finite gradients with respect to ``alpha`` and ``length``.
+
+    :param ArrayLike alpha: amplitude of the squared exponential kernel
+    :param ArrayLike length: length scale of the squared exponential kernel
+    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
+        If a float or int, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :param int dim: The dimension of the space
+
+    :return: log spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
+    :rtype: Array
+    """
+
+    def _log_spectral_density(w: Array) -> Array:
+        return _log_spectral_density_squared_exponential(
+            dim=dim, w=w, alpha=alpha, length=length
+        )
+
+    return _eval_at_sqrt_eigenvalues(_log_spectral_density, ell=ell, m=m, dim=dim)
 
 
 def diag_spectral_density_squared_exponential(
@@ -128,20 +197,51 @@ def diag_spectral_density_squared_exponential(
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
     :rtype: Array
     """
-
-    def _spectral_density(w):
-        return spectral_density_squared_exponential(
-            dim=dim,
-            w=w,
-            alpha=alpha,
-            length=length,
+    return jnp.exp(
+        log_diag_spectral_density_squared_exponential(
+            alpha=alpha, length=length, ell=ell, m=m, dim=dim
         )
-
-    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)  # dim x m
-    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
+    )
 
 
 # TODO support length-D kernel hyperparameters
+def log_diag_spectral_density_matern(
+    nu: float,
+    alpha: ArrayLike,
+    length: ArrayLike,
+    ell: float | int | list[float | int],
+    m: int | list[int],
+    dim: int,
+) -> Array:
+    """
+    Logarithm of :func:`diag_spectral_density_matern`.
+
+    Evaluating the density in log space (with :func:`jax.scipy.special.gammaln`) avoids the
+    overflow of :math:`\\Gamma(\\nu + D/2)` and :math:`(2\\nu)^\\nu` for large ``nu``, and
+    ``jnp.exp(0.5 * log_diag_spectral_density_matern(...))`` is a square root of the density
+    with finite gradients with respect to ``alpha`` and ``length``.
+
+    :param float nu: smoothness parameter
+    :param ArrayLike alpha: amplitude of the Matérn kernel
+    :param ArrayLike length: length scale of the Matérn kernel
+    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
+        If a float or int, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :param int dim: The dimension of the space
+
+    :return: log spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
+    :rtype: Array
+    """
+
+    def _log_spectral_density(w: Array) -> Array:
+        return _log_spectral_density_matern(
+            dim=dim, nu=nu, w=w, alpha=alpha, length=length
+        )
+
+    return _eval_at_sqrt_eigenvalues(_log_spectral_density, ell=ell, m=m, dim=dim)
+
+
 def diag_spectral_density_matern(
     nu: float,
     alpha: ArrayLike,
@@ -166,12 +266,11 @@ def diag_spectral_density_matern(
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
     :rtype: Array
     """
-
-    def _spectral_density(w):
-        return spectral_density_matern(dim=dim, nu=nu, w=w, alpha=alpha, length=length)
-
-    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)
-    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
+    return jnp.exp(
+        log_diag_spectral_density_matern(
+            nu=nu, alpha=alpha, length=length, ell=ell, m=m, dim=dim
+        )
+    )
 
 
 def modified_bessel_second_kind(v, z):
