@@ -746,9 +746,30 @@ class Dirichlet(Distribution):
 
 
 class EulerMaruyama(Distribution):
-    """
+    r"""
     Euler–Maruyama method is a method for the approximate numerical solution
     of a stochastic differential equation (SDE)
+
+    .. math::
+       dX_t = f(X_t, t)\, dt + g(X_t, t)\, dW_t
+
+    On a discrete time grid :math:`t_0 < t_1 < \cdots < t_N` with step sizes
+    :math:`\Delta t_k = t_{k+1} - t_k`, the method approximates the solution by
+
+    .. math::
+       X_{k+1} = X_k + \Delta t_k\, f(X_k, t_k) + \sqrt{\Delta t_k}\, g(X_k, t_k)\, \varepsilon_k,
+       \qquad \varepsilon_k \sim \mathcal{N}(0, 1),
+
+    with :math:`X_0 \sim` ``init_dist``. Each transition is therefore Gaussian,
+    and the joint density of the path :math:`x_0, \ldots, x_N` factorizes as
+
+    .. math::
+       p(x_0, \ldots, x_N) = p_0(x_0) \prod_{k=0}^{N-1}
+       \mathcal{N}\!\left(x_{k+1};\; x_k + \Delta t_k\, f(x_k, t_k),\;
+       \Delta t_k\, g(x_k, t_k)^2\right),
+
+    where :math:`p_0` is the density of ``init_dist``. The diffusion coefficient
+    :math:`g` is the per-coordinate scale of independent Gaussian noise.
 
     :param ndarray t: discretized time
     :param callable sde_fn: function returning the drift and diffusion coefficients of SDE
