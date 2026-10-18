@@ -1,9 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
+import tqdm
 
 import jax
 from jax import random
@@ -66,6 +69,63 @@ def test_fori_collect_return_last(progbar):
     expected_last_state = {"i": np.array(4)}
     jax.tree.all(jax.tree.map(assert_allclose, init_state, expected_last_state))
     jax.tree.all(jax.tree.map(assert_allclose, tree, expected_tree))
+
+
+def test_fori_collect_progbar_diagnostics_final_state():
+    calls = []
+
+    def diagnostics_fn(x):
+        calls.append(int(x))
+        return ""
+
+    # progress_rate=3 does not divide 62: the last step is off the update grid
+    # but the final bar must still show the final state's diagnostics.
+    fori_collect(
+        0,
+        62,
+        lambda x: x + 1,
+        jnp.int32(0),
+        progress_rate=3,
+        diagnostics_fn=diagnostics_fn,
+    )
+    assert calls[-1] == 62
+    assert len(calls) < 62  # not evaluated (host sync) on every step
+
+
+def test_fori_collect_progbar_disabled_tqdm(monkeypatch):
+    # TQDM_DISABLE=1 (read by tqdm at import) gives a bar created with
+    # disable=True, which has no `miniters` attribute.
+    monkeypatch.setattr(tqdm, "trange", partial(tqdm.trange, disable=True))
+    calls = []
+
+    def diagnostics_fn(x):
+        calls.append(int(x))
+        return ""
+
+    out = fori_collect(
+        0, 10, lambda x: x + 1, jnp.int32(0), diagnostics_fn=diagnostics_fn
+    )
+    assert_allclose(out, np.arange(1, 11))
+    assert calls == []  # nothing is rendered, so no host syncs
+
+
+def test_fori_collect_progbar_zero_progress_rate():
+    calls = []
+
+    def diagnostics_fn(x):
+        calls.append(int(x))
+        return ""
+
+    out = fori_collect(
+        0,
+        10,
+        lambda x: x + 1,
+        jnp.int32(0),
+        progress_rate=0,
+        diagnostics_fn=diagnostics_fn,
+    )
+    assert_allclose(out, np.arange(1, 11))
+    assert calls[-1] == 10
 
 
 def test_fori_collect_no_recompilation():
