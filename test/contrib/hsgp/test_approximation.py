@@ -16,6 +16,7 @@ from sklearn.gaussian_process.kernels import (
     RationalQuadratic,
 )
 
+import jax
 from jax import Array, random
 import jax.numpy as jnp
 from jax.typing import ArrayLike
@@ -36,6 +37,8 @@ from numpyro.contrib.hsgp.spectral_densities import (
 )
 import numpyro.distributions as dist
 from numpyro.handlers import scope, seed, trace
+from numpyro.infer.initialization import init_to_value
+from numpyro.infer.util import initialize_model
 
 
 def generate_synthetic_one_dim_data(
@@ -755,3 +758,40 @@ def test_periodic_gp_one_dim_model(synthetic_one_dim_data, w0, m):
     assert model_trace["periodic::f"]["value"].shape == x.shape
     assert model_trace["periodic::cos_basis"]["value"].shape == (m,)
     assert model_trace["periodic::sin_basis"]["value"].shape == (m - 1,)
+
+
+@pytest.mark.parametrize(
+    "kernel", ["squared_exponential", "matern", "rational_quadratic"]
+)
+def test_hsgp_large_m_finite_gradients(kernel):
+    """With ``m=100`` the spectral density underflows to 0 for most basis functions;
+    the potential energy and its gradient w.r.t. the kernel hyperparameters must
+    stay finite at initialization (``sqrt(0)`` used to give ``inf * 0 = nan``).
+    """
+    x = np.linspace(-1.0, 1.0, 50)
+    y = np.sin(3.0 * x)
+    m = 100
+
+    def model(x, y):
+        alpha = numpyro.sample("alpha", dist.LogNormal(0.0, 1.0))
+        length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
+        if kernel == "squared_exponential":
+            f = hsgp_squared_exponential(x=x, alpha=alpha, length=length, ell=1.0, m=m)
+        elif kernel == "matern":
+            f = hsgp_matern(x=x, nu=1.5, alpha=alpha, length=length, ell=1.0, m=m)
+        else:
+            f = hsgp_rational_quadratic(
+                x=x, alpha=alpha, length=length, scale_mixture=1.0, ell=1.0, m=m
+            )
+        numpyro.sample("y", dist.Normal(f, 0.1), obs=y)
+
+    # length=2 is deep in the underflow regime of the SE and RQ densities
+    init_params, potential_fn, *_ = initialize_model(
+        random.key(0),
+        model,
+        model_args=(x, y),
+        init_strategy=init_to_value(values={"alpha": 1.0, "length": 2.0}),
+    )
+    grads = jax.grad(potential_fn)(init_params.z)
+    assert jnp.isfinite(potential_fn(init_params.z))
+    assert all(jnp.isfinite(g).all() for g in grads.values())

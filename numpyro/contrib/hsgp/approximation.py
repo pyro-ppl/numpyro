@@ -14,10 +14,10 @@ from jax.typing import ArrayLike
 import numpyro
 from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_periodic
 from numpyro.contrib.hsgp.spectral_densities import (
-    diag_spectral_density_matern,
     diag_spectral_density_periodic,
-    diag_spectral_density_rational_quadratic,
-    diag_spectral_density_squared_exponential,
+    log_diag_spectral_density_matern,
+    log_diag_spectral_density_rational_quadratic,
+    log_diag_spectral_density_squared_exponential,
 )
 import numpyro.distributions as dist
 
@@ -30,9 +30,9 @@ def _non_centered_approximation(phi: Array, spd: Array, m: int) -> Array:
 
 
 def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
-    # ``spd`` is the square root of the spectral density and can underflow to
-    # exactly 0 for high-frequency basis functions; floor it to a tiny positive
-    # value so the (degenerate) coefficient keeps a valid positive scale.
+    # ``spd`` is the square root of the spectral density and is exactly 0 for
+    # high-frequency basis functions whose density underflows; floor it to a tiny
+    # positive value so the (degenerate) coefficient keeps a valid positive scale.
     spd = jnp.clip(spd, jnp.finfo(spd.dtype).tiny)
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
@@ -52,6 +52,17 @@ def linear_approximation(
 
         1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+
+    .. note::
+
+        For large ``m`` the spectral density of smooth kernels underflows to zero at the
+        high-frequency basis functions, so the corresponding entries of ``spd`` are exactly
+        zero. The non-centered parameterization handles this gracefully (those basis
+        functions simply do not contribute). The centered parameterization places a
+        ``Normal(0, scale=spd)`` prior on each coefficient, which is degenerate for those
+        entries: the model is then not initializable except with
+        :func:`~numpyro.infer.initialization.init_to_sample` and is hard to sample.
+        Prefer ``non_centered=True`` whenever ``m`` is large.
 
     :param Array phi: laplacian eigenfunctions
     :param Array spd: square root of the diagonal of the spectral density evaluated at square
@@ -104,8 +115,9 @@ def hsgp_squared_exponential(
     """
     dim = jnp.shape(x)[-1] if jnp.ndim(x) > 1 else 1
     phi = eigenfunctions(x=x, ell=ell, m=m)
-    spd = jnp.sqrt(
-        diag_spectral_density_squared_exponential(
+    spd = jnp.exp(
+        0.5
+        * log_diag_spectral_density_squared_exponential(
             alpha=alpha, length=length, ell=ell, m=m, dim=dim
         )
     )
@@ -154,8 +166,9 @@ def hsgp_matern(
     """
     dim = jnp.shape(x)[-1] if jnp.ndim(x) > 1 else 1
     phi = eigenfunctions(x=x, ell=ell, m=m)
-    spd = jnp.sqrt(
-        diag_spectral_density_matern(
+    spd = jnp.exp(
+        0.5
+        * log_diag_spectral_density_matern(
             nu=nu, alpha=alpha, length=length, ell=ell, m=m, dim=dim
         )
     )
@@ -219,8 +232,9 @@ def hsgp_rational_quadratic(
     """
     dim = jnp.shape(x)[-1] if jnp.ndim(x) > 1 else 1
     phi = eigenfunctions(x=x, ell=ell, m=m)
-    spd = jnp.sqrt(
-        diag_spectral_density_rational_quadratic(
+    spd = jnp.exp(
+        0.5
+        * log_diag_spectral_density_rational_quadratic(
             alpha=alpha,
             length=length,
             scale_mixture=scale_mixture,
