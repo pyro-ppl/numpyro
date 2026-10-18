@@ -5786,7 +5786,8 @@ class InverseWishart(TransformedDistribution):
         ``nan`` where :math:`\nu \le p + 3`; ``mode`` is always defined. ``variance``
         currently evaluates
         :math:`(\Psi_{ij}^2 + \Psi_{ii}\Psi_{jj}) / ((\nu-p-1)^2(\nu-p-3))`, which
-        coincides with the exact expression on the diagonal but not off it.
+        coincides with the exact expression on the diagonal but not off it
+        (gh-2368).
         ``concentration`` must satisfy :math:`\nu > p - 1` for the density to be
         normalizable; this is not validated (the constraint is ``dependent``) and
         invalid values yield ``nan`` or ``-inf`` log densities.
