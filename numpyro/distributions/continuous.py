@@ -6044,6 +6044,7 @@ class Levy(Distribution):
         "loc": constraints.real,
         "scale": constraints.positive,
     }
+    pytree_data_fields = ("loc", "scale", "_support")
     _support: constraints.Constraint
 
     def __init__(
@@ -6055,7 +6056,7 @@ class Levy(Distribution):
     ) -> None:
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        self._support = constraints.greater_than(cast(NumLike, loc))
+        self._support = constraints.greater_than(cast(NumLike, self.loc))
         super(Levy, self).__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False)
