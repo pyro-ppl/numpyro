@@ -34,6 +34,7 @@ __all__ = [
     "corr_cholesky",
     "corr_matrix",
     "dependent",
+    "extended_real",
     "greater_than",
     "greater_than_eq",
     "integer_interval",
@@ -57,6 +58,7 @@ __all__ = [
     "real_matrix",
     "scaled_unit_lower_cholesky",
     "simplex",
+    "softmax_logits",
     "sphere",
     "softplus_lower_cholesky",
     "softplus_positive",
@@ -891,6 +893,22 @@ class _Real(_SingletonConstraint[NumLike]):
         return jnp.zeros_like(prototype)
 
 
+class _ExtendedReal(_SingletonConstraint[NumLike]):
+    """
+    The extended real line ``[-inf, inf]``: every value except NaN.
+
+    For parameters whose link function has a limit at infinity, such as the logits of
+    a Bernoulli (``sigmoid(-inf) == 0``) or the bound of a truncated distribution. Not
+    a valid support: it has no bijector.
+    """
+
+    def __call__(self, x: NumLike) -> ArrayLike:
+        return x == x
+
+    def feasible_like(self, prototype: NumLike) -> NumLike:
+        return jnp.zeros_like(prototype)
+
+
 class _Simplex(_SingletonConstraint[NonScalarArray]):
     event_dim = 1
 
@@ -900,6 +918,28 @@ class _Simplex(_SingletonConstraint[NonScalarArray]):
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         return jnp.full_like(prototype, 1 / prototype.shape[-1])
+
+
+class _SoftmaxLogits(_SingletonConstraint[NonScalarArray]):
+    """
+    Vectors whose softmax is well defined: no NaN, no ``+inf`` (the normalizer would be
+    ``inf - inf``) and at least one finite entry (an all ``-inf`` vector has no
+    normalizer). A ``-inf`` entry is a zero-probability category, the logit-space
+    counterpart of a zero on the :data:`simplex`. Not a valid support: it has no
+    bijector.
+    """
+
+    event_dim = 1
+
+    def __call__(self, x: NonScalarArray) -> ArrayLike:
+        xp = jnp if isinstance(x, jax.Array) else np
+        # NaN propagates through the max and then fails both comparisons; an empty
+        # vector reduces to the initial -inf and is rejected.
+        max_logit = xp.max(x, axis=-1, initial=-float("inf"))
+        return (max_logit > -float("inf")) & (max_logit < float("inf"))
+
+    def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
+        return jnp.zeros_like(prototype)
 
 
 class _SoftplusPositive(_SingletonConstraint[NumLike], _GreaterThan):
@@ -985,6 +1025,7 @@ complex = _Complex()
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent: _Dependent = _Dependent()
+extended_real = _ExtendedReal()
 greater_than = _GreaterThan
 greater_than_eq = _GreaterThanEq
 less_than = _LessThan
@@ -1010,6 +1051,7 @@ real = _Real()
 real_vector = _RealVector()
 real_matrix = _RealMatrix()
 simplex = _Simplex()
+softmax_logits = _SoftmaxLogits()
 softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()

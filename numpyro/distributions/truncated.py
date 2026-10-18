@@ -34,6 +34,20 @@ from numpyro.distributions.util import (
 from numpyro.util import is_prng_key
 
 
+def _at_bound(
+    fn: Callable[[Array], Array], bound: Array, inside: Array, limit: ArrayLike
+) -> Array:
+    """``fn(bound)``, replaced by ``limit`` where ``bound`` is infinite.
+
+    ``fn`` is evaluated at ``inside`` there, so its infinite derivative at an infinite
+    bound cannot reach the gradient as ``0 * inf``. ``inside`` must be a point where
+    ``fn`` is differentiable: for a CDF use ``loc + scale`` (StudentT's CDF has a nan
+    derivative at ``loc``); for a density, any point inside the support.
+    """
+    unbounded = jnp.isinf(bound)
+    return jnp.where(unbounded, limit, fn(jnp.where(unbounded, inside, bound)))
+
+
 class LeftTruncatedDistribution(Distribution):
     r"""A symmetric location-scale base distribution :math:`f` truncated from below at ``low``.
 
@@ -55,7 +69,8 @@ class LeftTruncatedDistribution(Distribution):
         base returns ``nan`` and any other base raises ``NotImplementedError``.
     """
 
-    arg_constraints = {"low": constraints.real}
+    # [-inf, inf): -inf truncates nothing; +inf would leave an empty support.
+    arg_constraints = {"low": constraints.less_than(float("inf"))}
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "low", "_support")
@@ -92,12 +107,24 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
-        return self.base_dist.cdf(loc - sign * (loc - self.low))
+        return _at_bound(
+            lambda x: self.base_dist.cdf(loc - sign * (loc - x)),
+            self.low,
+            loc + self.base_dist.scale,
+            0.0,
+        )
 
     @lazy_property
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
         return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
+
+    @lazy_property
+    def _prob_at_low(self) -> Array:
+        # Density at the bound, which is zero at an infinite bound.
+        return _at_bound(
+            lambda x: jnp.exp(self.log_prob(x)), self.low, self.base_dist.loc, 0.0
+        )
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -147,8 +174,7 @@ class LeftTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
-            return self.base_dist.loc + low_prob * self.base_dist.scale**2
+            return self.base_dist.loc + self._prob_at_low * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -157,10 +183,11 @@ class LeftTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
+            loc = self.base_dist.loc
+            low_prob = self._prob_at_low
             return (self.base_dist.scale**2) * (
                 1
-                + (self.low - self.base_dist.loc) * low_prob
+                + jnp.where(jnp.isinf(self.low), 0.0, self.low - loc) * low_prob
                 - (low_prob * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
@@ -190,7 +217,8 @@ class RightTruncatedDistribution(Distribution):
         base returns ``nan`` and any other base raises ``NotImplementedError``.
     """
 
-    arg_constraints = {"high": constraints.real}
+    # (-inf, inf]: +inf truncates nothing; -inf would leave an empty support.
+    arg_constraints = {"high": constraints.greater_than(-float("inf"))}
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "high", "_support")
@@ -224,7 +252,15 @@ class RightTruncatedDistribution(Distribution):
 
     @lazy_property
     def _cdf_at_high(self) -> Array:
-        return self.base_dist.cdf(self.high)
+        safe = self.base_dist.loc + self.base_dist.scale
+        return _at_bound(self.base_dist.cdf, self.high, safe, 1.0)
+
+    @lazy_property
+    def _prob_at_high(self) -> Array:
+        # Density at the bound, which is zero at an infinite bound.
+        return _at_bound(
+            lambda x: jnp.exp(self.log_prob(x)), self.high, self.base_dist.loc, 0.0
+        )
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -264,8 +300,7 @@ class RightTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            high_prob = jnp.exp(self.log_prob(self.high))
-            return self.base_dist.loc - high_prob * self.base_dist.scale**2
+            return self.base_dist.loc - self._prob_at_high * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -274,10 +309,11 @@ class RightTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            high_prob = jnp.exp(self.log_prob(self.high))
+            loc = self.base_dist.loc
+            high_prob = self._prob_at_high
             return (self.base_dist.scale**2) * (
                 1
-                - (self.high - self.base_dist.loc) * high_prob
+                - jnp.where(jnp.isinf(self.high), 0.0, self.high - loc) * high_prob
                 - (high_prob * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
@@ -353,14 +389,36 @@ class TwoSidedTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
-        return self.base_dist.cdf(loc - sign * (loc - self.low))
+        return _at_bound(
+            lambda x: self.base_dist.cdf(loc - sign * (loc - x)),
+            self.low,
+            loc + self.base_dist.scale,
+            0.0,
+        )
 
     @lazy_property
     def _tail_prob_at_high(self) -> Array:
         # if low < loc, returns cdf(high); otherwise returns 1 - cdf(high)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
-        return self.base_dist.cdf(loc - sign * (loc - self.high))
+        return _at_bound(
+            lambda x: self.base_dist.cdf(loc - sign * (loc - x)),
+            self.high,
+            loc + self.base_dist.scale,
+            jnp.where(sign > 0, 1.0, 0.0),
+        )
+
+    @lazy_property
+    def _prob_at_low(self) -> Array:
+        # Density at the bound, which is zero at an infinite bound. The fallback point
+        # must lie inside the support, since log_prob validates its input.
+        inside = jnp.clip(self.base_dist.loc, self.low, self.high)
+        return _at_bound(lambda x: jnp.exp(self.log_prob(x)), self.low, inside, 0.0)
+
+    @lazy_property
+    def _prob_at_high(self) -> Array:
+        inside = jnp.clip(self.base_dist.loc, self.low, self.high)
+        return _at_bound(lambda x: jnp.exp(self.log_prob(x)), self.high, inside, 0.0)
 
     @lazy_property
     def _log_diff_tail_probs(self) -> Array:
@@ -376,8 +434,13 @@ class TwoSidedTruncatedDistribution(Distribution):
             reflect = self.low >= loc
             p_first = jnp.where(reflect, 2 * loc - self.low, self.high)
             p_second = jnp.where(reflect, 2 * loc - self.high, self.low)
+            # An infinite bound lands in p_first as +inf (log_cdf 0) or in p_second
+            # as -inf (log_cdf -inf, with a nan derivative); see _at_bound.
+            safe = loc + self.base_dist.scale
+            log_cdf_first = _at_bound(log_cdf, p_first, safe, 0.0)
+            log_cdf_second = _at_bound(log_cdf, p_second, safe, -jnp.inf)
             return logsumexp(
-                a=jnp.stack([log_cdf(p_first), log_cdf(p_second)], axis=-1),
+                a=jnp.stack([log_cdf_first, log_cdf_second], axis=-1),
                 axis=-1,
                 b=jnp.array([1, -1]),  # subtract second from first
             )
@@ -450,8 +513,7 @@ class TwoSidedTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
-            high_prob = jnp.exp(self.log_prob(self.high))
+            low_prob, high_prob = self._prob_at_low, self._prob_at_high
             return self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
@@ -461,12 +523,12 @@ class TwoSidedTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
-            high_prob = jnp.exp(self.log_prob(self.high))
+            loc = self.base_dist.loc
+            low_prob, high_prob = self._prob_at_low, self._prob_at_high
             return (self.base_dist.scale**2) * (
                 1
-                + (self.low - self.base_dist.loc) * low_prob
-                - (self.high - self.base_dist.loc) * high_prob
+                + jnp.where(jnp.isinf(self.low), 0.0, self.low - loc) * low_prob
+                - jnp.where(jnp.isinf(self.high), 0.0, self.high - loc) * high_prob
                 - ((low_prob - high_prob) * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
@@ -508,9 +570,14 @@ def TruncatedDistribution(
         distribution. Currently, only the following distributions are supported:
         Cauchy, Laplace, Logistic, Normal, SoftLaplace, and StudentT.
     :param low: the value which is used to truncate the base distribution from below.
-        Setting this parameter to None to not truncate from below.
+        Setting this parameter to None to not truncate from below. ``-inf`` entries
+        are accepted too (e.g. per-observation bounds where some are absent), but a
+        site with an infinite bound can only be observed, not sampled as a latent:
+        the bijector of its support is undefined there. Use ``None`` for a latent
+        site.
     :param high: the value which is used to truncate the base distribution from above.
-        Setting this parameter to None to not truncate from above.
+        Setting this parameter to None to not truncate from above; ``+inf`` entries
+        are accepted with the same caveat as ``low``.
 
     .. note::
         ``mean`` and ``variance`` are available in closed form only for a ``Normal``
