@@ -506,19 +506,6 @@ def diag_spectral_density_rational_quadratic(
     )
 
 
-def modified_bessel_first_kind(v, z):
-    try:
-        from tensorflow_probability.substrates import jax as tfp
-    except ImportError as e:
-        raise ImportError(
-            "TensorFlow Probability is required for this function."
-        ) from e
-
-    v = jnp.asarray(v, dtype=float)
-    z = jnp.asarray(z, dtype=float)
-    return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
-
-
 def diag_spectral_density_periodic(
     alpha: ArrayLike, length: ArrayLike, m: int
 ) -> Array:
@@ -540,7 +527,13 @@ def diag_spectral_density_periodic(
     :return: "spectral density" vector
     :rtype: Array
     """
-    a = length ** (-2)
-    j = jnp.arange(0, m)
+    tfp = _import_tfp()
+    # q_j^2 = c_j alpha^2 I_j(a) / exp(a) with a = length^-2; the exponentially
+    # scaled I_j(a) exp(-a) stays finite where exp(a) overflows (length <~ 0.1 in
+    # single precision). TFP requires the order and the argument to share a dtype.
+    a = jnp.asarray(length) ** (-2)
+    dtype = jnp.result_type(float, a)
+    a = a.astype(dtype)
+    j = jnp.arange(0, m, dtype=dtype)
     c = jnp.where(j > 0, 2, 1)
-    return (c * alpha**2 / jnp.exp(a)) * modified_bessel_first_kind(j, a)
+    return c * alpha**2 * tfp.math.bessel_ive(j, a)

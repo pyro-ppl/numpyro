@@ -6,7 +6,7 @@ from operator import mul
 
 import numpy as np
 import pytest
-from scipy.special import gammaln, kve
+from scipy.special import gammaln, ive, kve
 
 import jax
 import jax.numpy as jnp
@@ -19,7 +19,6 @@ from numpyro.contrib.hsgp.spectral_densities import (
     log_diag_spectral_density_matern,
     log_diag_spectral_density_rational_quadratic,
     log_diag_spectral_density_squared_exponential,
-    modified_bessel_first_kind,
     spectral_density_matern,
     spectral_density_rational_quadratic,
     spectral_density_squared_exponential,
@@ -303,32 +302,6 @@ def test_sqrt_spectral_density_rational_quadratic_gradient():
 
 
 @pytest.mark.parametrize(
-    argnames="v, z",
-    argvalues=[
-        (0.5, 0.1),
-        (1.0, 0.2),
-        (2.0, 0.3),
-        (3.0, 0.4),
-    ],
-    ids=["v=0.5-z=0.1", "v=1.0-z=0.2", "v=2.0-z=0.3", "v=3.0-z=0.4"],
-)
-def test_modified_bessel_first_kind_one_dim(v, z):
-    assert modified_bessel_first_kind(v, z) > 0.0
-
-
-@pytest.mark.parametrize(
-    argnames="v, z",
-    argvalues=[
-        (np.linspace(0.1, 1.0, 10), np.array([0.1])),
-        (np.linspace(0.1, 1.0, 10), np.linspace(0.1, 1.0, 10)),
-    ],
-    ids=["z=0.1", "z=0.2"],
-)
-def test_modified_bessel_first_kind_vect(v, z):
-    assert jnp.all(modified_bessel_first_kind(v, z) > 0.0)
-
-
-@pytest.mark.parametrize(
     argnames="alpha, length, m",
     argvalues=[
         (1.0, 0.2, 1),
@@ -344,3 +317,20 @@ def test_diag_spectral_density_periodic(alpha, length, m):
     )
     assert diag_spectral_density.shape == (m,)
     assert jnp.all(diag_spectral_density >= 0.0)
+
+
+@pytest.mark.parametrize(
+    "length",
+    [1.0, 0.1, 0.05, np.float64(0.05)],
+    ids=["length=1.0", "length=0.1", "length=0.05", "length=0.05-np-float64"],
+)
+def test_diag_spectral_density_periodic_small_length(length):
+    """``exp(1 / length^2)`` overflows float32 for ``length <~ 0.1``; the coefficients
+    must stay finite and match SciPy's exponentially scaled ``I_j``.
+    """
+    m, alpha = 20, 1.0
+    q2 = diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
+    j = np.arange(m)
+    expected = np.where(j > 0, 2.0, 1.0) * alpha**2 * ive(j, float(length) ** (-2))
+    assert np.all(np.isfinite(q2))
+    assert np.allclose(q2, expected, rtol=1e-4)
