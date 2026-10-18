@@ -15,7 +15,9 @@ import jax.numpy as jnp
 from numpyro._typing import ConstrainFn, ModelArgs, ModelKwargs, ModelT, SiteValues
 from numpyro.infer.gibbs import (
     ModelWrapper,
+    _flat_support_lows,
     _flat_support_sizes,
+    _offset_proposal,
     conditioned,
     discrete_latent_sites,
     prototype_trace,
@@ -113,6 +115,7 @@ class MixedHMC(MCMCKernel):
         # static metadata resolved at `init`
         self._gibbs_sites: tuple[str, ...] = ()
         self._support_sizes_flat: np.ndarray | None = None
+        self._support_lows_flat: np.ndarray | None = None
         self._num_warmup = None
         self._wa_update = None
 
@@ -171,6 +174,7 @@ class MixedHMC(MCMCKernel):
                 "Cannot detect any discrete latent variables in the model."
             )
         self._support_sizes_flat = _flat_support_sizes(model_trace, self._gibbs_sites)
+        self._support_lows_flat = _flat_support_lows(model_trace, self._gibbs_sites)
         if self._num_discrete_updates is None:
             self._num_discrete_updates = self._support_sizes_flat.shape[0]
         self._num_warmup = num_warmup
@@ -236,11 +240,14 @@ class MixedHMC(MCMCKernel):
         model_kwargs: ModelKwargs | None,
     ) -> MixedHMCState:
         model_kwargs = {} if model_kwargs is None else model_kwargs
-        assert self._support_sizes_flat is not None, (
-            "`init` must be called before `sample`."
-        )
+        assert (
+            self._support_sizes_flat is not None and self._support_lows_flat is not None
+        ), "`init` must be called before `sample`."
         num_discretes = self._support_sizes_flat.shape[0]
         support_sizes_flat = jnp.asarray(self._support_sizes_flat)
+        discrete_proposal_fn = _offset_proposal(
+            self._discrete_proposal_fn, self._support_lows_flat
+        )
 
         def potential_fn(z_gibbs, z_hmc):
             return self.inner_kernel.get_potential_fn(
@@ -256,7 +263,7 @@ class MixedHMC(MCMCKernel):
                 z_discrete_new,
                 pe_new,
                 log_accept_ratio,
-            ) = self._discrete_proposal_fn(
+            ) = discrete_proposal_fn(
                 rng_key,
                 z_discrete,
                 hmc_state.potential_energy,

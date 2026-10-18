@@ -34,7 +34,9 @@ from numpyro.infer.gibbs import (
     GibbsState,
     any_changed,
     conditioned,
+    discrete_gibbs_sweep,
     discrete_latent_sites,
+    select_discrete_proposal,
     with_conditioning,
 )
 from numpyro.infer.hmc_gibbs import HMCGibbsState
@@ -87,6 +89,34 @@ def test_gibbs_helpers():
     assert not any_changed({"x": jnp.ones(2)}, {"x": jnp.ones(2)})
     assert any_changed({"x": jnp.ones(2), "c": 1}, {"x": jnp.ones(2), "c": 2})
     assert not any_changed({}, {})
+
+
+@pytest.mark.parametrize("random_walk", [False, True])
+@pytest.mark.parametrize("modified", [False, True])
+def test_discrete_gibbs_sweep_support_lows(random_walk, modified):
+    # The support of "x" is {3, 4, 5}, while the proposals work with the indices {0, 1, 2}.
+    probs = np.array([0.2, 0.5, 0.3])
+
+    def potential_fn(z):
+        return -jnp.log(jnp.asarray(probs))[z["x"] - 3]
+
+    proposal_fn = select_discrete_proposal(random_walk, modified)
+
+    @jit
+    def sweep(rng_key, z, pe):
+        return discrete_gibbs_sweep(
+            rng_key, z, pe, potential_fn, jnp.array([3]), proposal_fn, np.array([3])
+        )
+
+    z = {"x": jnp.array(3)}
+    pe = potential_fn(z)
+    values = []
+    for rng_key in random.split(random.key(0), 4000):
+        z, pe = sweep(rng_key, z, pe)
+        values.append(int(z["x"]))
+    counts = np.bincount(values, minlength=6)
+    assert counts[:3].sum() == 0
+    assert_allclose(counts[3:] / len(values), probs, atol=0.03)
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
