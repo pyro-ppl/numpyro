@@ -2442,36 +2442,22 @@ def test_gamma_poisson_mixed_finite_and_infinite_rates():
     assert_allclose(distribution.cdf(jnp.zeros(2)), jnp.array([2 / 3, 1.0]), atol=1e-6)
 
 
-@pytest.mark.parametrize("conc", [15.0, 20.0, 30.0])
+@pytest.mark.parametrize("conc", [6.5, 8.0, 20.0])
 def test_inverse_wishart_variance(conc):
-    """Test InverseWishart variance formula against Monte Carlo samples.
-
-    The variance formula is:
-    Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
-    """
-    # Use a non-trivial scale matrix
-    scale = np.array([[2.0, 0.5], [0.5, 1.0]])
-    p = scale.shape[0]
-
-    # conc must be > p + 3 for variance to exist
-    assert conc > p + 3
-
-    # Create distribution
+    # Off-diagonal entries differ from the diagonal pattern; compare against the
+    # closed form in scipy rather than against Monte Carlo samples.
+    scale = np.array([[2.0, 0.5, 0.1], [0.5, 1.0, -0.3], [0.1, -0.3, 1.5]])
     iw = dist.InverseWishart(conc, scale_matrix=scale)
+    expected = osp.invwishart(df=conc, scale=scale).var()
+    assert_allclose(iw.variance, expected, rtol=1e-5)
 
-    # Sample and compute empirical variance
-    key = random.key(42)
-    num_samples = 200000
-    samples = iw.sample(key, sample_shape=(num_samples,))
-    empirical_var = jnp.var(samples, axis=0)
 
-    # Get analytical variance
-    analytical_var = iw.variance
-
-    # Check that variance formula matches empirical variance
-    # Use larger tolerance for smaller conc (more variance in estimates)
-    rtol = 0.15 if conc < 20 else 0.10
-    assert_allclose(analytical_var, empirical_var, rtol=rtol)
+def test_inverse_wishart_variance_undefined_below_threshold():
+    scale = np.eye(2)
+    conc = np.array([4.5, 5.0, 5.5])  # variance needs conc > p + 3 = 5
+    variance = dist.InverseWishart(conc, scale_matrix=scale).variance
+    assert jnp.isnan(variance[:2]).all()
+    assert jnp.isfinite(variance[2]).all()
 
 
 @pytest.mark.parametrize(
