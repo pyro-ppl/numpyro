@@ -2037,6 +2037,9 @@ class HurdleProbs(Distribution):
     def support(self) -> constraints.Constraint:
         support = self.base_dist.support
         assert support is not None
+        # The hurdle adds a point mass at 0, which a positive base support excludes.
+        if support is constraints.positive:
+            return constraints.nonnegative
         return support
 
     def _log_one_minus_p_zero(self) -> Array:
