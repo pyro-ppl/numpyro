@@ -104,8 +104,25 @@ def _binomial_btrs(key, p, n):
     (https://core.ac.uk/download/pdf/11007254.pdf)
     """
 
+    def accept_fn(k, u, v):
+        # See acceptance condition in Step 3. (Page 3) of TRS algorithm
+        # v <= f(k) * g_grad(u) / alpha
+
+        m = tr_params.m
+        log_p = tr_params.log_p
+        log1_p = tr_params.log1_p
+        # See: formula for log(f(k)) at bottom of Page 5.
+        log_f = (
+            (n + 1.0) * jnp.log((n - m + 1.0) / (n - k + 1.0))
+            + (k + 0.5) * (jnp.log((n - k + 1.0) / (k + 1.0)) + log_p - log1_p)
+            + (stirling_approx_tail(k) - stirling_approx_tail(n - k))
+            + tr_params.log_h
+        )
+        g = (tr_params.a / (0.5 - jnp.abs(u)) ** 2) + tr_params.b
+        return jnp.log((v * tr_params.alpha) / g) <= log_f
+
     def _btrs_body_fn(val):
-        _, key, _, _ = val
+        _, key, _ = val
         key, key_u, key_v = random.split(key, 3)
         u = random.uniform(key_u)
         v = random.uniform(key_v)
@@ -113,46 +130,29 @@ def _binomial_btrs(key, p, n):
         k = jnp.floor(
             (2 * tr_params.a / (0.5 - jnp.abs(u)) + tr_params.b) * u + tr_params.c
         ).astype(n.dtype)
-        return k, key, u, v
-
-    def _btrs_cond_fn(val):
-        def accept_fn(k, u, v):
-            # See acceptance condition in Step 3. (Page 3) of TRS algorithm
-            # v <= f(k) * g_grad(u) / alpha
-
-            m = tr_params.m
-            log_p = tr_params.log_p
-            log1_p = tr_params.log1_p
-            # See: formula for log(f(k)) at bottom of Page 5.
-            log_f = (
-                (n + 1.0) * jnp.log((n - m + 1.0) / (n - k + 1.0))
-                + (k + 0.5) * (jnp.log((n - k + 1.0) / (k + 1.0)) + log_p - log1_p)
-                + (stirling_approx_tail(k) - stirling_approx_tail(n - k))
-                + tr_params.log_h
-            )
-            g = (tr_params.a / (0.5 - jnp.abs(u)) ** 2) + tr_params.b
-            return jnp.log((v * tr_params.alpha) / g) <= log_f
-
-        k, key, u, v = val
         early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
         early_reject = (k < 0) | (k > n)
+        accepted = lax.cond(
+            early_accept | early_reject,
+            lambda _: early_accept,
+            lambda x: accept_fn(*x),
+            (k, u, v),
+        )
+        return k, key, accepted
+
+    def _btrs_cond_fn(val):
         # when vmapped _binomial_dispatch will convert the cond condition into
         # an HLO select that will execute both branches. This is a workaround
         # that avoids the resulting infinite loop when p=0. This should also
         # improve performance in less catastrophic cases.
         cond_exclude_small_mu = p * n >= _binomial_mu_thresh
-        cond_main = lax.cond(
-            early_accept | early_reject,
-            lambda _: ~early_accept,
-            lambda x: ~accept_fn(*x),
-            (k, u, v),
-        )
-        return cond_exclude_small_mu & cond_main
+        # The acceptance test is computed once in the body and carried: under vmap,
+        # while_loop evaluates this predicate twice per iteration, and recomputing a
+        # floating-point near-tie here can disagree and freeze an element forever.
+        return cond_exclude_small_mu & ~val[2]
 
     tr_params = _get_tr_params(n, p)
-    ret = lax.while_loop(
-        _btrs_cond_fn, _btrs_body_fn, (-1, key, 1.0, 1.0)
-    )  # use k=-1 initially so that cond_fn returns True
+    ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn, (-1, key, False))
     return ret[0]
 
 
@@ -195,11 +195,14 @@ def _binomial_dispatch(key, p, n):
 
     # Return 0 for nan `p` or negative `n`, since nan values are not allowed for integer types
     cond0 = jnp.isfinite(p) & (n > 0) & (p > 0)
+    valid = cond0 & (p < 1)
+    # Under vmap, lax.cond lowers to select and `dispatch` runs for every element,
+    # so invalid elements need inputs on which both while loops terminate.
     return lax.cond(
-        cond0 & (p < 1),
+        valid,
         lambda x: dispatch(*x),
         lambda _: jnp.where(cond0, n, 0),
-        (key, p, n),
+        (key, jnp.where(valid, p, 0.5), jnp.where(valid, n, 0)),
     )
 
 
@@ -210,10 +213,12 @@ def _binomial(key, p, n, shape):
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
     key = random.split(key, jnp.size(p))
-    if jax.default_backend() == "cpu":
-        ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
-    else:
+    # Like jax.random.gamma: vmapped while loops only reproduce per-key streams for
+    # threefry keys; other PRNG implementations take the sequential path.
+    if str(random.key_impl(key)) == "threefry2x32":
         ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
+    else:
+        ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
     return jnp.reshape(ret, shape)
 
 
