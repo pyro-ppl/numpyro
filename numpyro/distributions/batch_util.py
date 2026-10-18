@@ -30,7 +30,6 @@ from numpyro.distributions.continuous import (
     HalfNormal,
     InverseGamma,
     Kumaraswamy,
-    Levy,
     LKJCholesky,
     LogNormal,
     LogUniform,
@@ -297,13 +296,6 @@ def _vmap_over_lognormal(dist: LogNormal, loc=None, scale=None):
     dist_axes = _default_vmap_over(dist, loc=loc, scale=scale)
     dist_axes.transforms = None
     dist_axes.base_dist = vmap_over(dist.base_dist, loc=loc, scale=scale)
-    return dist_axes
-
-
-@vmap_over.register
-def _vmap_over_levy(dist: Levy, loc=None, scale=None):
-    dist_axes = _default_vmap_over(dist, loc=loc, scale=scale)
-    dist_axes._support = vmap_over(dist._support, lower_bound=loc)
     return dist_axes
 
 
