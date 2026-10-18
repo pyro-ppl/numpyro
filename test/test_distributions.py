@@ -5696,6 +5696,11 @@ _HURDLE_CONTINUOUS_CASES = [
         {"gate": 0.45, "loc": 0.0, "scale": 1.0},
         id="HurdleLogNormal",
     ),
+    pytest.param(
+        lambda gate, rate: dist.HurdleDistribution(dist.Exponential(rate), gate=gate),
+        {"gate": 0.3, "rate": 0.5},
+        id="HurdleDistribution(Exponential)",
+    ),
 ]
 
 _HURDLE_ALL_CASES = _HURDLE_DISCRETE_CASES + _HURDLE_CONTINUOUS_CASES
