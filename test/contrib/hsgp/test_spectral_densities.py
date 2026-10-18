@@ -321,8 +321,14 @@ def test_diag_spectral_density_periodic(alpha, length, m):
 
 @pytest.mark.parametrize(
     "length",
-    [1.0, 0.1, 0.05, np.float64(0.05)],
-    ids=["length=1.0", "length=0.1", "length=0.05", "length=0.05-np-float64"],
+    [1, 1.0, 0.1, 0.05, np.float64(0.05)],
+    ids=[
+        "length=1-int",
+        "length=1.0",
+        "length=0.1",
+        "length=0.05",
+        "length=0.05-np-float64",
+    ],
 )
 def test_diag_spectral_density_periodic_small_length(length):
     """``exp(1 / length^2)`` overflows float32 for ``length <~ 0.1``; the coefficients

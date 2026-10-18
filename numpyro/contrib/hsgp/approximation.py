@@ -31,7 +31,7 @@ def _non_centered_approximation(phi: Array, spd: Array, m: int) -> Array:
 
 def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
     # ``spd`` is the square root of the spectral density and is exactly 0 for
-    # high-frequency basis functions whose density underflows; floor it to a tiny
+    # high-frequency basis functions where it underflows; floor it to a tiny
     # positive value so the (degenerate) coefficient keeps a valid positive scale.
     spd = jnp.clip(spd, jnp.finfo(spd.dtype).tiny)
     with numpyro.plate("basis", m):
@@ -55,13 +55,14 @@ def linear_approximation(
 
     .. note::
 
-        For large ``m`` the spectral density of smooth kernels underflows to zero at the
-        high-frequency basis functions, so the corresponding entries of ``spd`` are exactly
-        zero. The non-centered parameterization handles this gracefully (those basis
-        functions simply do not contribute). The centered parameterization places a
-        ``Normal(0, scale=spd)`` prior on each coefficient, which is degenerate for those
-        entries: the model is then not initializable except with
-        :func:`~numpyro.infer.initialization.init_to_sample` and is hard to sample.
+        For large ``m`` the square root of the spectral density of smooth kernels underflows
+        to zero at the high-frequency basis functions, so the corresponding entries of
+        ``spd`` are exactly zero. The non-centered parameterization handles this gracefully
+        (those basis functions simply do not contribute). The centered parameterization
+        places a ``Normal(0, scale=spd)`` prior on each coefficient, which is degenerate for
+        those entries: the model is then typically only initializable with
+        :func:`~numpyro.infer.initialization.init_to_sample` or
+        :func:`~numpyro.infer.initialization.init_to_value` and is hard to sample.
         Prefer ``non_centered=True`` whenever ``m`` is large.
 
     :param Array phi: laplacian eigenfunctions
@@ -205,6 +206,8 @@ def hsgp_rational_quadratic(
         - The spectral density requires ``scale_mixture > dim/2`` for the approximation at
           :math:`\\omega = 0` to be well-defined. For example, ``scale_mixture > 0.5`` for 1D,
           ``scale_mixture > 1`` for 2D, and ``scale_mixture > 1.5`` for 3D.
+        - Gradients with respect to ``scale_mixture`` are not supported, see
+          :func:`~numpyro.contrib.hsgp.spectral_densities.spectral_density_rational_quadratic`.
 
     **References:**
 

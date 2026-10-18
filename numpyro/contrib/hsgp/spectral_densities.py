@@ -205,7 +205,6 @@ def diag_spectral_density_squared_exponential(
     )
 
 
-# TODO support length-D kernel hyperparameters
 def log_diag_spectral_density_matern(
     nu: float,
     alpha: ArrayLike,
@@ -531,7 +530,7 @@ def diag_spectral_density_periodic(
     # q_j^2 = c_j alpha^2 I_j(a) / exp(a) with a = length^-2; the exponentially
     # scaled I_j(a) exp(-a) stays finite where exp(a) overflows (length <~ 0.1 in
     # single precision). TFP requires the order and the argument to share a dtype.
-    a = jnp.asarray(length) ** (-2)
+    a = jnp.asarray(length) ** -2.0
     dtype = jnp.result_type(float, a)
     a = a.astype(dtype)
     j = jnp.arange(0, m, dtype=dtype)
