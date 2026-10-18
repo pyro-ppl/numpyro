@@ -36,7 +36,10 @@ def test_gibbs_rejects_noncontiguous_zero_inflated_support(kernel_cls, inner_cls
         )
 
     kernel = kernel_cls(inner_cls(model))
-    with pytest.raises(NotImplementedError, match="non-contiguous support at site 'x'"):
+    with pytest.raises(
+        NotImplementedError,
+        match="unsupported support _ZeroInflatedSupport at site 'x'",
+    ):
         kernel.init(
             random.key(0),
             num_warmup=1,
@@ -44,6 +47,66 @@ def test_gibbs_rejects_noncontiguous_zero_inflated_support(kernel_cls, inner_cls
             model_args=(),
             model_kwargs={},
         )
+
+
+@pytest.mark.parametrize(
+    "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
+)
+@pytest.mark.parametrize(
+    "base_factory",
+    [
+        lambda: dist.Binomial(total_count=5, probs=0.6),
+        lambda: dist.BetaBinomial(2.0, 3.0, total_count=5),
+        lambda: dist.Categorical(probs=jnp.array([0.2, 0.3, 0.5])),
+        lambda: dist.OrderedLogistic(0.0, jnp.array([-1.0, 1.0])),
+        lambda: dist.DiscreteUniform(0, 4),
+        lambda: dist.DiscreteUniform(-2, 3),
+    ],
+    ids=[
+        "binomial",
+        "beta_binomial",
+        "categorical",
+        "ordered_logistic",
+        "uniform_zero",
+        "uniform_negative",
+    ],
+)
+def test_gibbs_accepts_zero_inflated_contiguous_support(
+    kernel_cls, inner_cls, base_factory
+):
+    def model():
+        numpyro.sample("z", dist.Normal(0.0, 1.0))
+        numpyro.sample("x", dist.ZeroInflatedDistribution(base_factory(), gate=0.4))
+
+    kernel = kernel_cls(inner_cls(model))
+    kernel.init(
+        random.key(0), num_warmup=1, init_params=None, model_args=(), model_kwargs={}
+    )
+
+
+@pytest.mark.parametrize(
+    "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
+)
+def test_gibbs_zero_inflated_binomial_pmf(kernel_cls, inner_cls):
+    distribution = dist.ZeroInflatedDistribution(
+        dist.Binomial(total_count=5, probs=0.6), gate=0.4
+    )
+
+    def model():
+        numpyro.sample("z", dist.Normal(0.0, 1.0))
+        numpyro.sample("x", distribution)
+
+    mcmc = MCMC(
+        kernel_cls(inner_cls(model)),
+        num_warmup=100,
+        num_samples=3000,
+        progress_bar=False,
+    )
+    mcmc.run(random.key(1))
+    counts = np.bincount(np.asarray(mcmc.get_samples()["x"], dtype=int), minlength=6)
+    assert_allclose(
+        counts / counts.sum(), jnp.exp(distribution.log_prob(jnp.arange(6))), atol=0.04
+    )
 
 
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
@@ -262,6 +325,36 @@ def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     mcmc.run(random.key(0))
     samples = mcmc.get_samples()["c"]
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
+
+
+@pytest.mark.parametrize("random_walk", [False, True])
+@pytest.mark.parametrize(
+    "kernel, inner_kernel, kwargs",
+    [
+        (MixedHMC, HMC, {"num_discrete_updates": 6}),
+        (DiscreteHMCGibbs, NUTS, {"modified": True}),
+        (DiscreteHMCGibbs, NUTS, {"modified": False}),
+    ],
+)
+def test_discrete_gibbs_discrete_uniform(random_walk, kernel, inner_kernel, kwargs):
+    # the support {3, ..., 7} does not start at 0
+    obs = np.array([4.0, 6.5])
+
+    def model():
+        x = numpyro.sample("x", dist.DiscreteUniform(3, 7).expand([2]))
+        # a continuous latent, so that MixedHMC also refracts with a nonzero offset
+        numpyro.sample("y", dist.Normal())
+        numpyro.sample("obs", dist.Normal(x, 1.0), obs=obs)
+
+    sampler = kernel(inner_kernel(model), random_walk=random_walk, **kwargs)
+    mcmc = MCMC(sampler, num_warmup=1000, num_samples=10000, progress_bar=False)
+    mcmc.run(random.key(0))
+    samples = mcmc.get_samples()["x"]
+    support = np.arange(3, 8)
+    log_weights = -0.5 * (obs[:, None] - support) ** 2
+    expected = np.exp(log_weights - np.logaddexp.reduce(log_weights, -1, keepdims=True))
+    actual = np.mean(np.asarray(samples)[:, :, None] == support, 0)
+    assert_allclose(actual, expected, atol=0.03)
 
 
 def test_improper_uniform():

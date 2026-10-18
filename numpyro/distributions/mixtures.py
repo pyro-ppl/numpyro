@@ -185,7 +185,7 @@ class _MixtureBase(Distribution):
 
 
 class MixtureSameFamily(_MixtureBase):
-    """
+    r"""
     A finite mixture of component distributions from the same family
 
     This mixture only supports a mixture of component distributions that are all
@@ -193,6 +193,28 @@ class MixtureSameFamily(_MixtureBase):
     batch dimension of the input ``component_distribution``. If you need a
     mixture of distributions from different families, use the more general
     implementation in :class:`~numpyro.distributions.MixtureGeneral`.
+
+    With mixing weights :math:`\pi_k` (``mixing_distribution.probs``) and component
+    distributions :math:`p_k` for :math:`k = 1, \dots, K`, where :math:`K` is the
+    ``mixture_size``, the density (or mass function) of the mixture is
+
+    .. math::
+        p(x) = \sum_{k=1}^{K} \pi_k \, p_k(x).
+
+    ``log_prob`` evaluates this density in log space:
+
+    .. math::
+        \log p(x) = \log \sum_{k=1}^{K} \exp\left(\log \pi_k + \log p_k(x)\right).
+
+    The mean and variance follow from the mixture weights and the component moments:
+
+    .. math::
+        \mathbb{E}[X] = \sum_{k=1}^{K} \pi_k \, \mathbb{E}[X_k], \qquad
+        \mathrm{Var}[X] = \sum_{k=1}^{K} \pi_k \, \mathrm{Var}[X_k]
+        + \sum_{k=1}^{K} \pi_k \left(\mathbb{E}[X_k] - \mathbb{E}[X]\right)^2.
+
+    For multivariate components, the mean and variance are computed elementwise;
+    the variance is the per-dimension marginal variance, not a covariance matrix.
 
     :param mixing_distribution: A :class:`~numpyro.distributions.Categorical`
         specifying the weights for each mixture components. The size of this
@@ -454,18 +476,22 @@ class MixtureGeneral(_MixtureBase):
     @property
     def component_mean(self) -> Array:
         return jnp.stack(
-            [d.mean for d in self.component_distributions], axis=self.mixture_dim
+            jnp.broadcast_arrays(*[d.mean for d in self.component_distributions]),
+            axis=self.mixture_dim,
         )
 
     @property
     def component_variance(self) -> Array:
         return jnp.stack(
-            [d.variance for d in self.component_distributions], axis=self.mixture_dim
+            jnp.broadcast_arrays(*[d.variance for d in self.component_distributions]),
+            axis=self.mixture_dim,
         )
 
     def component_cdf(self, samples: ArrayLike) -> Array:
         return jnp.stack(
-            [d.cdf(samples) for d in self.component_distributions],
+            jnp.broadcast_arrays(
+                *[d.cdf(samples) for d in self.component_distributions]
+            ),
             axis=self.mixture_dim,
         )
 
@@ -488,7 +514,9 @@ class MixtureGeneral(_MixtureBase):
                 mask = support(value)
                 log_prob = jnp.where(mask, log_prob, -jnp.inf)
             component_log_probs.append(log_prob)
-        component_log_probs = jnp.stack(component_log_probs, axis=-1)
+        component_log_probs = jnp.stack(
+            jnp.broadcast_arrays(*component_log_probs), axis=-1
+        )
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
