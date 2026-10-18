@@ -1725,7 +1725,7 @@ class Poisson(Distribution):
         :rtype: Array
         """
         value = jnp.asarray(value)
-        k = jnp.where(jnp.isinf(value), 1, jnp.maximum(jnp.floor(value) + 1, 1))
+        k = jnp.where(jnp.isposinf(value), 1, jnp.maximum(jnp.floor(value) + 1, 1))
         cdf = gammaincc(k, self.rate)
         return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, cdf))
 
