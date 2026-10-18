@@ -23,14 +23,8 @@ def align_param(dim, param):
 
 
 def _exp_floored(log_density: Array) -> Array:
-    """``exp(log_density)`` floored at the smallest positive normal number of its dtype.
-
-    The spectral densities are strictly positive but underflow to exactly 0 in single
-    precision at high frequencies. Keeping the result positive makes ``jnp.sqrt`` of it
-    safe to differentiate: at a floored entry the (finite) cotangent of ``sqrt`` is
-    routed into the constant floor instead of being multiplied as ``inf * 0`` into the
-    kernel hyperparameters.
-    """
+    # Floor at the smallest positive normal so that ``jnp.sqrt`` of the density
+    # keeps a finite gradient where the density underflows.
     density = jnp.exp(log_density)
     return jnp.maximum(density, jnp.finfo(density.dtype).tiny)
 
@@ -75,7 +69,7 @@ def spectral_density_squared_exponential(
     :param ArrayLike w: frequency
     :param ArrayLike alpha: amplitude
     :param ArrayLike length: length scale
-    :return: spectral density value, floored at the smallest positive normal number of its dtype
+    :return: spectral density value
     :rtype: Array
     """
     return _exp_floored(
@@ -133,7 +127,7 @@ def spectral_density_matern(
     :param ArrayLike w: frequency
     :param ArrayLike alpha: amplitude
     :param ArrayLike length: length scale
-    :return: spectral density value, floored at the smallest positive normal number of its dtype
+    :return: spectral density value
     :rtype: Array
     """  # noqa: E501
     return _exp_floored(
@@ -162,13 +156,6 @@ def diag_spectral_density_squared_exponential(
     """
     Evaluates the spectral density of the squared exponential kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
-
-    .. note::
-
-        The density is evaluated in log space and floored at the smallest positive normal
-        number of its dtype. It is therefore strictly positive, and ``jnp.sqrt`` of the
-        result (the scale of the basis coefficients) has finite gradients with respect to
-        the kernel hyperparameters even where the density underflows for large ``m``.
 
     :param ArrayLike alpha: amplitude of the squared exponential kernel
     :param ArrayLike length: length scale of the squared exponential kernel
@@ -201,13 +188,6 @@ def diag_spectral_density_matern(
     """
     Evaluates the spectral density of the Matérn kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
-
-    .. note::
-
-        The density is evaluated in log space and floored at the smallest positive normal
-        number of its dtype. It is therefore strictly positive, and ``jnp.sqrt`` of the
-        result (the scale of the basis coefficients) has finite gradients with respect to
-        the kernel hyperparameters even where the density underflows for large ``m``.
 
     :param float nu: smoothness parameter
     :param ArrayLike alpha: amplitude of the Matérn kernel
@@ -371,7 +351,7 @@ def spectral_density_rational_quadratic(
     :param ArrayLike scale_mixture: scale mixture parameter (α_mix in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
-    :return: spectral density value, floored at the smallest positive normal number of its dtype
+    :return: spectral density value
     :rtype: Array
     """
     return _exp_floored(
@@ -392,13 +372,6 @@ def diag_spectral_density_rational_quadratic(
     """
     Evaluates the spectral density of the Rational Quadratic kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
-
-    .. note::
-
-        The density is evaluated in log space and floored at the smallest positive normal
-        number of its dtype. It is therefore strictly positive, and ``jnp.sqrt`` of the
-        result (the scale of the basis coefficients) has finite gradients with respect to
-        the kernel hyperparameters even where the density underflows for large ``m``.
 
     :param ArrayLike alpha: amplitude of the Rational Quadratic kernel
     :param ArrayLike length: length scale of the Rational Quadratic kernel

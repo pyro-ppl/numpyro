@@ -55,17 +55,10 @@ def linear_approximation(
 
     .. note::
 
-        For large ``m`` the spectral density of smooth kernels underflows at the
-        high-frequency basis functions, so the corresponding entries of ``spd`` are
-        negligibly small (the densities in :mod:`numpyro.contrib.hsgp.spectral_densities`
-        are floored at the smallest positive normal float, so ``spd`` stays positive with
-        finite gradients). The non-centered parameterization handles this gracefully (those
-        basis functions simply do not contribute). The centered parameterization places a
-        ``Normal(0, scale=spd)`` prior on each coefficient, which is degenerate for those
-        entries: the model is then typically only initializable with
-        :func:`~numpyro.infer.initialization.init_to_sample` or
-        :func:`~numpyro.infer.initialization.init_to_value` and is hard to sample.
-        Prefer ``non_centered=True`` whenever ``m`` is large.
+        For large ``m`` the entries of ``spd`` at high-frequency basis functions are
+        negligibly small. With ``non_centered=False`` these become degenerate
+        ``Normal(0, scale=spd)`` priors, which are hard to initialize and sample;
+        prefer ``non_centered=True`` whenever ``m`` is large.
 
     :param Array phi: laplacian eigenfunctions
     :param Array spd: square root of the diagonal of the spectral density evaluated at square
