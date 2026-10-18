@@ -6131,3 +6131,23 @@ def test_geometric_logits_extreme_moments():
 
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
+
+
+@pytest.mark.parametrize("rate", [0.3, 3.0, 100.0])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_poisson_cdf_support_limits(rate, compiled):
+    values = jnp.array([-jnp.inf, -3.0, -1.5, -1.0, -0.5, 0.0, 2.5, jnp.inf])
+
+    def evaluate(r):
+        return dist.Poisson(r).cdf(values)
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual = evaluate(rate)
+    assert_allclose(actual, osp.poisson.cdf(np.asarray(values), rate), atol=1e-6)
+    derivative = jax.jacfwd(evaluate)(rate)
+    finite = np.isfinite(np.asarray(values))
+    expected = np.zeros(values.shape)
+    expected[finite] = -osp.poisson.pmf(np.floor(np.asarray(values)[finite]), rate)
+    assert_allclose(derivative, expected, atol=1e-6)
+    assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))

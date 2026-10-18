@@ -1724,8 +1724,10 @@ class Poisson(Distribution):
         :return: Cumulative probability.
         :rtype: Array
         """
-        k = jnp.floor(value) + 1
-        return gammaincc(k, self.rate)
+        value = jnp.asarray(value)
+        k = jnp.where(jnp.isinf(value), 1, jnp.maximum(jnp.floor(value) + 1, 1))
+        cdf = gammaincc(k, self.rate)
+        return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, cdf))
 
 
 class ZeroInflatedProbs(Distribution):
