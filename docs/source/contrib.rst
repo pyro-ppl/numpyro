@@ -332,6 +332,10 @@ diag_spectral_density_rational_quadratic
 ----------------------------------------
 .. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_rational_quadratic
 
+log_diag_spectral_density_rational_quadratic
+--------------------------------------------
+.. autofunction:: numpyro.contrib.hsgp.spectral_densities.log_diag_spectral_density_rational_quadratic
+
 diag_spectral_density_periodic
 ------------------------------
 .. autofunction:: numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_periodic
