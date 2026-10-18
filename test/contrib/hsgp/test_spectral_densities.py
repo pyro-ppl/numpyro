@@ -16,9 +16,6 @@ from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_periodic,
     diag_spectral_density_rational_quadratic,
     diag_spectral_density_squared_exponential,
-    log_diag_spectral_density_matern,
-    log_diag_spectral_density_rational_quadratic,
-    log_diag_spectral_density_squared_exponential,
     spectral_density_matern,
     spectral_density_rational_quadratic,
     spectral_density_squared_exponential,
@@ -104,31 +101,33 @@ def test_diag_spectral_density_matern(nu, alpha, length, ell, m, dim):
 
 
 @pytest.mark.parametrize("length", [0.2, 1.0, 2.0])
-def test_log_diag_spectral_density_squared_exponential_no_underflow(length):
+def test_diag_spectral_density_squared_exponential_floored(length):
     """In float32 ``exp(-w^2 length^2 / 2)`` underflows to 0 for most of the first
-    100 eigenvalues; the log density must stay finite and match a float64 reference.
+    100 eigenvalues; the density must be floored at ``tiny`` and otherwise match a
+    float64 reference.
     """
     m, ell, alpha = 100, 1.0, 1.0
-    log_spd = log_diag_spectral_density_squared_exponential(
+    spd = diag_spectral_density_squared_exponential(
         alpha=alpha, length=length, ell=ell, m=m, dim=1
     )
     w = np.arange(1, m + 1, dtype=np.float64) * np.pi / 2 / ell
-    expected = np.log(alpha * np.sqrt(2 * np.pi) * length) - 0.5 * w**2 * length**2
-    assert np.all(np.isfinite(log_spd))
-    assert np.allclose(log_spd, expected, rtol=1e-5)
+    log_expected = np.log(alpha * np.sqrt(2 * np.pi) * length) - 0.5 * w**2 * length**2
+    tiny = np.finfo(spd.dtype).tiny
+    expected = np.maximum(np.exp(log_expected), tiny)
+    assert np.all(spd >= tiny)
+    assert np.allclose(spd, expected, rtol=1e-4, atol=0.0)
 
 
 def test_sqrt_spectral_density_squared_exponential_gradient():
-    """``exp(0.5 * log S)`` must have a finite gradient w.r.t. ``length`` where ``S``
-    underflows (``sqrt(S)`` gives ``inf * 0 = nan`` there); compare with the
-    analytic float64 derivative of ``sum_j sqrt(S_j)``.
+    """``jnp.sqrt`` of the density must have a finite gradient w.r.t. ``length`` where
+    the density underflows (``sqrt(0)`` used to give ``inf * 0 = nan``); compare with
+    the analytic float64 derivative of ``sum_j sqrt(S_j)``.
     """
     m, ell, alpha, length = 100, 1.0, 1.0, 1.0
 
     def sqrt_spd_sum(length):
-        return jnp.exp(
-            0.5
-            * log_diag_spectral_density_squared_exponential(
+        return jnp.sqrt(
+            diag_spectral_density_squared_exponential(
                 alpha=alpha, length=length, ell=ell, m=m, dim=1
             )
         ).sum()
@@ -147,10 +146,11 @@ def test_diag_spectral_density_matern_large_nu(nu):
     the log-space evaluation must stay finite and match a float64 reference.
     """
     m, ell, alpha, length = 5, 1.0, 1.0, 1.0
-    kwargs = {"nu": nu, "alpha": alpha, "length": length, "ell": ell, "m": m, "dim": 1}
-    log_spd = log_diag_spectral_density_matern(**kwargs)
+    spd = diag_spectral_density_matern(
+        nu=nu, alpha=alpha, length=length, ell=ell, m=m, dim=1
+    )
     w = np.arange(1, m + 1, dtype=np.float64) * np.pi / 2 / ell
-    expected = (
+    log_expected = (
         np.log(alpha)
         + np.log(2)
         + 0.5 * np.log(np.pi)
@@ -160,11 +160,8 @@ def test_diag_spectral_density_matern_large_nu(nu):
         + np.log(length)
         - (nu + 0.5) * np.log(2 * nu + length**2 * w**2)
     )
-    # float32 cancellation among O(100) terms limits absolute accuracy to ~1e-5
-    assert np.allclose(log_spd, expected, rtol=1e-5, atol=1e-4)
-    spd = diag_spectral_density_matern(**kwargs)
     assert np.all(np.isfinite(spd))
-    assert np.allclose(spd, np.exp(expected), rtol=1e-4)
+    assert np.allclose(spd, np.exp(log_expected), rtol=1e-4)
 
 
 @pytest.mark.parametrize(
@@ -256,34 +253,33 @@ def test_spectral_density_rational_quadratic_gradient_at_zero_frequency():
     [(1.0, 1.0), (np.float64(1.0), np.float64(1.0))],
     ids=["python-float", "np-float64"],
 )
-def test_log_diag_spectral_density_rational_quadratic_no_underflow(
-    length, scale_mixture
-):
+def test_diag_spectral_density_rational_quadratic_floored(length, scale_mixture):
     """``K_nu(a w)`` underflows float32 for most of the first 100 eigenvalues; the
-    log density must stay finite and match a float64 SciPy reference.
+    density must be floored at ``tiny`` and otherwise match a float64 SciPy reference.
     """
     m, ell, alpha = 100, 1.0, 1.0
-    log_spd = log_diag_spectral_density_rational_quadratic(
+    spd = diag_spectral_density_rational_quadratic(
         alpha=alpha, length=length, scale_mixture=scale_mixture, ell=ell, m=m, dim=1
     )
     w = np.arange(1, m + 1, dtype=np.float64) * np.pi / 2 / ell
-    expected, _ = _log_spectral_density_rational_quadratic_reference(
+    log_expected, _ = _log_spectral_density_rational_quadratic_reference(
         w, alpha, float(length), float(scale_mixture)
     )
-    assert np.all(np.isfinite(log_spd))
-    assert np.allclose(log_spd, expected, rtol=1e-4)
+    tiny = np.finfo(spd.dtype).tiny
+    expected = np.maximum(np.exp(log_expected), tiny)
+    assert np.all(spd >= tiny)
+    assert np.allclose(spd, expected, rtol=1e-4, atol=0.0)
 
 
 def test_sqrt_spectral_density_rational_quadratic_gradient():
-    """``exp(0.5 * log S)`` must have a finite gradient w.r.t. ``length`` where ``S``
-    underflows; compare with the float64 derivative of ``sum_j sqrt(S_j)``.
+    """``jnp.sqrt`` of the density must have a finite gradient w.r.t. ``length`` where
+    the density underflows; compare with the float64 derivative of ``sum_j sqrt(S_j)``.
     """
     m, ell, alpha, length, scale_mixture = 100, 1.0, 1.0, 1.0, 1.0
 
     def sqrt_spd_sum(length):
-        return jnp.exp(
-            0.5
-            * log_diag_spectral_density_rational_quadratic(
+        return jnp.sqrt(
+            diag_spectral_density_rational_quadratic(
                 alpha=alpha,
                 length=length,
                 scale_mixture=scale_mixture,

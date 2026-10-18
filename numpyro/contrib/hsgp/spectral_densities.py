@@ -22,6 +22,19 @@ def align_param(dim, param):
     return jnp.broadcast_to(param, jnp.broadcast_shapes(jnp.shape(param), (dim,)))
 
 
+def _exp_floored(log_density: Array) -> Array:
+    """``exp(log_density)`` floored at the smallest positive normal number of its dtype.
+
+    The spectral densities are strictly positive but underflow to exactly 0 in single
+    precision at high frequencies. Keeping the result positive makes ``jnp.sqrt`` of it
+    safe to differentiate: at a floored entry the (finite) cotangent of ``sqrt`` is
+    routed into the constant floor instead of being multiplied as ``inf * 0`` into the
+    kernel hyperparameters.
+    """
+    density = jnp.exp(log_density)
+    return jnp.maximum(density, jnp.finfo(density.dtype).tiny)
+
+
 def _log_spectral_density_squared_exponential(
     dim: int, w: ArrayLike, alpha: ArrayLike, length: ArrayLike
 ) -> Array:
@@ -62,10 +75,10 @@ def spectral_density_squared_exponential(
     :param ArrayLike w: frequency
     :param ArrayLike alpha: amplitude
     :param ArrayLike length: length scale
-    :return: spectral density value
+    :return: spectral density value, floored at the smallest positive normal number of its dtype
     :rtype: Array
     """
-    return jnp.exp(
+    return _exp_floored(
         _log_spectral_density_squared_exponential(
             dim=dim, w=w, alpha=alpha, length=length
         )
@@ -120,10 +133,10 @@ def spectral_density_matern(
     :param ArrayLike w: frequency
     :param ArrayLike alpha: amplitude
     :param ArrayLike length: length scale
-    :return: spectral density value
+    :return: spectral density value, floored at the smallest positive normal number of its dtype
     :rtype: Array
     """  # noqa: E501
-    return jnp.exp(
+    return _exp_floored(
         _log_spectral_density_matern(dim=dim, nu=nu, w=w, alpha=alpha, length=length)
     )
 
@@ -139,43 +152,6 @@ def _eval_at_sqrt_eigenvalues(
     return vmap(fn, in_axes=-1)(sqrt_eigenvalues_)
 
 
-def log_diag_spectral_density_squared_exponential(
-    alpha: ArrayLike,
-    length: ArrayLike,
-    ell: float | int | list[float | int],
-    m: int | list[int],
-    dim: int,
-) -> Array:
-    """
-    Logarithm of :func:`diag_spectral_density_squared_exponential`.
-
-    The spectral density of the squared exponential kernel decays as
-    :math:`\\exp(-\\ell^2 \\omega^2 / 2)` and underflows to exactly zero in single precision
-    for all but the first few eigenvalues when ``m`` is large. This function evaluates
-    the density in log space, so the result stays finite and
-    ``jnp.exp(0.5 * log_diag_spectral_density_squared_exponential(...))`` is a square root
-    of the density with finite gradients with respect to ``alpha`` and ``length``.
-
-    :param ArrayLike alpha: amplitude of the squared exponential kernel
-    :param ArrayLike length: length scale of the squared exponential kernel
-    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
-        If a float or int, the same length is used in each dimension.
-    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
-        If an integer, the same number of eigenvalues is computed in each dimension.
-    :param int dim: The dimension of the space
-
-    :return: log spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
-    :rtype: Array
-    """
-
-    def _log_spectral_density(w: Array) -> Array:
-        return _log_spectral_density_squared_exponential(
-            dim=dim, w=w, alpha=alpha, length=length
-        )
-
-    return _eval_at_sqrt_eigenvalues(_log_spectral_density, ell=ell, m=m, dim=dim)
-
-
 def diag_spectral_density_squared_exponential(
     alpha: ArrayLike,
     length: ArrayLike,
@@ -186,6 +162,13 @@ def diag_spectral_density_squared_exponential(
     """
     Evaluates the spectral density of the squared exponential kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
+
+    .. note::
+
+        The density is evaluated in log space and floored at the smallest positive normal
+        number of its dtype. It is therefore strictly positive, and ``jnp.sqrt`` of the
+        result (the scale of the basis coefficients) has finite gradients with respect to
+        the kernel hyperparameters even where the density underflows for large ``m``.
 
     :param ArrayLike alpha: amplitude of the squared exponential kernel
     :param ArrayLike length: length scale of the squared exponential kernel
@@ -198,48 +181,13 @@ def diag_spectral_density_squared_exponential(
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
     :rtype: Array
     """
-    return jnp.exp(
-        log_diag_spectral_density_squared_exponential(
-            alpha=alpha, length=length, ell=ell, m=m, dim=dim
-        )
-    )
 
-
-def log_diag_spectral_density_matern(
-    nu: float,
-    alpha: ArrayLike,
-    length: ArrayLike,
-    ell: float | int | list[float | int],
-    m: int | list[int],
-    dim: int,
-) -> Array:
-    """
-    Logarithm of :func:`diag_spectral_density_matern`.
-
-    Evaluating the density in log space (with :func:`jax.scipy.special.gammaln`) avoids the
-    overflow of :math:`\\Gamma(\\nu + D/2)` and :math:`(2\\nu)^\\nu` for large ``nu``, and
-    ``jnp.exp(0.5 * log_diag_spectral_density_matern(...))`` is a square root of the density
-    with finite gradients with respect to ``alpha`` and ``length``.
-
-    :param float nu: smoothness parameter
-    :param ArrayLike alpha: amplitude of the Matérn kernel
-    :param ArrayLike length: length scale of the Matérn kernel
-    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
-        If a float or int, the same length is used in each dimension.
-    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
-        If an integer, the same number of eigenvalues is computed in each dimension.
-    :param int dim: The dimension of the space
-
-    :return: log spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
-    :rtype: Array
-    """
-
-    def _log_spectral_density(w: Array) -> Array:
-        return _log_spectral_density_matern(
-            dim=dim, nu=nu, w=w, alpha=alpha, length=length
+    def _spectral_density(w: Array) -> Array:
+        return spectral_density_squared_exponential(
+            dim=dim, w=w, alpha=alpha, length=length
         )
 
-    return _eval_at_sqrt_eigenvalues(_log_spectral_density, ell=ell, m=m, dim=dim)
+    return _eval_at_sqrt_eigenvalues(_spectral_density, ell=ell, m=m, dim=dim)
 
 
 def diag_spectral_density_matern(
@@ -254,6 +202,13 @@ def diag_spectral_density_matern(
     Evaluates the spectral density of the Matérn kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
 
+    .. note::
+
+        The density is evaluated in log space and floored at the smallest positive normal
+        number of its dtype. It is therefore strictly positive, and ``jnp.sqrt`` of the
+        result (the scale of the basis coefficients) has finite gradients with respect to
+        the kernel hyperparameters even where the density underflows for large ``m``.
+
     :param float nu: smoothness parameter
     :param ArrayLike alpha: amplitude of the Matérn kernel
     :param ArrayLike length: length scale of the Matérn kernel
@@ -266,11 +221,11 @@ def diag_spectral_density_matern(
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
     :rtype: Array
     """
-    return jnp.exp(
-        log_diag_spectral_density_matern(
-            nu=nu, alpha=alpha, length=length, ell=ell, m=m, dim=dim
-        )
-    )
+
+    def _spectral_density(w: Array) -> Array:
+        return spectral_density_matern(dim=dim, nu=nu, w=w, alpha=alpha, length=length)
+
+    return _eval_at_sqrt_eigenvalues(_spectral_density, ell=ell, m=m, dim=dim)
 
 
 def _import_tfp() -> ModuleType:
@@ -416,55 +371,14 @@ def spectral_density_rational_quadratic(
     :param ArrayLike scale_mixture: scale mixture parameter (α_mix in the RQ kernel formula).
         Controls the relative weighting of small-scale and large-scale variations.
         As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
-    :return: spectral density value
+    :return: spectral density value, floored at the smallest positive normal number of its dtype
     :rtype: Array
     """
-    return jnp.exp(
+    return _exp_floored(
         _log_spectral_density_rational_quadratic(
             dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
         )
     )
-
-
-def log_diag_spectral_density_rational_quadratic(
-    alpha: ArrayLike,
-    length: ArrayLike,
-    scale_mixture: ArrayLike,
-    ell: float | int | list[float | int],
-    m: int | list[int],
-    dim: int,
-) -> Array:
-    """
-    Logarithm of :func:`diag_spectral_density_rational_quadratic`.
-
-    The modified Bessel function :math:`K_\\nu(a |\\omega|)` underflows to zero in single
-    precision for all but the first few eigenvalues when ``m`` is large. This function
-    evaluates the density in log space (via the exponentially scaled Bessel function), so
-    the result stays finite and
-    ``jnp.exp(0.5 * log_diag_spectral_density_rational_quadratic(...))`` is a square root
-    of the density with finite gradients with respect to ``alpha`` and ``length``.
-
-    :param ArrayLike alpha: amplitude of the Rational Quadratic kernel
-    :param ArrayLike length: length scale of the Rational Quadratic kernel
-    :param ArrayLike scale_mixture: scale mixture parameter (α in the RQ kernel formula).
-        Controls the relative weighting of small-scale and large-scale variations.
-        As scale_mixture → ∞, the kernel converges to the squared exponential kernel.
-    :param float | int | list[float | int] ell: The length of the interval divided by 2 in each dimension.
-        If a float or int, the same length is used in each dimension.
-    :param int | list[int] m: The number of eigenvalues to compute for each dimension.
-        If an integer, the same number of eigenvalues is computed in each dimension.
-    :param int dim: The dimension of the space
-
-    :return: log spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
-    :rtype: Array
-    """
-
-    def _log_spectral_density(w: Array) -> Array:
-        return _log_spectral_density_rational_quadratic(
-            dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
-        )
-
-    return _eval_at_sqrt_eigenvalues(_log_spectral_density, ell=ell, m=m, dim=dim)
 
 
 def diag_spectral_density_rational_quadratic(
@@ -478,6 +392,13 @@ def diag_spectral_density_rational_quadratic(
     """
     Evaluates the spectral density of the Rational Quadratic kernel at the first :math:`D \\times m^\\star`
     square root eigenvalues of the laplacian operator in :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`.
+
+    .. note::
+
+        The density is evaluated in log space and floored at the smallest positive normal
+        number of its dtype. It is therefore strictly positive, and ``jnp.sqrt`` of the
+        result (the scale of the basis coefficients) has finite gradients with respect to
+        the kernel hyperparameters even where the density underflows for large ``m``.
 
     :param ArrayLike alpha: amplitude of the Rational Quadratic kernel
     :param ArrayLike length: length scale of the Rational Quadratic kernel
@@ -493,16 +414,13 @@ def diag_spectral_density_rational_quadratic(
     :return: spectral density vector evaluated at the first :math:`D \\times m^\\star` square root eigenvalues
     :rtype: Array
     """
-    return jnp.exp(
-        log_diag_spectral_density_rational_quadratic(
-            alpha=alpha,
-            length=length,
-            scale_mixture=scale_mixture,
-            ell=ell,
-            m=m,
-            dim=dim,
+
+    def _spectral_density(w: Array) -> Array:
+        return spectral_density_rational_quadratic(
+            dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
         )
-    )
+
+    return _eval_at_sqrt_eigenvalues(_spectral_density, ell=ell, m=m, dim=dim)
 
 
 def diag_spectral_density_periodic(
@@ -535,4 +453,6 @@ def diag_spectral_density_periodic(
     a = a.astype(dtype)
     j = jnp.arange(0, m, dtype=dtype)
     c = jnp.where(j > 0, 2, 1)
-    return c * alpha**2 * tfp.math.bessel_ive(j, a)
+    q2 = c * alpha**2 * tfp.math.bessel_ive(j, a)
+    # Strictly positive, like the other densities (see ``_exp_floored``).
+    return jnp.maximum(q2, jnp.finfo(q2.dtype).tiny)
