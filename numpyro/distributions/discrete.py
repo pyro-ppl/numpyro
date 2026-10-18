@@ -1764,12 +1764,8 @@ class _ZeroInflatedSupport(constraints.Constraint[NumLike]):
         self.base_support = base_support
 
     def __call__(self, x: NumLike) -> ArrayLike:
-        traced_support = any(
-            not not_jax_tracer(leaf) for leaf in jax.tree.leaves(self.base_support)
-        )
-        xp = jnp if isinstance(x, jax.Array) or traced_support else np
-        x = xp.asarray(x)
-        return (x == 0) | self.base_support(x)
+        xp = jnp if isinstance(x, jax.Array) else np
+        return xp.equal(x, 0) | self.base_support(x)
 
     def feasible_like(self, prototype: NumLike) -> Array:
         return jnp.zeros_like(prototype)

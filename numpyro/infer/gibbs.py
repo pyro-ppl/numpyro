@@ -206,9 +206,14 @@ def discrete_support_sizes(
     """
     Per-site support sizes broadcast to the site's shape, as static `numpy` arrays.
 
+    Supports must be Boolean, IntegerInterval, or IntegerGreaterThan constraints.
+    Custom discrete constraints are rejected rather than proposing integer indices
+    that might not match their support values.
+
     :param model_trace: a model trace, see :func:`prototype_trace`.
     :param sites: names of discrete sites in `model_trace`.
     :return: `{site_name: support_sizes}`.
+    :raises NotImplementedError: if a site's support is not one of these constraints.
     """
     for name in sites:
         support = model_trace[name]["fn"].support

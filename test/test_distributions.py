@@ -6438,5 +6438,34 @@ def test_zero_inflated_batched_base_scalar_value(logits):
     assert_allclose(jnp.exp(d.log_prob(np.array([3, 5]))), np.array([0.1, 0.1]))
     assert_allclose(jax.jit(d.log_prob)(0), np.log(np.array([0.5, 0.5])))
     assert_allclose(
-        jax.jit(lambda distribution: distribution.log_prob(0))(d), d.log_prob(0)
+        jax.jit(lambda distribution: distribution.log_prob(jnp.array(0)))(d),
+        d.log_prob(0),
     )
+
+
+@pytest.mark.parametrize("logits", [False, True])
+def test_zero_inflated_custom_support_without_pytree(logits):
+    class EvenSupport(constraints.Constraint):
+        is_discrete = True
+
+        def __call__(self, x):
+            return (x % 2 == 0) & (x >= 0) & (x <= 6)
+
+        def feasible_like(self, prototype):
+            return jnp.zeros_like(prototype)
+
+    class EvenUniform(dist.Distribution):
+        arg_constraints = {}
+        support = EvenSupport()
+
+        def log_prob(self, value):
+            return jnp.full_like(value, -jnp.log(4.0), dtype=float)
+
+    kwargs = {"gate_logits": 0.0} if logits else {"gate": 0.5}
+    distribution = dist.ZeroInflatedDistribution(
+        EvenUniform(), validate_args=True, **kwargs
+    )
+    assert distribution.support(2)
+    assert not distribution.support(3)
+    assert_allclose(jnp.exp(distribution.log_prob(2)), 0.125)
+    assert_allclose(jnp.exp(distribution.log_prob(0)), 0.625)
