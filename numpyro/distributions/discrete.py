@@ -1584,14 +1584,45 @@ def Multinomial(
     total_count_max: Optional[int] = None,
     validate_args: Optional[bool] = None,
 ) -> Union[MultinomialProbs, MultinomialLogits]:
-    """Multinomial distribution.
+    r"""Multinomial distribution.
 
-    :param total_count: number of trials. If this is a JAX array,
+    A Multinomial random vector :math:`\mathbf{X} \in \mathbb{N}^K` counts how many
+    of :math:`n` independent trials fall into each of :math:`K` mutually exclusive
+    categories with probabilities :math:`\mathbf{p} = (p_1, \dots, p_K)`,
+    :math:`\sum_k p_k = 1`. For :math:`\mathbf{x} \in \mathbb{N}^K` with
+    :math:`\sum_k x_k = n`, its probability mass function is
+
+    .. math::
+        P(\mathbf{X} = \mathbf{x} \mid n, \mathbf{p}) =
+        \frac{n!}{\prod_{k=1}^{K} x_k!} \prod_{k=1}^{K} p_k^{x_k}.
+
+    When ``logits`` :math:`\mathbf{z}` are given, the probabilities are
+    :math:`\mathbf{p} = \operatorname{softmax}(\mathbf{z})`. The moments are
+
+    .. math::
+        \mathbb{E}[X_k] = n p_k, \qquad
+        \operatorname{Var}[X_k] = n p_k (1 - p_k), \qquad
+        \operatorname{Cov}[X_j, X_k] = -n p_j p_k \quad (j \ne k),
+
+    and ``variance`` returns the diagonal :math:`n p_k (1 - p_k)` only.
+
+    Exactly one of ``probs`` or ``logits`` must be given; the function returns a
+    :class:`MultinomialProbs` or a :class:`MultinomialLogits` instance
+    respectively (note that the returned classes take ``probs``/``logits``
+    *before* ``total_count``).
+
+    :param total_count: number of trials :math:`n`. If this is a JAX array,
         it is required to specify `total_count_max`.
-    :param probs: event probabilities
-    :param logits: event log probabilities
+    :param probs: event probabilities :math:`\mathbf{p}`
+    :param logits: event log probabilities :math:`\mathbf{z}`
     :param int total_count_max: the maximum number of trials,
         i.e. `max(total_count)`
+
+    .. note::
+        ``total_count_max`` (an upper bound on ``total_count``) must be given when
+        ``total_count`` is a traced array, because the sampler draws a static
+        number ``total_count_max`` of categorical trials and masks the excess;
+        otherwise a ``ValueError`` is raised.
     """
     assert_one_of(probs=probs, logits=logits)
     if probs is not None:
@@ -1886,8 +1917,32 @@ def ZeroInflatedDistribution(
     gate_logits: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ) -> Union[ZeroInflatedProbs, ZeroInflatedLogits]:
-    """
+    r"""
     Generic Zero Inflated distribution.
+
+    Mixes a discrete base distribution with pmf :math:`B` (scalar event) with a
+    point mass at zero. With gate :math:`g \in [0, 1]`, the probability of a
+    structural zero,
+
+    .. math::
+        P(X = 0) = g + (1 - g)\, B(0), \qquad
+        P(X = k) = (1 - g)\, B(k) \quad (k \ne 0).
+
+    When ``gate_logits`` :math:`z` is given, :math:`g = \sigma(z)` with
+    :math:`\sigma` the logistic function. With :math:`\mu_B` and
+    :math:`\sigma_B^2` the mean and variance of the base distribution,
+
+    .. math::
+        \mathbb{E}[X] = (1 - g)\, \mu_B, \qquad
+        \operatorname{Var}[X] = (1 - g)\left(\mu_B^2 + \sigma_B^2\right)
+        - \mathbb{E}[X]^2.
+
+    Exactly one of ``gate`` or ``gate_logits`` must be given; the function
+    returns a :class:`ZeroInflatedProbs` or a :class:`ZeroInflatedLogits`
+    instance respectively. The base distribution must have a discrete support
+    and an empty ``event_shape``. :class:`ZeroInflatedPoisson` and
+    :func:`~numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2` are
+    ready-made specializations.
 
     :param Distribution base_dist: the base distribution.
     :param numpy.ndarray gate: probability of extra zeros given via a Bernoulli distribution.
