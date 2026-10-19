@@ -3608,6 +3608,37 @@ def test_simplex_to_order_transform(batch_shape):
     assert simplex.shape == transform.inverse_shape(out.shape)
 
 
+@pytest.mark.parametrize(
+    "anchor_point, batch_shape",
+    [
+        (0.0, ()),
+        (2.0, ()),
+        (-1.5, ()),
+        (np.array([-2.0, 0.0, 1.5]), (3,)),
+        (np.array([[-2.0], [0.0], [1.5]]), (3, 2)),
+    ],
+)
+def test_simplex_to_ordered_log_prob(anchor_point, batch_shape):
+    simplex = np.array([0.3, 0.1, 0.4, 0.2])
+    concentration = np.array([2.0, 3.0, 4.0, 5.0])
+    cumulative = np.cumsum(simplex[:-1])
+    expected_logdet = -(np.log(cumulative) + np.log1p(-cumulative)).sum()
+    expected_log_prob = osp.dirichlet.logpdf(simplex, concentration) - expected_logdet
+
+    transform = SimplexToOrderedTransform(anchor_point)
+    x = jnp.broadcast_to(simplex, batch_shape + simplex.shape)
+    y = transform(x)
+    actual_logdet = transform.log_abs_det_jacobian(x, y)
+    assert actual_logdet.shape == batch_shape
+    assert_allclose(actual_logdet, expected_logdet, rtol=1e-6)
+
+    distribution = dist.TransformedDistribution(
+        dist.Dirichlet(concentration).expand(batch_shape), transform
+    )
+    assert_allclose(distribution.log_prob(y), expected_log_prob, rtol=1e-5)
+    assert_allclose(jax.jit(distribution.log_prob)(y), expected_log_prob, rtol=1e-5)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 @pytest.mark.parametrize("prepend_event_shape", [(), (4,)])
 @pytest.mark.parametrize("sample_shape", [(), (7,)])
