@@ -249,7 +249,8 @@ def approx_periodic_gp_ncp(x, alpha, length, w0, M):
     zero = jnp.array([0.0])
     beta_sin = jnp.concatenate((zero, beta_sin))
 
-    f = deterministic("f", cosines @ (q2 * beta_cos) + sines @ (q2 * beta_sin))
+    q = jnp.sqrt(jnp.maximum(q2, jnp.finfo(q2.dtype).tiny))
+    f = deterministic("f", cosines @ (q * beta_cos) + sines @ (q * beta_sin))
     return f
 
 
