@@ -365,6 +365,29 @@ def modified_bessel_first_kind(v, z):
     return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
 
 
+def log_diag_spectral_density_periodic(
+    alpha: ArrayLike, length: ArrayLike, m: int
+) -> Array:
+    """
+    Log of the periodic kernel variance coefficients.
+
+    Computes the coefficients in log space to avoid underflow in the modified
+    Bessel function for large basis sizes.
+    """
+    try:
+        from tensorflow_probability.substrates import jax as tfp
+    except ImportError as e:
+        raise ImportError(
+            "TensorFlow Probability is required for the periodic kernel spectral density."
+        ) from e
+
+    a = length ** (-2)
+    j = jnp.arange(0, m, dtype=jnp.result_type(a, float))
+    c = jnp.where(j > 0, 2, 1)
+    alpha2 = jnp.maximum(alpha**2, jnp.finfo(j.dtype).tiny)
+    return jnp.log(c * alpha2) + tfp.math.log_bessel_ive(j, a)
+
+
 def diag_spectral_density_periodic(
     alpha: ArrayLike, length: ArrayLike, m: int
 ) -> Array:
