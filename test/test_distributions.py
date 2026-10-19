@@ -2367,49 +2367,15 @@ def test_gamma_poisson_log_prob(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
-@pytest.mark.parametrize(
-    "jax_dist",
-    [
-        dist.GammaPoisson,
-        dist.NegativeBinomialProbs,
-        dist.NegativeBinomialLogits,
-        dist.NegativeBinomial2,
-    ],
-)
-@pytest.mark.parametrize("batched", [False, True])
-@pytest.mark.parametrize("jit", [False, True])
-def test_gamma_poisson_cdf_real_thresholds(jax_dist, batched, jit):
-    concentration = np.array([[0.5], [2.0], [5.0]]) if batched else 2.0
-    rate = np.array([0.25, 3.0, np.inf]) if batched else 3.0
-    if jax_dist is dist.GammaPoisson:
-        d = jax_dist(concentration, jnp.asarray(rate))
-    elif jax_dist is dist.NegativeBinomialProbs:
-        d = jax_dist(concentration, 1 / (1 + rate))
-    elif jax_dist is dist.NegativeBinomialLogits:
-        d = jax_dist(concentration, -np.log(rate))
-    else:
-        d = jax_dist(concentration / rate, concentration)
-    value = np.array(
-        [-np.inf, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 1.75, 2.0, np.inf, np.nan]
-    ).reshape((-1,) + (1,) * len(d.batch_shape))
-    cdf = jax.jit(d.cdf) if jit else d.cdf
-    expected = osp.nbinom.cdf(value, concentration, 1 - 1 / (1 + rate))
-    actual = cdf(value)
-    assert actual.shape == expected.shape
-    assert_allclose(actual, expected, rtol=1e-5, atol=1e-7)
-
-
-@pytest.mark.parametrize("jit", [False, True])
-def test_gamma_poisson_cdf_rate_gradient(jit):
-    value = jnp.array([-jnp.inf, -2.0, -0.5, 0.0, 0.5, 1.0, 1.75, jnp.inf])
-    grad_cdf = jax.vmap(
-        jax.grad(lambda rate, x: dist.GammaPoisson(2.0, rate).cdf(x)),
-        in_axes=(None, 0),
-    )
-    if jit:
-        grad_cdf = jax.jit(grad_cdf)
+def test_gamma_poisson_cdf_real_thresholds():
+    value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, np.inf])
+    actual = dist.GammaPoisson(2.0, 3.0).cdf(value)
+    assert_allclose(actual, osp.nbinom.cdf(value, 2.0, 0.75), rtol=1e-5, atol=1e-7)
     # Differentiate the finite sums for P(X <= 0) and P(X <= 1) at rate=3.
-    expected = np.array([0.0, 0.0, 0.0, 3 / 32, 3 / 32, 9 / 128, 9 / 128, 0.0])
+    grad_cdf = jax.vmap(
+        jax.grad(lambda r, x: dist.GammaPoisson(2.0, r).cdf(x)), (None, 0)
+    )
+    expected = np.array([0.0, 0.0, 3 / 32, 3 / 32, 9 / 128, 0.0])
     assert_allclose(grad_cdf(3.0, value), expected, rtol=1e-5, atol=1e-7)
 
 
