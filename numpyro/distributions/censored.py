@@ -95,7 +95,7 @@ class LeftCensoredDistribution(Distribution):
         if validate_args:
             try:
                 assert base_dist.support is not None
-                test_val = base_dist.support.feasible_like(jnp.array(0.0))
+                test_val = base_dist.support.feasible_like(jnp.zeros(base_dist.shape()))
                 _ = base_dist.cdf(test_val)
             except (NotImplementedError, AttributeError) as e:
                 raise TypeError(
@@ -213,7 +213,7 @@ class RightCensoredDistribution(Distribution):
         if validate_args:
             try:
                 assert base_dist.support is not None
-                test_val = base_dist.support.feasible_like(jnp.array(0.0))
+                test_val = base_dist.support.feasible_like(jnp.zeros(base_dist.shape()))
                 _ = base_dist.cdf(test_val)
             except (NotImplementedError, AttributeError) as e:
                 raise TypeError(
@@ -345,7 +345,7 @@ class IntervalCensoredDistribution(Distribution):
         if validate_args:
             try:
                 assert base_dist.support is not None
-                test_val = base_dist.support.feasible_like(jnp.array(0.0))
+                test_val = base_dist.support.feasible_like(jnp.zeros(base_dist.shape()))
                 _ = base_dist.cdf(test_val)
             except (NotImplementedError, AttributeError) as e:
                 raise TypeError(
@@ -404,7 +404,9 @@ class IntervalCensoredDistribution(Distribution):
 
         # Replace potential out-of-support values with finite placeholder BEFORE cdf
         # (value doesn't matter; it will be overwritten)
-        feasible_value = self.support.feasible_like(x1)
+        feasible_value = self.support.feasible_like(
+            jnp.broadcast_to(x1, lax.broadcast_shapes(jnp.shape(x1), self.batch_shape))
+        )
         x1_finite = jnp.where(m_left, feasible_value, x1)
         x2_finite = jnp.where(m_right, feasible_value, x2)
 
