@@ -258,7 +258,6 @@ def hsgp_periodic_non_centered(
     :return: the low-rank approximation linear model
     :rtype: Array
     """
-    q2 = diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
     cosines, sines = eigenfunctions_periodic(x=x, w0=w0, m=m)
 
     with numpyro.plate("cos_basis", m):
