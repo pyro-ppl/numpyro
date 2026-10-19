@@ -593,7 +593,9 @@ class GammaPoisson(Distribution):
 
         which is the regularized incomplete beta function. The CDF is zero for
         :math:`x < 0` and one at :math:`x = \infty`.
-        This implementation uses :func:`~jax.scipy.special.betainc`.
+        This implementation uses :func:`~jax.scipy.special.betainc`, which does not
+        support gradients with respect to its first argument, so the CDF is not
+        differentiable with respect to ``concentration``.
         """
         rate_fraction = jnp.where(
             jnp.isinf(self.rate),
@@ -601,9 +603,14 @@ class GammaPoisson(Distribution):
             self.rate / (self.rate + 1.0),
         )
         value = jnp.floor(value)
-        safe_value = jnp.where((value < 0) | jnp.isposinf(value), 0.0, value)
+        is_negative = value < 0
+        is_inf = jnp.isposinf(value)
+        # betainc returns NaN for b close to the largest float, so clamp huge thresholds.
+        dtype = jnp.result_type(self.concentration, value, rate_fraction, float)
+        max_value = jnp.sqrt(jnp.finfo(dtype).max)
+        safe_value = jnp.where(is_negative | is_inf, 0.0, jnp.minimum(value, max_value))
         bt = betainc(self.concentration, safe_value + 1.0, rate_fraction)
-        return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, bt))
+        return jnp.where(is_negative, 0.0, jnp.where(is_inf, 1.0, bt))
 
 
 def NegativeBinomial(

@@ -2380,6 +2380,31 @@ def test_gamma_poisson_cdf_real_thresholds():
 
 
 @pytest.mark.parametrize(
+    "jax_dist", [dist.GammaPoisson, dist.NegativeBinomial2, dist.NegativeBinomialLogits]
+)
+@pytest.mark.parametrize("integer_values", [False, True])
+def test_gamma_poisson_cdf_batched(jax_dist, integer_values):
+    # rate=inf puts all mass at zero; NegativeBinomialLogits reaches it with logits=-inf.
+    concentration = np.array([0.5, 2.0, 5.0])
+    rate = np.array([0.25, 3.0, np.inf])
+    conc, r = jnp.asarray(concentration), jnp.asarray(rate)
+    if jax_dist is dist.GammaPoisson:
+        d = jax_dist(conc, r)
+    elif jax_dist is dist.NegativeBinomial2:
+        d = jax_dist(conc / r, conc)
+    else:
+        d = jax_dist(conc, -jnp.log(r))
+    if integer_values:
+        value = np.array([-2, -1, 0, 1, 2, 7], dtype=np.int32)
+    else:
+        # Large finite thresholds are common as censoring bounds.
+        big = np.finfo(np.float32).max
+        value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, 1e30, big, np.inf], np.float32)
+    expected = osp.nbinom.cdf(value[:, None], concentration, 1 / (1 + 1 / rate))
+    assert_allclose(d.cdf(value[:, None]), expected, rtol=1e-5, atol=1e-7)
+
+
+@pytest.mark.parametrize(
     "distribution_type",
     [
         "gamma_poisson",
