@@ -468,6 +468,38 @@ def test_init_to_valid(init_strategy):
 
 
 @pytest.mark.parametrize(
+    "dist_cls, params",
+    [
+        (dist.Cauchy, (0.0, 1.0)),
+        (dist.HalfCauchy, (5.0,)),
+        (dist.StudentT, (0.5,)),
+        (dist.Pareto, (1.0, np.array([0.5, 2.0]))),
+    ],
+)
+def test_init_to_mean_without_finite_mean(dist_cls, params):
+    fn = dist_cls(*params)
+    with handlers.trace() as trace, handlers.seed(rng_seed=0):
+        numpyro.sample("x", fn)
+    site = trace["x"]
+    site["value"] = None
+    init = init_to_mean(site)
+    assert jnp.isfinite(init).all()
+    assert fn.support(init).all()
+
+
+def test_init_to_mean_eight_schools():
+    def model():
+        mu = numpyro.sample("mu", dist.Normal(0.0, 5.0))
+        tau = numpyro.sample("tau", dist.HalfCauchy(5.0))
+        with numpyro.plate("J", 8):
+            numpyro.sample("theta", dist.Normal(mu, tau))
+
+    # Two keys run the initialization under lax.map, where the mean is traced.
+    for rng_key in [random.key(0), random.split(random.key(0))]:
+        initialize_model(rng_key, model, init_strategy=init_to_mean)
+
+
+@pytest.mark.parametrize(
     "init_strategy",
     [
         init_to_feasible(),
