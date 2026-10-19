@@ -16,7 +16,7 @@ from sklearn.gaussian_process.kernels import (
     RationalQuadratic,
 )
 
-from jax import Array, random
+from jax import Array, random, vmap
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
@@ -275,6 +275,23 @@ def test_kernel_approx_periodic(
         x1[..., None] / (2 * jnp.pi), x2[..., None] / (2 * jnp.pi)
     )
     assert jnp.isclose(approx, exact, rtol=1e-3)
+
+
+def test_periodic_non_centered_prior_covariance():
+    x = jnp.array([0.0, 0.5, 1.0, 2.0])
+    w0, length, alpha, m = 1.0, 1.0, 1.0, 30
+
+    def f_sample(rng_key):
+        return seed(hsgp_periodic_non_centered, rng_key)(
+            x=x, alpha=alpha, length=length, w0=w0, m=m
+        )
+
+    samples = vmap(f_sample)(random.split(random.key(0), 5000))
+    empirical_cov = jnp.cov(samples.T)
+    exact_cov = ExpSineSquared(length_scale=length, periodicity=1 / w0)(
+        (x / (2 * jnp.pi))[:, None]
+    )
+    assert jnp.allclose(empirical_cov, exact_cov, atol=0.04, rtol=0.04)
 
 
 @pytest.mark.parametrize(
