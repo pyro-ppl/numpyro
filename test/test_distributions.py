@@ -4040,6 +4040,16 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
 
 
+@pytest.mark.parametrize("jax_dist", [dist.Uniform, dist.LogUniform])
+def test_interval_support_follows_updated_params(jax_dist):
+    d = jax_dist(1.0, 3.0)
+    grads = jax.grad(lambda d: d.mean)(d)
+    updated = jax.tree.map(lambda p, g: p + g, d, grads)
+    assert_allclose(updated.support.lower_bound, updated.low)
+    assert_allclose(updated.support.upper_bound, updated.high)
+    assert not updated.support(updated.low - 0.1)
+
+
 @pytest.mark.parametrize(
     "method, arg", [("to_event", 1), ("mask", False), ("expand", [5])]
 )
