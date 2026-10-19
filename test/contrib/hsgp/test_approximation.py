@@ -16,7 +16,7 @@ from sklearn.gaussian_process.kernels import (
     RationalQuadratic,
 )
 
-from jax import Array, random, vmap
+from jax import Array, grad, random, vmap
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
@@ -31,6 +31,7 @@ from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_period
 from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_matern,
     diag_spectral_density_periodic,
+    log_diag_spectral_density_periodic,
     diag_spectral_density_rational_quadratic,
     diag_spectral_density_squared_exponential,
 )
@@ -275,6 +276,20 @@ def test_kernel_approx_periodic(
         x1[..., None] / (2 * jnp.pi), x2[..., None] / (2 * jnp.pi)
     )
     assert jnp.isclose(approx, exact, rtol=1e-3)
+
+
+
+def test_periodic_non_centered_gradient_large_m():
+    def f(length):
+        return seed(hsgp_periodic_non_centered, random.key(0))(
+            x=jnp.array([0.0, 0.5, 1.0, 2.0]),
+            alpha=1.0,
+            length=length,
+            w0=1.0,
+            m=100,
+        ).sum()
+
+    assert jnp.isfinite(grad(f)(1.0))
 
 
 def test_periodic_non_centered_prior_covariance():
