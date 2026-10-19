@@ -184,11 +184,6 @@ def eigenfunctions(x, L, M):
     return num / den
 
 
-def modified_bessel_first_kind(v, z):
-    v = jnp.asarray(v, dtype=float)
-    return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
-
-
 def log_diag_spectral_density_periodic(alpha, length, M):
     a = length ** (-2)
     J = jnp.arange(0, M, dtype=jnp.result_type(a, float))
