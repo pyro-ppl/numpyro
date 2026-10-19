@@ -272,4 +272,5 @@ def hsgp_periodic_non_centered(
     zero = jnp.array([0.0])
     beta_sin = jnp.concatenate((zero, beta_sin))
 
-    return cosines @ (q2 * beta_cos) + sines @ (q2 * beta_sin)
+    q = jnp.sqrt(jnp.maximum(q2, jnp.finfo(q2.dtype).tiny))
+    return cosines @ (q * beta_cos) + sines @ (q * beta_sin)
