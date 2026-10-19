@@ -277,6 +277,32 @@ def test_predictive_with_particles():
     assert predictions["y"].shape == (num_samples, num_particles, num_data)
 
 
+@pytest.mark.parametrize("parallel", [True, False])
+def test_predictive_with_batched_model_params(parallel):
+    def model():
+        z = numpyro.sample("z", dist.Normal(0.0, 1.0))
+        offset = numpyro.param("offset", 0.0)
+        numpyro.deterministic("prediction", z + offset)
+
+    def guide():
+        loc = numpyro.param("loc", 0.0)
+        numpyro.sample("z", dist.Delta(loc))
+
+    params = {"loc": jnp.array([1.0, 2.0]), "offset": jnp.array([10.0, 20.0])}
+    predictions = Predictive(
+        model,
+        guide=guide,
+        params=params,
+        num_samples=3,
+        batch_ndims=1,
+        parallel=parallel,
+        return_sites=["prediction"],
+    )(random.key(0))
+
+    expected = np.broadcast_to(np.array([11.0, 22.0]), (3, 2))
+    assert_allclose(predictions["prediction"], expected)
+
+
 def test_predictive_with_improper():
     true_coef = 0.9
 
