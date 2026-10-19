@@ -449,7 +449,7 @@ class MCMC(object):
             self.progress_bar = False
         self.progress_rate = progress_rate
         self._jit_model_args = jit_model_args
-        self._states = None
+        self._states_grouped = None
         self._states_flat = None
         # HMCState returned by last run
         self._last_state = None
@@ -615,20 +615,28 @@ class MCMC(object):
         except TypeError:
             pass
 
-    def _get_states(self):
-        if self._states is None and self._states_flat is not None:
-            # single chain: the collection is stored without the chain axis. Derive
-            # the chain-grouped layout on demand without retaining it, so that a
-            # `group_by_chain=True` call does not leave a second copy on the device.
+    @property
+    def _states(self):
+        # The collection with a leading chain axis. For a single chain the
+        # collection is stored without that axis (see `run`), so the chain-grouped
+        # layout is derived on demand and not retained: a `group_by_chain=True` call
+        # must not leave a second copy of the samples on the device. This is a
+        # property rather than a plain attribute because downstream code reads
+        # `mcmc._states` directly.
+        if self._states_grouped is None and self._states_flat is not None:
             return jax.tree.map(lambda x: x[None, ...], self._states_flat)
-        return self._states
+        return self._states_grouped
+
+    @_states.setter
+    def _states(self, value):
+        self._states_grouped = value
 
     def _get_states_flat(self):
-        if self._states_flat is None and self._states is not None:
+        if self._states_flat is None and self._states_grouped is not None:
             self._states_flat = jax.tree.map(
                 # need to calculate first dimension manually; see issue #1328
                 lambda x: x.reshape((x.shape[0] * x.shape[1],) + x.shape[2:]),
-                self._states,
+                self._states_grouped,
             )
         return self._states_flat
 
@@ -787,8 +795,8 @@ class MCMC(object):
         states = states_flat = None
         if self.num_chains == 1:
             # Keep the collection in its native layout; adding the chain axis
-            # copies the whole collection in eager mode, so `_states` is derived
-            # lazily in `_get_states` only when `group_by_chain=True` is requested.
+            # copies the whole collection in eager mode, so the chain-grouped
+            # layout is derived lazily by the `_states` property instead.
             states_flat, last_state = partial_map_fn(map_args)
         else:
             if self.chain_method == "sequential":
@@ -804,7 +812,7 @@ class MCMC(object):
                 states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), states)
 
         self._last_state = last_state
-        self._states = states
+        self._states_grouped = states
         self._states_flat = states_flat
         self._set_collection_params()
 
@@ -828,7 +836,7 @@ class MCMC(object):
             samples = predictive(rng_key1, *model_args, **model_kwargs)
 
         """
-        states = self._get_states() if group_by_chain else self._get_states_flat()
+        states = self._states if group_by_chain else self._get_states_flat()
         assert states is not None, "`run` must be called before `get_samples`."
         return states[self._sample_field]
 
@@ -841,7 +849,7 @@ class MCMC(object):
         :return: Extra fields keyed by field names which are specified in the
             `extra_fields` keyword of :meth:`run`.
         """
-        states = self._get_states() if group_by_chain else self._get_states_flat()
+        states = self._states if group_by_chain else self._get_states_flat()
         assert states is not None, "`run` must be called before `get_extra_fields`."
         return {k: v for k, v in states.items() if k != self._sample_field}
 
@@ -854,7 +862,7 @@ class MCMC(object):
             at deterministic sites.
         """
         # Exclude deterministic sites by default
-        states = self._get_states()
+        states = self._states
         assert states is not None, "`run` must be called before `print_summary`."
         sites = states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
@@ -878,7 +886,7 @@ class MCMC(object):
         """
         Reduce the memory footprint of collected samples by transferring them to the host device.
         """
-        self._states = device_get(self._states)
+        self._states_grouped = device_get(self._states_grouped)
         self._states_flat = device_get(self._states_flat)
 
     def __getstate__(self):

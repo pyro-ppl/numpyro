@@ -703,6 +703,9 @@ def test_transfer_states_to_host(num_chains):
     samples = mcmc.get_samples(group_by_chain=True)
     assert samples["x"].shape == (num_chains, 20, 3)
     assert_allclose(samples["x"].reshape(-1, 3), samples_flat["x"])
+    # downstream code reads the private attribute directly, so it must keep
+    # serving the chain-grouped layout for any number of chains
+    assert_allclose(mcmc._states["z"]["x"], samples["x"])
     # the pattern documented in examples/annotation.py for merging extra samples
     # into the mcmc instance: update both layouts in place
     mcmc.get_samples().update({"y": samples_flat["x"] + 1})
@@ -720,6 +723,7 @@ def test_transfer_states_to_host(num_chains):
         assert isinstance(x, np.ndarray) and x.shape == shape + (3,)
         diverging = mcmc.get_extra_fields(group_by_chain=group_by_chain)["diverging"]
         assert isinstance(diverging, np.ndarray) and diverging.shape == shape
+    assert isinstance(mcmc._states["z"]["x"], np.ndarray)
     assert_allclose(mcmc.get_samples()["x"], samples_flat["x"])
 
 
