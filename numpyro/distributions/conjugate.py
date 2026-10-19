@@ -585,13 +585,14 @@ class GammaPoisson(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
-        distribution function is:
+        distribution function, for :math:`k = \lfloor x \rfloor \geq 0`, is:
 
         .. math::
-            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, x + 1)}
-            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{x} dt
+            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, k + 1)}
+            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{k} dt
 
-        which is the regularized incomplete beta function.
+        which is the regularized incomplete beta function. The CDF is zero for
+        :math:`x < 0` and one at :math:`x = \infty`.
         This implementation uses :func:`~jax.scipy.special.betainc`.
         """
         rate_fraction = jnp.where(
@@ -599,8 +600,10 @@ class GammaPoisson(Distribution):
             jnp.ones_like(self.rate),
             self.rate / (self.rate + 1.0),
         )
-        bt = betainc(self.concentration, value + 1.0, rate_fraction)
-        return bt
+        value = jnp.floor(value)
+        safe_value = jnp.where((value < 0) | jnp.isposinf(value), 0.0, value)
+        bt = betainc(self.concentration, safe_value + 1.0, rate_fraction)
+        return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, bt))
 
 
 def NegativeBinomial(
