@@ -6,7 +6,8 @@ from operator import mul
 
 import numpy as np
 import pytest
-from scipy.special import gammaln, ive, kve
+from scipy.integrate import quad
+from scipy.special import gamma, gammaln, ive, kve
 
 import jax
 import jax.numpy as jnp
@@ -183,6 +184,38 @@ def test_spectral_density_rational_quadratic(dim, w, alpha, length, scale_mixtur
     )
     assert spectral_density.shape == ()
     assert spectral_density > 0.0
+
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("length", [0.5, 1.0, 2.0])
+@pytest.mark.parametrize("frequency", [0.0, 0.5])
+def test_spectral_density_rational_quadratic_normalization(dim, length, frequency):
+    alpha, scale_mixture = 1.7, 2.5
+    w = np.zeros(dim)
+    w[0] = frequency
+    actual = spectral_density_rational_quadratic(
+        dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
+    )
+
+    # Independently integrate the RBF spectral density against the Gamma mixing
+    # density: its squared length scale is scale_mixture * length**2 / t.
+    integral, _ = quad(
+        lambda t: (
+            t ** (scale_mixture - 1 - dim / 2)
+            * np.exp(-t - scale_mixture * length**2 * frequency**2 / (2 * t))
+        ),
+        0.0,
+        np.inf,
+        epsabs=1e-10,
+        epsrel=1e-10,
+    )
+    expected = (
+        alpha
+        * (2 * np.pi * scale_mixture * length**2) ** (dim / 2)
+        * integral
+        / gamma(scale_mixture)
+    )
+    np.testing.assert_allclose(actual, expected, rtol=1e-5)
 
 
 @pytest.mark.parametrize(
