@@ -189,17 +189,21 @@ def modified_bessel_first_kind(v, z):
     return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
 
 
+def log_diag_spectral_density_periodic(alpha, length, M):
+    a = length ** (-2)
+    J = jnp.arange(0, M, dtype=jnp.result_type(a, float))
+    c = jnp.where(J > 0, 2, 1)
+    alpha2 = jnp.maximum(alpha**2, jnp.finfo(J.dtype).tiny)
+    return jnp.log(c * alpha2) + tfp.math.log_bessel_ive(J, a)
+
+
 def diag_spectral_density_periodic(alpha, length, M):
     """
     Not actually a spectral density but these are used in the same
     way. These are simply the first `M` coefficients of the low rank
     approximation for the periodic kernel.
     """
-    a = length ** (-2)
-    J = jnp.arange(0, M)
-    c = jnp.where(J > 0, 2, 1)
-    q2 = (c * alpha**2 / jnp.exp(a)) * modified_bessel_first_kind(J, a)
-    return q2
+    return jnp.exp(log_diag_spectral_density_periodic(alpha, length, M))
 
 
 def eigenfunctions_periodic(x, w0, M):
@@ -249,7 +253,7 @@ def approx_periodic_gp_ncp(x, alpha, length, w0, M):
     zero = jnp.array([0.0])
     beta_sin = jnp.concatenate((zero, beta_sin))
 
-    q = jnp.sqrt(jnp.maximum(q2, jnp.finfo(q2.dtype).tiny))
+    q = jnp.exp(0.5 * log_diag_spectral_density_periodic(alpha, length, M))
     f = deterministic("f", cosines @ (q * beta_cos) + sines @ (q * beta_sin))
     return f
 
