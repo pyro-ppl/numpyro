@@ -31,7 +31,6 @@ from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_period
 from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_matern,
     diag_spectral_density_periodic,
-    log_diag_spectral_density_periodic,
     diag_spectral_density_rational_quadratic,
     diag_spectral_density_squared_exponential,
 )
