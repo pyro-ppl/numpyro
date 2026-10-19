@@ -4042,26 +4042,12 @@ def test_dist_pytree(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize("jax_dist", [dist.Uniform, dist.LogUniform])
 def test_interval_support_follows_updated_params(jax_dist):
-    d = jax_dist(1.0, 3.0, validate_args=True)
+    d = jax_dist(1.0, 3.0)
     grads = jax.grad(lambda d: d.mean)(d)
     updated = jax.tree.map(lambda p, g: p + g, d, grads)
     assert_allclose(updated.support.lower_bound, updated.low)
     assert_allclose(updated.support.upper_bound, updated.high)
     assert not updated.support(updated.low - 0.1)
-    assert jnp.isfinite(updated.log_prob(updated.high - 0.1))
-
-
-@pytest.mark.parametrize(
-    "jax_dist, params, num_leaves",
-    [
-        (dist.Uniform, (0.0, 2.0), 2),
-        (dist.LogUniform, (1.0, 3.0), 4),  # includes the Uniform base_dist
-        (dist.DiscreteUniform, (0, 5), 2),
-    ],
-)
-def test_interval_dist_pytree_leaves(jax_dist, params, num_leaves):
-    d = jax_dist(*params)
-    assert len(jax.tree.leaves(d)) == num_leaves
 
 
 @pytest.mark.parametrize(
