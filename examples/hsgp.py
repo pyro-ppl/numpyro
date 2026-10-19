@@ -238,7 +238,6 @@ def approx_periodic_gp_ncp(x, alpha, length, w0, M):
     Low rank approximation for the periodic squared
     exponential kernel in the non-centered parametrisation.
     """
-    q2 = diag_spectral_density_periodic(alpha, length, M)
     cosines, sines = eigenfunctions_periodic(x, w0, M)
 
     with plate("cos_basis", M):
