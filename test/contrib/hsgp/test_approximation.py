@@ -281,6 +281,11 @@ def test_kernel_approx_periodic(
 def test_periodic_density_zero_amplitude():
     q2 = diag_spectral_density_periodic(alpha=0.0, length=1.0, m=10)
     assert jnp.array_equal(q2, jnp.zeros(10))
+    assert grad(
+        lambda alpha: diag_spectral_density_periodic(
+            alpha=alpha, length=1.0, m=10
+        ).sum()
+    )(0.0) == 0.0
 
 
 def test_periodic_non_centered_gradient_large_m():
