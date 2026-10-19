@@ -278,6 +278,11 @@ def test_kernel_approx_periodic(
 
 
 
+def test_periodic_density_zero_amplitude():
+    q2 = diag_spectral_density_periodic(alpha=0.0, length=1.0, m=10)
+    assert jnp.array_equal(q2, jnp.zeros(10))
+
+
 def test_periodic_non_centered_gradient_large_m():
     def f(length):
         return seed(hsgp_periodic_non_centered, random.key(0))(
