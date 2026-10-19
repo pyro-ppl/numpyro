@@ -3985,6 +3985,15 @@ def test_mask(batch_shape, event_shape, mask_shape):
     )
 
 
+@pytest.mark.parametrize("value_shape", [(), (4, 1)])
+def test_mask_array_bounds(value_shape):
+    base_dist = dist.Uniform(jnp.array([0.5, 1.0, 2.0]), jnp.array([3.0, 4.0, 5.0]))
+    mask = jnp.array([True, False, True])
+    value = jnp.full(value_shape, 2.2)
+    expected = jnp.where(mask, base_dist.log_prob(value), 0.0)
+    assert_allclose(base_dist.mask(mask).log_prob(value), expected)
+
+
 @pytest.mark.parametrize("event_shape", [(), (4,), (2, 4)])
 def test_mask_grad(event_shape):
     def f(x, data):
