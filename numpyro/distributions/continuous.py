@@ -6061,7 +6061,6 @@ class Levy(Distribution):
         "loc": constraints.real,
         "scale": constraints.positive,
     }
-    _support: constraints.Constraint
 
     def __init__(
         self,
@@ -6072,12 +6071,11 @@ class Levy(Distribution):
     ) -> None:
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        self._support = constraints.greater_than(cast(NumLike, loc))
         super(Levy, self).__init__(batch_shape, validate_args=validate_args)
 
-    @constraints.dependent_property(is_discrete=False)
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self._support
+        return constraints.greater_than(self.loc)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:

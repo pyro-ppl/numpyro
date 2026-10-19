@@ -4059,6 +4059,7 @@ def test_dist_pytree(jax_dist, sp_dist, params):
                 actual_arg.shape == expected_arg.shape
                 and actual_arg.dtype == expected_arg.dtype
             )
+    assert jnp.all(expected_dist.support.eq(actual_dist.support))
     expected_sample = expected_dist.sample(random.key(0))
     actual_sample = actual_dist.sample(random.key(0))
     if isinstance(expected_dist, dist.IntervalCensoredDistribution):
@@ -4091,6 +4092,13 @@ def test_special_dist_pytree(method, arg):
 
     jax.jit(f)(0)
     lax.map(f, np.ones(3))
+
+
+def test_levy_lax_map_batched_scale_support():
+    d = lax.map(lambda _: dist.Levy(2.0, np.ones(3), validate_args=True), np.ones(2))
+    value = jnp.full((2, 3), 3.0)
+    assert d.support(value).all()
+    assert jnp.isfinite(d.log_prob(value)).all()
 
 
 def test_expand_no_unnecessary_batch_shape_expansion():
