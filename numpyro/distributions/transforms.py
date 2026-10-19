@@ -1245,6 +1245,8 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
     Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints)
     Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
 
+    The anchor point translates the ordered vector without changing the Jacobian determinant.
+
     :param anchor_point: Anchor point is a nuisance parameter to improve the identifiability of the transform.
         For simplicity, we assume it is a scalar value, but it is broadcastable x.shape[:-1].
         For more details please refer to Section 2.2 in [1]
@@ -1290,6 +1292,7 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
+        y = y - jnp.expand_dims(self.anchor_point, -1)
         # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
         # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
         J_logdet = (softplus(y) + softplus(-y)).sum(-1)
