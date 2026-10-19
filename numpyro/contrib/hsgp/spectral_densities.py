@@ -384,8 +384,10 @@ def log_diag_spectral_density_periodic(
     a = length ** (-2)
     j = jnp.arange(0, m, dtype=jnp.result_type(a, float))
     c = jnp.where(j > 0, 2, 1)
-    alpha2 = jnp.maximum(alpha**2, jnp.finfo(j.dtype).tiny)
-    return jnp.log(c * alpha2) + tfp.math.log_bessel_ive(j, a)
+    alpha_nonzero = alpha != 0
+    safe_alpha2 = jnp.where(alpha_nonzero, alpha**2, 1)
+    log_alpha2 = jnp.where(alpha_nonzero, jnp.log(safe_alpha2), -jnp.inf)
+    return jnp.log(c) + log_alpha2 + tfp.math.log_bessel_ive(j, a)
 
 
 def diag_spectral_density_periodic(
