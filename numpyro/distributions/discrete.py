@@ -50,6 +50,7 @@ from numpyro.distributions.util import (
     lazy_property,
     multinomial,
     promote_shapes,
+    promote_to_inexact,
     validate_sample,
 )
 from numpyro.util import is_prng_key, not_jax_tracer
@@ -120,7 +121,7 @@ class BernoulliProbs(Distribution):
         assert is_prng_key(key)
         assert key is not None
         samples = random.bernoulli(
-            key, self.probs, shape=sample_shape + self.batch_shape
+            key, promote_to_inexact(self.probs), shape=sample_shape + self.batch_shape
         )
         return samples.astype(jnp.result_type(samples, int))
 
@@ -1801,7 +1802,7 @@ class ZeroInflatedProbs(Distribution):
         assert key is not None
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
-        mask = random.bernoulli(key_bern, self.gate, shape)
+        mask = random.bernoulli(key_bern, promote_to_inexact(self.gate), shape)
         samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
         return jnp.where(mask, 0, samples)
 
@@ -2060,7 +2061,7 @@ class HurdleProbs(Distribution):
         assert key is not None
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
-        zero_mask = random.bernoulli(key_bern, self.gate, shape)
+        zero_mask = random.bernoulli(key_bern, promote_to_inexact(self.gate), shape)
         if self._is_discrete:
             samples = self._sample_truncated(key_base, sample_shape)
         else:
@@ -2324,8 +2325,8 @@ class GeometricProbs(Distribution):
         """
         assert is_prng_key(key)
         assert key is not None
-        probs = jnp.asarray(self.probs, dtype=jnp.result_type(self.probs, float))
-        dtype = jnp.result_type(probs)
+        probs = promote_to_inexact(self.probs)
+        dtype = probs.dtype
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
         return jnp.floor(jnp.log1p(-u) / jnp.log1p(-probs))
@@ -2441,8 +2442,8 @@ class GeometricLogits(Distribution):
         """
         assert is_prng_key(key)
         assert key is not None
-        logits = jnp.asarray(self.logits, dtype=jnp.result_type(self.logits, float))
-        dtype = jnp.result_type(logits)
+        logits = promote_to_inexact(self.logits)
+        dtype = logits.dtype
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
         return jnp.floor(jnp.log1p(-u) / -softplus(logits))
@@ -2480,8 +2481,7 @@ class GeometricLogits(Distribution):
         where :math:`p=\sigma(\ell)`. Computed directly as
         :math:`\exp(-\ell)` to avoid cancellation when :math:`p` rounds to one.
         """
-        logits = jnp.asarray(self.logits)
-        return jnp.exp(-logits.astype(jnp.result_type(logits, float)))
+        return jnp.exp(-promote_to_inexact(self.logits))
 
     @property
     def variance(self) -> Array:

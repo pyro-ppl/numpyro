@@ -349,6 +349,11 @@ def _reshape(x, shape):
         return jnp.reshape(x, shape)
 
 
+def promote_to_inexact(value: ArrayLike) -> Array:
+    """Promote integer parameters to floating point, preserving inexact dtypes."""
+    return jnp.asarray(value, dtype=jnp.result_type(value, float))
+
+
 def promote_shapes(*args, shape=(), return_shapes: bool = False):
     """
     Promote the shapes of arrays so they have the same number of dimensions and are

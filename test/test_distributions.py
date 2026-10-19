@@ -57,7 +57,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.nn import AutoregressiveNN
 
 
@@ -6373,3 +6373,59 @@ def test_geometric_logits_extreme_moments():
 
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_geometric_probs_sampling_stream(compiled):
+    """A nondegenerate probability uses the matching floating-point uniform stream."""
+    probs = jnp.array([0.125, 0.5, 0.875], dtype=jnp.float32)
+    key = random.key(12)
+
+    def sample(p):
+        return dist.GeometricProbs(p).sample(key, (20,))
+
+    if compiled:
+        sample = jax.jit(sample)
+    actual = sample(probs)
+    uniform = random.uniform(key, (20, 3), dtype=probs.dtype)
+    expected = jnp.floor(jnp.log1p(-uniform) / jnp.log1p(-probs))
+    assert_array_equal(actual, expected)
+    assert actual.dtype == probs.dtype
+    assert jnp.any(actual > 0)
+
+
+@pytest.mark.parametrize(
+    "make_dist",
+    [
+        lambda p: dist.BernoulliProbs(p),
+        lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0),
+        lambda p: dist.ZeroInflatedDistribution(dist.GeometricLogits(0), gate=p),
+        lambda p: dist.HurdlePoisson(gate=p, rate=2.0),
+        lambda p: dist.GeometricLogits(p),
+    ],
+    ids=[
+        "bernoulli",
+        "zero_inflated_poisson",
+        "zero_inflated_geometric",
+        "hurdle_poisson",
+        "geometric_logits",
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("param", [0, np.array([0, 1, 0])])
+def test_integer_parameter_predictive(make_dist, compiled, param):
+    """Integer parameters work through seeding, plates and expanded distributions."""
+
+    def model(p):
+        with numpyro.plate("items", 3):
+            numpyro.sample("y", make_dist(p))
+
+    predictive = Predictive(model, num_samples=5)
+    if compiled:
+        predictive = jax.jit(predictive)
+    integer_param = jnp.asarray(param)
+    float_param = integer_param.astype(jnp.result_type(integer_param, float))
+    actual = predictive(random.key(1), integer_param)["y"]
+    expected = predictive(random.key(1), float_param)["y"]
+    assert_array_equal(actual, expected)
+    assert actual.shape == (5, 3)
