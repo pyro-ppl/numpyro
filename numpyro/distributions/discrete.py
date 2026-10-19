@@ -2324,7 +2324,7 @@ class GeometricProbs(Distribution):
         """
         assert is_prng_key(key)
         assert key is not None
-        probs = jnp.asarray(self.probs)
+        probs = jnp.asarray(self.probs, dtype=jnp.result_type(self.probs, float))
         dtype = jnp.result_type(probs)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
@@ -2441,7 +2441,7 @@ class GeometricLogits(Distribution):
         """
         assert is_prng_key(key)
         assert key is not None
-        logits = self.logits
+        logits = jnp.asarray(self.logits, dtype=jnp.result_type(self.logits, float))
         dtype = jnp.result_type(logits)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)

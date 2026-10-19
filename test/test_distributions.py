@@ -6276,6 +6276,38 @@ def test_truncated_gamma_inference():
 
 
 @pytest.mark.parametrize(
+    "make_dist, param",
+    [
+        (dist.GeometricProbs, 1),
+        (dist.GeometricProbs, np.int8(1)),
+        (dist.GeometricProbs, np.ones((2, 1), dtype=np.uint8)),
+        (dist.GeometricLogits, 0),
+        (dist.GeometricLogits, np.int16(-1)),
+        (dist.GeometricLogits, np.array([-2, 0, 2], dtype=np.int32)),
+    ],
+)
+@pytest.mark.parametrize("sample_shape", [(), (4,)])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_geometric_integer_parameter_samples(make_dist, param, sample_shape, compiled):
+    key = random.key(0)
+    param_array = jnp.asarray(param)
+    float_param = param_array.astype(jnp.result_type(param_array, float))
+
+    def sample(p):
+        return make_dist(p).sample(key, sample_shape)
+
+    if compiled:
+        sample = jax.jit(sample)
+
+    actual = sample(param)
+    expected = sample(float_param)
+
+    assert_array_equal(actual, expected)
+    assert actual.shape == sample_shape + make_dist(param).batch_shape
+    assert jnp.issubdtype(actual.dtype, jnp.floating)
+
+
+@pytest.mark.parametrize(
     "make_dist, param, grad_log_prob_0",
     [(dist.GeometricProbs, 1.0, 1.0), (dist.GeometricLogits, np.inf, 0.0)],
     ids=["probs", "logits"],
