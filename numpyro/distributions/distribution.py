@@ -1138,7 +1138,11 @@ class MaskedDistribution(Distribution):
             return self.base_dist.log_prob(value)
         try:
             assert self.base_dist.support is not None
-            default_value = self.base_dist.support.feasible_like(value)
+            default_value = self.base_dist.support.feasible_like(
+                jnp.broadcast_to(
+                    value, lax.broadcast_shapes(jnp.shape(value), self.shape())
+                )
+            )
         except NotImplementedError:
             pass
         else:
