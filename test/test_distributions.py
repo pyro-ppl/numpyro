@@ -3608,6 +3608,37 @@ def test_simplex_to_order_transform(batch_shape):
     assert simplex.shape == transform.inverse_shape(out.shape)
 
 
+@pytest.mark.parametrize(
+    "anchor_point, batch_shape",
+    [
+        (0.0, ()),
+        (2.0, ()),
+        (-1.5, ()),
+        (np.array([-2.0, 0.0, 1.5]), (3,)),
+        (np.array([[-2.0], [0.0], [1.5]]), (3, 2)),
+    ],
+)
+def test_simplex_to_ordered_log_prob(anchor_point, batch_shape):
+    simplex = np.array([0.3, 0.1, 0.4, 0.2])
+    concentration = np.array([2.0, 3.0, 4.0, 5.0])
+    cumulative = np.cumsum(simplex[:-1])
+    expected_logdet = -(np.log(cumulative) + np.log1p(-cumulative)).sum()
+    expected_log_prob = osp.dirichlet.logpdf(simplex, concentration) - expected_logdet
+
+    transform = SimplexToOrderedTransform(anchor_point)
+    x = jnp.broadcast_to(simplex, batch_shape + simplex.shape)
+    y = transform(x)
+    actual_logdet = transform.log_abs_det_jacobian(x, y)
+    assert actual_logdet.shape == batch_shape
+    assert_allclose(actual_logdet, expected_logdet, rtol=1e-6)
+
+    distribution = dist.TransformedDistribution(
+        dist.Dirichlet(concentration).expand(batch_shape), transform
+    )
+    assert_allclose(distribution.log_prob(y), expected_log_prob, rtol=1e-5)
+    assert_allclose(jax.jit(distribution.log_prob)(y), expected_log_prob, rtol=1e-5)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 @pytest.mark.parametrize("prepend_event_shape", [(), (4,)])
 @pytest.mark.parametrize("sample_shape", [(), (7,)])
@@ -4028,6 +4059,7 @@ def test_dist_pytree(jax_dist, sp_dist, params):
                 actual_arg.shape == expected_arg.shape
                 and actual_arg.dtype == expected_arg.dtype
             )
+    assert jnp.all(expected_dist.support.eq(actual_dist.support))
     expected_sample = expected_dist.sample(random.key(0))
     actual_sample = actual_dist.sample(random.key(0))
     if isinstance(expected_dist, dist.IntervalCensoredDistribution):
@@ -4040,6 +4072,16 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
 
 
+@pytest.mark.parametrize("jax_dist", [dist.Uniform, dist.LogUniform])
+def test_interval_support_follows_updated_params(jax_dist):
+    d = jax_dist(1.0, 3.0)
+    grads = jax.grad(lambda d: d.mean)(d)
+    updated = jax.tree.map(lambda p, g: p + g, d, grads)
+    assert_allclose(updated.support.lower_bound, updated.low)
+    assert_allclose(updated.support.upper_bound, updated.high)
+    assert not updated.support(updated.low - 0.1)
+
+
 @pytest.mark.parametrize(
     "method, arg", [("to_event", 1), ("mask", False), ("expand", [5])]
 )
@@ -4050,6 +4092,13 @@ def test_special_dist_pytree(method, arg):
 
     jax.jit(f)(0)
     lax.map(f, np.ones(3))
+
+
+def test_levy_lax_map_batched_scale_support():
+    d = lax.map(lambda _: dist.Levy(2.0, np.ones(3), validate_args=True), np.ones(2))
+    value = jnp.full((2, 3), 3.0)
+    assert d.support(value).all()
+    assert jnp.isfinite(d.log_prob(value)).all()
 
 
 def test_expand_no_unnecessary_batch_shape_expansion():
@@ -5695,6 +5744,11 @@ _HURDLE_CONTINUOUS_CASES = [
         dist.HurdleLogNormal,
         {"gate": 0.45, "loc": 0.0, "scale": 1.0},
         id="HurdleLogNormal",
+    ),
+    pytest.param(
+        lambda gate, rate: dist.HurdleDistribution(dist.Exponential(rate), gate=gate),
+        {"gate": 0.3, "rate": 0.5},
+        id="HurdleDistribution(Exponential)",
     ),
 ]
 

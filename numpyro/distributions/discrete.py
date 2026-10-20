@@ -1010,8 +1010,7 @@ class DiscreteUniform(Distribution):
         "high": constraints.dependent(is_discrete=True, event_dim=0),
     }
     has_enumerate_support = True
-    pytree_data_fields = ("low", "high", "_support")
-    _support: constraints.Constraint
+    pytree_data_fields = ("low", "high")
 
     def __init__(
         self,
@@ -1028,7 +1027,6 @@ class DiscreteUniform(Distribution):
         """
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
-        self._support = constraints.integer_interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
@@ -1036,7 +1034,7 @@ class DiscreteUniform(Distribution):
         r"""The support of the discrete uniform distribution is the set of integers
         :math:`\{\text{low}, \text{low}+1, \dots, \text{high}\}`.
         """
-        return self._support
+        return constraints.integer_interval(self.low, self.high)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -2135,6 +2133,9 @@ class HurdleProbs(Distribution):
     def support(self) -> constraints.Constraint:
         support = self.base_dist.support
         assert support is not None
+        # The hurdle adds a point mass at 0, which a positive base support excludes.
+        if support is constraints.positive:
+            return constraints.nonnegative
         return support
 
     def _log_one_minus_p_zero(self) -> Array:

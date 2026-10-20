@@ -449,7 +449,7 @@ class MCMC(object):
             self.progress_bar = False
         self.progress_rate = progress_rate
         self._jit_model_args = jit_model_args
-        self._states = None
+        self._states_grouped = None
         self._states_flat = None
         # HMCState returned by last run
         self._last_state = None
@@ -615,12 +615,28 @@ class MCMC(object):
         except TypeError:
             pass
 
+    @property
+    def _states(self):
+        # The collection with a leading chain axis. For a single chain the
+        # collection is stored without that axis (see `run`), so the chain-grouped
+        # layout is derived on demand and not retained: a `group_by_chain=True` call
+        # must not leave a second copy of the samples on the device. This is a
+        # property rather than a plain attribute because downstream code reads
+        # `mcmc._states` directly.
+        if self._states_grouped is None and self._states_flat is not None:
+            return jax.tree.map(lambda x: x[None, ...], self._states_flat)
+        return self._states_grouped
+
+    @_states.setter
+    def _states(self, value):
+        self._states_grouped = value
+
     def _get_states_flat(self):
-        if self._states_flat is None:
+        if self._states_flat is None and self._states_grouped is not None:
             self._states_flat = jax.tree.map(
                 # need to calculate first dimension manually; see issue #1328
-                lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1],) + x.shape[2:]),
-                self._states,
+                lambda x: x.reshape((x.shape[0] * x.shape[1],) + x.shape[2:]),
+                self._states_grouped,
             )
         return self._states_flat
 
@@ -776,9 +792,12 @@ class MCMC(object):
             remove_sites=remove_sites,
         )
         map_args = (rng_key, init_state, init_params)
+        states = states_flat = None
         if self.num_chains == 1:
+            # Keep the collection in its native layout; adding the chain axis
+            # copies the whole collection in eager mode, so the chain-grouped
+            # layout is derived lazily by the `_states` property instead.
             states_flat, last_state = partial_map_fn(map_args)
-            states = jax.tree.map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
             if self.chain_method == "sequential":
                 states, last_state = _laxmap(partial_map_fn, map_args)
@@ -793,8 +812,8 @@ class MCMC(object):
                 states = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), states)
 
         self._last_state = last_state
-        self._states = states
-        self._states_flat = None
+        self._states_grouped = states
+        self._states_flat = states_flat
         self._set_collection_params()
 
     def get_samples(self, group_by_chain=False):
@@ -860,18 +879,15 @@ class MCMC(object):
                     if k in state_sample_field
                 }
         print_summary(sites, prob=prob)
-        extra_fields = self.get_extra_fields()
-        if "diverging" in extra_fields:
-            print(
-                "Number of divergences: {}".format(jnp.sum(extra_fields["diverging"]))
-            )
+        if "diverging" in states:
+            print("Number of divergences: {}".format(jnp.sum(states["diverging"])))
 
     def transfer_states_to_host(self):
         """
         Reduce the memory footprint of collected samples by transferring them to the host device.
         """
-        self._states = device_get(self._states)
-        self._states_flat = device_get(self._get_states_flat())
+        self._states_grouped = device_get(self._states_grouped)
+        self._states_flat = device_get(self._states_flat)
 
     def __getstate__(self):
         state = self.__dict__.copy()

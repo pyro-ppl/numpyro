@@ -2921,8 +2921,7 @@ class LogUniform(TransformedDistribution):
 
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
     reparametrized_params = ["low", "high"]
-    pytree_data_fields = ("low", "high", "_support")
-    _support: constraints.Constraint
+    pytree_data_fields = ("low", "high")
 
     def __init__(
         self,
@@ -2938,14 +2937,13 @@ class LogUniform(TransformedDistribution):
         """
         base_dist = Uniform(jnp.log(low), jnp.log(high))
         self.low, self.high = promote_shapes(low, high)
-        self._support = constraints.interval(self.low, self.high)
         super(LogUniform, self).__init__(
             base_dist, ExpTransform(), validate_args=validate_args
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self._support
+        return constraints.interval(self.low, self.high)
 
     @property
     def mean(self) -> Array:
@@ -4850,8 +4848,7 @@ class Uniform(Distribution):
         "high": constraints.dependent(is_discrete=False, event_dim=0),
     }
     reparametrized_params = ["low", "high"]
-    pytree_data_fields = ("low", "high", "_support")
-    _support: constraints.Constraint
+    pytree_data_fields = ("low", "high")
 
     def __init__(
         self,
@@ -4862,12 +4859,11 @@ class Uniform(Distribution):
     ) -> None:
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
-        self._support = constraints.interval(cast(NumLike, low), cast(NumLike, high))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self._support
+        return constraints.interval(self.low, self.high)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -6065,7 +6061,6 @@ class Levy(Distribution):
         "loc": constraints.real,
         "scale": constraints.positive,
     }
-    _support: constraints.Constraint
 
     def __init__(
         self,
@@ -6076,12 +6071,11 @@ class Levy(Distribution):
     ) -> None:
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        self._support = constraints.greater_than(cast(NumLike, loc))
         super(Levy, self).__init__(batch_shape, validate_args=validate_args)
 
-    @constraints.dependent_property(is_discrete=False)
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self._support
+        return constraints.greater_than(self.loc)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:

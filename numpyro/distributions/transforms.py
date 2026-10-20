@@ -1290,6 +1290,7 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
+        y = y - jnp.expand_dims(self.anchor_point, -1)
         # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
         # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
         J_logdet = (softplus(y) + softplus(-y)).sum(-1)
