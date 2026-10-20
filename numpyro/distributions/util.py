@@ -212,6 +212,10 @@ def _binomial(key, p, n, shape):
     # reshape to map over axis 0
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
+    # the samplers below count trials with integers, so integer-valued float
+    # counts are sampled as integers and returned in their own dtype
+    dtype = n.dtype
+    n = n.astype(jnp.result_type(int))
     key = random.split(key, jnp.size(p))
     # Like jax.random.gamma: vmapped while loops only reproduce per-key streams for
     # threefry keys; other PRNG implementations take the sequential path.
@@ -219,7 +223,7 @@ def _binomial(key, p, n, shape):
         ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
     else:
         ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
-    return jnp.reshape(ret, shape)
+    return jnp.reshape(ret, shape).astype(dtype)
 
 
 def binomial(key, p, n=1, shape=()):
