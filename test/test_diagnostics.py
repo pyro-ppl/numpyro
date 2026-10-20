@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
-from numpy.testing import assert_allclose
+from numpy.testing import assert_, assert_allclose
 import pytest
 from scipy.fftpack import next_fast_len
 
@@ -14,6 +14,7 @@ from numpyro.diagnostics import (
     gelman_rubin,
     hpdi,
     split_gelman_rubin,
+    summary,
 )
 
 
@@ -60,14 +61,26 @@ def test_hpdi():
 
 def test_autocorrelation():
     x = np.arange(10.0)
-    actual = autocorrelation(x)
+    actual = autocorrelation(x, bias=False)
     expected = np.array([1, 0.78, 0.52, 0.21, -0.13, -0.52, -0.94, -1.4, -1.91, -2.45])
     assert_allclose(actual, expected, atol=0.01)
+
+    actual = autocorrelation(x, bias=True)
+    expected = expected * np.arange(len(x), 0.0, -1) / len(x)
+    assert_allclose(actual, expected, atol=0.01)
+
+    # the unbiased estimator has variance O(1) at large lags
+    x = np.random.normal(size=20000)
+    ac = autocorrelation(x, bias=False)
+    assert_(np.any(np.abs(ac[-100:]) > 0.1))
+
+    ac = autocorrelation(x, bias=True)
+    assert_allclose(np.abs(ac[-100:]), 0.0, atol=0.01)
 
 
 def test_autocovariance():
     x = np.arange(10.0)
-    actual = autocovariance(x)
+    actual = autocovariance(x, bias=False)
     expected = np.array(
         [8.25, 6.42, 4.25, 1.75, -1.08, -4.25, -7.75, -11.58, -15.75, -20.25]
     )
@@ -93,4 +106,19 @@ def test_split_gelman_rubin_agree_with_gelman_rubin():
 
 def test_effective_sample_size():
     x = np.arange(1000.0).reshape(100, 10)
-    assert_allclose(effective_sample_size(x), 52.64, atol=0.01)
+    assert_allclose(effective_sample_size(x, bias=False), 52.64, atol=0.01)
+
+
+@pytest.mark.parametrize("num_draws", [500, 501])
+def test_summary_median_matches_numpy(num_draws):
+    x = np.random.RandomState(0).randn(2, num_draws, 3)
+    stats = summary({"x": x})["x"]
+    assert_allclose(stats["median"], np.median(x.reshape(-1, 3), axis=0))
+
+
+def test_summary_median_propagates_nan():
+    x = np.random.RandomState(0).randn(2, 100, 3)
+    x[0, 5, 1] = np.nan
+    stats = summary({"x": x})["x"]
+    assert np.isnan(stats["median"][1])
+    assert not np.isnan(stats["median"][[0, 2]]).any()

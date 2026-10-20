@@ -1,20 +1,20 @@
 all: test
 
 lint: FORCE
-	flake8
-	black --check .
-	isort --check .
+	ruff check .
+	ruff format . --check
 	python scripts/update_headers.py --check
+	ty check
 
 license: FORCE
 	python scripts/update_headers.py
 
 format: license FORCE
-	black .
-	isort .
+	ruff format .
+	ruff check --fix .
 
 install: FORCE
-	pip install -e .[dev,doc,test,examples]
+	pip install -e '.[dev,doc,test,examples]'
 
 doctest: FORCE
 	JAX_PLATFORM_NAME=cpu $(MAKE) -C docs doctest

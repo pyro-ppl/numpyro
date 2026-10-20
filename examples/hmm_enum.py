@@ -303,8 +303,13 @@ def model_6(sequences, lengths, args, include_prior=False):
         with numpyro.plate("sequences", num_sequences, dim=-2):
             with mask(mask=(t < lengths)[..., None]):
                 probs_x_t = Vindex(probs_x)[x_prev, x_curr]
-                x_prev, x_curr = x_curr, numpyro.sample(
-                    "x", dist.Categorical(probs_x_t), infer={"enumerate": "parallel"}
+                x_prev, x_curr = (
+                    x_curr,
+                    numpyro.sample(
+                        "x",
+                        dist.Categorical(probs_x_t),
+                        infer={"enumerate": "parallel"},
+                    ),
                 )
                 with numpyro.plate("tones", data_dim, dim=-1):
                     probs_y_t = probs_y[x_curr.squeeze(-1)]
@@ -349,7 +354,7 @@ def main(args):
 
     logger.info("Each sequence has shape {}".format(sequences[0].shape))
     logger.info("Starting inference...")
-    rng_key = random.PRNGKey(2)
+    rng_key = random.key(2)
     start = time.time()
     kernel = {"nuts": NUTS, "hmc": HMC}[args.kernel](model)
     mcmc = MCMC(
@@ -365,6 +370,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith("0.22.0")
     parser = argparse.ArgumentParser(description="HMC for HMMs")
     parser.add_argument(
         "-m",

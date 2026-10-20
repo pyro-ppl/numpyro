@@ -5,6 +5,7 @@
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
 from functools import partial
+import math
 import warnings
 
 import numpy as np
@@ -13,7 +14,6 @@ import jax
 from jax import grad, hessian, lax, random
 from jax.example_libraries import stax
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import handlers
@@ -29,6 +29,7 @@ from numpyro.distributions.transforms import (
     IndependentTransform,
     LowerCholeskyAffine,
     PermuteTransform,
+    ReshapeTransform,
     UnpackTransform,
     biject_to,
 )
@@ -50,8 +51,11 @@ from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import find_stack_level, not_jax_tracer
 
 __all__ = [
+    "AutoBatchedLowRankMultivariateNormal",
+    "AutoBatchedMultivariateNormal",
     "AutoContinuous",
     "AutoGuide",
+    "AutoGuideList",
     "AutoDAIS",
     "AutoDiagonalNormal",
     "AutoLaplaceApproximation",
@@ -76,41 +80,52 @@ class AutoGuide(ABC):
     :param str prefix: a prefix that will be prefixed to all param internal sites
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param callable create_plates: An optional function inputing the same
+    :param callable create_plates: An optional function inputting the same
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False. This is useful for models that
+        contain JAX primitives which are not supported by reverse-mode differentiation
+        (e.g. :func:`jax.lax.while_loop`).
     """
 
     def __init__(
-        self, model, *, prefix="auto", init_loc_fn=init_to_uniform, create_plates=None
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        create_plates=None,
+        forward_mode_differentiation=False,
     ):
         self.model = model
         self.prefix = prefix
         self.init_loc_fn = init_loc_fn
         self.create_plates = create_plates
+        self._forward_mode_differentiation = forward_mode_differentiation
         self.prototype_trace = None
         self._prototype_frames = {}
         self._prototype_frame_full_sizes = {}
 
-    def _create_plates(self, *args, **kwargs):
+    def _create_plates(self, *args, **kwargs) -> dict:
         if self.create_plates is None:
-            self.plates = {}
+            plates = {}
         else:
             plates = self.create_plates(*args, **kwargs)
             if isinstance(plates, numpyro.plate):
                 plates = [plates]
-            assert all(
-                isinstance(p, numpyro.plate) for p in plates
-            ), "create_plates() returned a non-plate"
-            self.plates = {p.name: p for p in plates}
+            assert all(isinstance(p, numpyro.plate) for p in plates), (
+                "create_plates() returned a non-plate"
+            )
+            plates = {p.name: p for p in plates}
         for name, frame in sorted(self._prototype_frames.items()):
-            if name not in self.plates:
+            if name not in plates:
                 full_size = self._prototype_frame_full_sizes[name]
-                self.plates[name] = numpyro.plate(
+                plates[name] = numpyro.plate(
                     name, full_size, dim=frame.dim, subsample_size=frame.size
                 )
-        return self.plates
+        return plates
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -128,16 +143,18 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         """
         Generate samples from the approximate posterior over the latent
         sites in the model.
 
-        :param jax.random.PRNGKey rng_key: random key to be used draw samples.
+        :param jax.random.key rng_key: random key to be used draw samples.
         :param dict params: Current parameters of model and autoguide.
             The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
             method from :class:`~numpyro.infer.svi.SVI`.
+        :param args: Arguments to be provided to the model / guide.
         :param tuple sample_shape: sample shape of each latent site, defaults to ().
+        :param kwargs: Keyword arguments to be provided to the model / guide.
         :return: a dict containing samples drawn the this guide.
         :rtype: dict
         """
@@ -158,6 +175,7 @@ class AutoGuide(ABC):
                 dynamic_args=True,
                 model_args=args,
                 model_kwargs=kwargs,
+                forward_mode_differentiation=self._forward_mode_differentiation,
             )
         self._potential_fn = self._potential_fn_gen(*args, **kwargs)
         postprocess_fn = postprocess_fn_gen(*args, **kwargs)
@@ -175,11 +193,15 @@ class AutoGuide(ABC):
                     # raise support errors early for discrete sites
                     with helpful_support_errors(site):
                         biject_to(site["fn"].support)
+                # Do not create plates for observed sites because they may be subsampled
+                # with a different size during prototype setup and training.
+                if site["is_observed"]:
+                    continue
                 for frame in site["cond_indep_stack"]:
                     if frame.name in self._prototype_frames:
-                        assert (
-                            frame == self._prototype_frames[frame.name]
-                        ), f"The plate {frame.name} has inconsistent dim or size. Please check your model again."
+                        assert frame == self._prototype_frames[frame.name], (
+                            f"The plate {frame.name} has inconsistent dim or size. Please check your model again."
+                        )
                     else:
                         self._prototype_frames[frame.name] = frame
             elif site["type"] == "plate":
@@ -213,6 +235,134 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
 
+class AutoGuideList(AutoGuide):
+    """
+    Container class to combine multiple automatic guides.
+
+    Example usage::
+
+        rng_key_init = random.key(0)
+        guide = AutoGuideList(my_model)
+        guide.append(
+            AutoNormal(
+                numpyro.handlers.block(model, hide=["coefs"])
+            )
+        )
+        guide.append(
+            AutoDelta(
+                numpyro.handlers.block(model, expose=["coefs"])
+            )
+        )
+        svi = SVI(model, guide, optim, Trace_ELBO())
+        svi_state = svi.init(rng_key_init, data, labels)
+        params = svi.get_params(svi_state)
+
+    :param callable model: a NumPyro model
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
+    """
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        create_plates=None,
+        forward_mode_differentiation=False,
+    ):
+        self._guides = []
+        super().__init__(
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            create_plates=create_plates,
+            forward_mode_differentiation=forward_mode_differentiation,
+        )
+
+    def append(self, part):
+        """
+        Add an automatic or custom guide for part of the model. The guide should
+        have been created by blocking the model to restrict to a subset of
+        sample sites. No two parts should operate on any one sample site.
+
+        :param part: a partial guide to add
+        :type part: AutoGuide
+        """
+        if (
+            isinstance(part, numpyro.infer.autoguide.AutoDAIS)
+            or isinstance(part, numpyro.infer.autoguide.AutoSemiDAIS)
+            or isinstance(part, numpyro.infer.autoguide.AutoSurrogateLikelihoodDAIS)
+        ):
+            raise ValueError(
+                "AutoDAIS, AutoSemiDAIS, and AutoSurrogateLikelihoodDAIS are not supported."
+            )
+        self._guides.append(part)
+
+    def __call__(self, *args, **kwargs):
+        if self.prototype_trace is None:
+            # run model to inspect the model structure
+            self._setup_prototype(*args, **kwargs)
+            check_deterministic_sites = True
+        else:
+            check_deterministic_sites = False
+
+        # create all plates
+        self._create_plates(*args, **kwargs)
+
+        # run sub-guides
+        result = {}
+        for part in self._guides:
+            result.update(part(*args, **kwargs))
+
+        # Check deterministic sites after calling sub-guides because they are not
+        # initialized prior to the first call. We do not check guides that do not have
+        # a prototype_trace attribute, e.g., custom guides.
+        if check_deterministic_sites:
+            for i, part in enumerate(self._guides):
+                prototype_trace = getattr(part, "prototype_trace", None)
+                if prototype_trace:
+                    for key, value in prototype_trace.items():
+                        if value["type"] == "deterministic":
+                            raise ValueError(
+                                f"deterministic site '{key}' in sub-guide at position "
+                                f"{i} should not be exposed"
+                            )
+
+        return result
+
+    def __getitem__(self, key):
+        return self._guides[key]
+
+    def __len__(self):
+        return len(self._guides)
+
+    def __iter__(self):
+        yield from self._guides
+
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
+        result = {}
+        for part in self._guides:
+            result.update(
+                part.sample_posterior(
+                    rng_key, params, *args, sample_shape=sample_shape, **kwargs
+                )
+            )
+        return result
+
+    def median(self, params):
+        result = {}
+        for part in self._guides:
+            result.update(part.median(params))
+        return result
+
+    def quantiles(self, params, quantiles):
+        result = {}
+        for part in self._guides:
+            result.update(part.quantiles(params, quantiles))
+        return result
+
+
 class AutoNormal(AutoGuide):
     """
     This implementation of :class:`AutoGuide` uses Normal distributions
@@ -233,10 +383,12 @@ class AutoNormal(AutoGuide):
         See :ref:`init_strategy` section for available functions.
     :param float init_scale: Initial scale for the standard deviation of each
         (unconstrained transformed) latent variable.
-    :param callable create_plates: An optional function inputing the same
+    :param callable create_plates: An optional function inputting the same
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     scale_constraint = constraints.softplus_positive
@@ -249,11 +401,16 @@ class AutoNormal(AutoGuide):
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
         create_plates=None,
+        forward_mode_differentiation=False,
     ):
         self._init_scale = init_scale
         self._event_dims = {}
         super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            create_plates=create_plates,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
 
     def _setup_prototype(self, *args, **kwargs):
@@ -326,19 +483,19 @@ class AutoNormal(AutoGuide):
             : jnp.ndim(latent_samples[name]) - jnp.ndim(self._init_locs[name])
         ]
         if sample_shape:
-            flatten_samples = tree_map(
+            flatten_samples = jax.tree.map(
                 lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[len(sample_shape) :]),
                 latent_samples,
             )
             contrained_samples = lax.map(self._postprocess_fn, flatten_samples)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 contrained_samples,
             )
         else:
             return self._postprocess_fn(latent_samples)
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
         with handlers.seed(rng_seed=rng_key):
@@ -386,18 +543,30 @@ class AutoDelta(AutoGuide):
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param callable create_plates: An optional function inputing the same
+    :param callable create_plates: An optional function inputting the same
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
-        self, model, *, prefix="auto", init_loc_fn=init_to_median, create_plates=None
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_median,
+        create_plates=None,
+        forward_mode_differentiation=False,
     ):
         self._event_dims = {}
         super().__init__(
-            model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            create_plates=create_plates,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
 
     def _setup_prototype(self, *args, **kwargs):
@@ -497,13 +666,20 @@ def _unravel_dict(x_flat, shape_dict):
 def _ravel_dict(x):
     """Return the flatten version of `x` and shapes of each item in `x`."""
     assert isinstance(x, dict)
-    shape_dict = {}
+    shape_dict = {name: jnp.shape(value) for name, value in x.items()}
+    x_flat = _ravel_dict_with_shape_dict(x, shape_dict)
+    return x_flat, shape_dict
+
+
+def _ravel_dict_with_shape_dict(x, shape_dict):
+    assert set(x.keys()) == set(shape_dict.keys())
     x_flat = []
-    for name, value in x.items():
-        shape_dict[name] = jnp.shape(value)
+    for name, shape in shape_dict.items():
+        value = x[name]
+        assert shape == jnp.shape(value)
         x_flat.append(jnp.reshape(value, -1))
     x_flat = jnp.concatenate(x_flat) if x_flat else jnp.zeros((0,))
-    return x_flat, shape_dict
+    return x_flat
 
 
 class AutoContinuous(AutoGuide):
@@ -534,7 +710,9 @@ class AutoContinuous(AutoGuide):
         unpack_latent = partial(_unravel_dict, shape_dict=shape_dict)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
-        self._unpack_latent = UnpackTransform(unpack_latent)
+        self._unpack_latent = UnpackTransform(
+            unpack_latent, _ravel_dict_with_shape_dict
+        )
         self.latent_dim = jnp.size(self._init_latent)
         if self.latent_dim == 0:
             raise RuntimeError(
@@ -599,7 +777,7 @@ class AutoContinuous(AutoGuide):
     def _unpack_and_constrain(self, latent_sample, params):
         def unpack_single_latent(latent):
             unpacked_samples = self._unpack_latent(latent)
-            # XXX: we need to add param here to be able to replay model
+            # Note: we need to add param here to be able to replay model
             unpacked_samples.update(
                 {
                     k: v
@@ -623,7 +801,7 @@ class AutoContinuous(AutoGuide):
                 latent_sample, (-1, jnp.shape(latent_sample)[-1])
             )
             unpacked_samples = lax.map(unpack_single_latent, latent_sample)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 unpacked_samples,
             )
@@ -650,9 +828,9 @@ class AutoContinuous(AutoGuide):
         :rtype: :class:`~numpyro.distributions.transforms.Transform`
         """
         posterior = handlers.substitute(self._get_posterior, params)()
-        assert isinstance(
-            posterior, dist.TransformedDistribution
-        ), "posterior is not a transformed distribution"
+        assert isinstance(posterior, dist.TransformedDistribution), (
+            "posterior is not a transformed distribution"
+        )
         if len(posterior.transforms) > 0:
             return ComposeTransform(posterior.transforms)
         else:
@@ -670,7 +848,7 @@ class AutoContinuous(AutoGuide):
         transform = self.get_transform(params)
         return dist.TransformedDistribution(base_dist, transform)
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         latent_sample = handlers.substitute(
             handlers.seed(self._sample_latent, rng_key), params
         )(sample_shape=sample_shape)
@@ -718,6 +896,8 @@ class AutoDAIS(AutoContinuous):
     :param float init_scale: Initial scale for the standard deviation of
         the base variational distribution for each (unconstrained transformed)
         latent variable. Defaults to 0.1.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
@@ -732,6 +912,7 @@ class AutoDAIS(AutoContinuous):
         prefix="auto",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        forward_mode_differentiation=False,
     ):
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
@@ -754,7 +935,12 @@ class AutoDAIS(AutoContinuous):
         self.K = K
         self.base_dist = base_dist
         self._init_scale = init_scale
-        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
+        super().__init__(
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            forward_mode_differentiation=forward_mode_differentiation,
+        )
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -840,7 +1026,7 @@ class AutoDAIS(AutoContinuous):
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            eta = jnp.clip(eta, 0.0, self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist.log_prob)(z_half)
@@ -859,7 +1045,7 @@ class AutoDAIS(AutoContinuous):
 
         return z
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         def _single_sample(_rng_key):
             latent_sample = handlers.substitute(
                 handlers.seed(self._sample_latent, _rng_key), params
@@ -869,7 +1055,7 @@ class AutoDAIS(AutoContinuous):
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
             samples = lax.map(_single_sample, rng_key)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 samples,
             )
@@ -948,6 +1134,8 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
     :param float init_scale: Initial scale for the standard deviation of
         the base variational distribution for each (unconstrained transformed)
         latent variable. Defaults to 0.1.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
@@ -963,6 +1151,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         base_dist="diagonal",
         init_loc_fn=init_to_uniform,
         init_scale=0.1,
+        forward_mode_differentiation=False,
     ):
         super().__init__(
             model,
@@ -974,6 +1163,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
             init_loc_fn=init_loc_fn,
             init_scale=init_scale,
             base_dist=base_dist,
+            forward_mode_differentiation=forward_mode_differentiation,
         )
 
         self.surrogate_model = surrogate_model
@@ -984,19 +1174,32 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         rng_key = numpyro.prng_key()
 
         with numpyro.handlers.block():
-            (_, self._surrogate_potential_fn, _, _) = initialize_model(
-                rng_key,
-                self.surrogate_model,
-                init_strategy=self.init_loc_fn,
-                dynamic_args=False,
-                model_args=(),
-                model_kwargs={},
+            (_, self._surrogate_potential_fn, _, self._surrogate_prototype_trace) = (
+                initialize_model(
+                    rng_key,
+                    self.surrogate_model,
+                    init_strategy=self.init_loc_fn,
+                    dynamic_args=False,
+                    model_args=(),
+                    model_kwargs={},
+                    forward_mode_differentiation=self._forward_mode_differentiation,
+                )
             )
 
     def _sample_latent(self, *args, **kwargs):
+        surrogate_params = {}
+        for name, site in self._surrogate_prototype_trace.items():
+            if site["type"] == "param":
+                surrogate_params[name] = numpyro.param(
+                    name, site["value"], **site["kwargs"]
+                )
+
         def blocked_surrogate_model(x):
             x_unpack = self._unpack_latent(x)
-            with numpyro.handlers.block(expose_types=["param"]):
+            with (
+                numpyro.handlers.block(),
+                numpyro.handlers.substitute(data=surrogate_params),
+            ):
                 return -self._surrogate_potential_fn(x_unpack)
 
         eta0 = numpyro.param(
@@ -1059,7 +1262,7 @@ class AutoSurrogateLikelihoodDAIS(AutoDAIS):
         def scan_body(carry, eps_beta):
             eps, beta = eps_beta
             eta = eta0 + eta_coeff * beta
-            eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+            eta = jnp.clip(eta, 0.0, self.eta_max)
             z_prev, v_prev, log_factor = carry
             z_half = z_prev + v_prev * eta * inv_mass_matrix
             q_grad = (1.0 - beta) * grad(base_z_dist_log_prob)(z_half)
@@ -1122,7 +1325,7 @@ class AutoSemiDAIS(AutoGuide):
 
         # sample posterior for particular data subset {3, 7}
         with handlers.substitute(data={"data": jnp.array([3, 7])}):
-            samples = guide.sample_posterior(random.PRNGKey(1), params)
+            samples = guide.sample_posterior(random.key(1), params)
 
     :param callable model: A NumPyro model with global and local latent variables.
     :param callable local_model: The portion of `model` that includes the local latent variables only.
@@ -1144,13 +1347,23 @@ class AutoSemiDAIS(AutoGuide):
         during partial momentum refreshments in HMC. Defaults to 0.9.
     :param float init_scale: Initial scale for the standard deviation of the variational
         distribution for each (unconstrained transformed) local latent variable. Defaults to 0.1.
+    :param str subsample_plate: Optional name of the subsample plate site. This is required
+        when the model has a subsample plate without `subsample_size` specified or
+        the model has a subsample plate with `subsample_size` equal to the plate size.
+    :param bool use_global_dais_params: Whether parameters controlling DAIS dynamic
+        (HMC step size, HMC mass matrix, etc.) should be global (i.e. common to all
+        data points in the subsample plate) or local (i.e. each data point in the
+        subsample plate has individual parameters). Note that we do not use global
+        parameters for the base distribution.
+    :param bool forward_mode_differentiation: Whether to use forward-mode differentiation
+        during model initialization. Defaults to False.
     """
 
     def __init__(
         self,
         model,
         local_model,
-        global_guide,
+        global_guide=None,
         local_guide=None,
         *,
         prefix="auto",
@@ -1159,9 +1372,16 @@ class AutoSemiDAIS(AutoGuide):
         eta_max=0.1,
         gamma_init=0.9,
         init_scale=0.1,
+        subsample_plate=None,
+        use_global_dais_params=False,
+        forward_mode_differentiation=False,
     ):
-        # init_loc_fn is only used to inspect the model.
-        super().__init__(model, prefix=prefix, init_loc_fn=init_to_uniform)
+        super().__init__(
+            model,
+            prefix=prefix,
+            init_loc_fn=init_to_uniform,
+            forward_mode_differentiation=forward_mode_differentiation,
+        )
         if K < 1:
             raise ValueError("K must satisfy K >= 1 (got K = {})".format(K))
         if eta_init <= 0.0 or eta_init >= eta_max:
@@ -1183,6 +1403,8 @@ class AutoSemiDAIS(AutoGuide):
         self.gamma_init = gamma_init
         self.K = K
         self.init_scale = init_scale
+        self.subsample_plate = subsample_plate
+        self.use_global_dais_params = use_global_dais_params
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -1195,10 +1417,21 @@ class AutoSemiDAIS(AutoGuide):
             and isinstance(site["args"][1], int)
             and site["args"][0] > site["args"][1]
         }
+        if self.subsample_plate is not None:
+            subsample_plates[self.subsample_plate] = self.prototype_trace[
+                self.subsample_plate
+            ]
+        elif not subsample_plates:
+            # Consider all plates as subsample plates.
+            subsample_plates = {
+                name: site
+                for name, site in self.prototype_trace.items()
+                if site["type"] == "plate"
+            }
         num_plates = len(subsample_plates)
-        assert (
-            num_plates == 1
-        ), f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
+        assert num_plates == 1, (
+            f"AutoSemiDAIS assumes that the model contains exactly 1 plate with data subsampling but got {num_plates}."
+        )
         plate_name = list(subsample_plates.keys())[0]
         local_vars = []
         subsample_axes = {}
@@ -1214,7 +1447,7 @@ class AutoSemiDAIS(AutoGuide):
                         break
         if len(local_vars) == 0:
             raise RuntimeError(
-                "There are no local variables in the `{plate_name}` plate."
+                f"There are no local variables in the `{plate_name}` plate."
                 " AutoSemiDAIS is appropriate for models with local variables."
             )
 
@@ -1238,11 +1471,13 @@ class AutoSemiDAIS(AutoGuide):
             UnpackTransform(unpack_latent), out_axes=subsample_axes
         )
         plate_full_size, plate_subsample_size = subsample_plates[plate_name]["args"]
+        if plate_subsample_size is None:
+            plate_subsample_size = plate_full_size
         self._local_latent_dim = jnp.size(local_init_latent) // plate_subsample_size
         self._local_plate = (plate_name, plate_full_size, plate_subsample_size)
 
         if self.global_guide is not None:
-            with handlers.block(), handlers.seed(rng_seed=0):
+            with handlers.block():
                 local_args = (self.global_guide.model(*args, **kwargs),)
                 local_kwargs = {}
         else:
@@ -1250,11 +1485,11 @@ class AutoSemiDAIS(AutoGuide):
             local_kwargs = kwargs.copy()
 
         if self.local_guide is not None:
-            with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+            with handlers.block(), handlers.trace() as tr:
                 self.local_guide(*local_args, **local_kwargs)
             self.prototype_local_guide_trace = tr
 
-        with handlers.block(), handlers.trace() as tr, handlers.seed(rng_seed=0):
+        with handlers.block(), handlers.trace() as tr:
             self.local_model(*local_args, **local_kwargs)
         self.prototype_local_model_trace = tr
 
@@ -1301,10 +1536,7 @@ class AutoSemiDAIS(AutoGuide):
 
         if self.global_guide is not None:
             global_latents = self.global_guide(*args, **kwargs)
-            rng_key = numpyro.prng_key()
-            with handlers.block(), handlers.seed(rng_seed=rng_key), handlers.substitute(
-                data=global_latents
-            ):
+            with handlers.block(), handlers.substitute(data=global_latents):
                 global_outputs = self.global_guide.model(*args, **kwargs)
             local_args = (global_outputs,)
             local_kwargs = {}
@@ -1345,47 +1577,79 @@ class AutoSemiDAIS(AutoGuide):
         D, K = self._local_latent_dim, self.K
 
         with numpyro.plate(plate_name, N, subsample_size=subsample_size) as idx:
-            eta0 = numpyro.param(
-                "{}_eta0".format(self.prefix),
-                jnp.ones(N) * self.eta_init,
-                constraint=constraints.interval(0, self.eta_max),
-                event_dim=0,
-            )
-            eta_coeff = numpyro.param(
-                "{}_eta_coeff".format(self.prefix), jnp.zeros(N), event_dim=0
-            )
+            if self.use_global_dais_params:
+                eta0 = numpyro.param(
+                    "{}_eta0".format(self.prefix),
+                    self.eta_init,
+                    constraint=constraints.interval(0, self.eta_max),
+                )
+                eta0 = jnp.broadcast_to(eta0, idx.shape)
+                eta_coeff = numpyro.param(
+                    "{}_eta_coeff".format(self.prefix),
+                    0.0,
+                )
+                eta_coeff = jnp.broadcast_to(eta_coeff, idx.shape)
+                gamma = numpyro.param(
+                    "{}_gamma".format(self.prefix),
+                    0.9,
+                    constraint=constraints.interval(0, 1),
+                )
+                gamma = jnp.broadcast_to(gamma, idx.shape)
+                betas = numpyro.param(
+                    "{}_beta_increments".format(self.prefix),
+                    jnp.ones(K),
+                    constraint=constraints.positive,
+                )
+                betas = jnp.broadcast_to(betas, idx.shape + (K,))
+                mass_matrix = numpyro.param(
+                    "{}_mass_matrix".format(self.prefix),
+                    jnp.ones(D),
+                    constraint=constraints.positive,
+                )
+                mass_matrix = jnp.broadcast_to(mass_matrix, idx.shape + (D,))
+            else:
+                eta0 = numpyro.param(
+                    "{}_eta0".format(self.prefix),
+                    jnp.ones(N) * self.eta_init,
+                    constraint=constraints.interval(0, self.eta_max),
+                    event_dim=0,
+                )
+                eta_coeff = numpyro.param(
+                    "{}_eta_coeff".format(self.prefix), jnp.zeros(N), event_dim=0
+                )
+                gamma = numpyro.param(
+                    "{}_gamma".format(self.prefix),
+                    jnp.ones(N) * 0.9,
+                    constraint=constraints.interval(0, 1),
+                    event_dim=0,
+                )
+                betas = numpyro.param(
+                    "{}_beta_increments".format(self.prefix),
+                    jnp.ones((N, K)),
+                    constraint=constraints.positive,
+                    event_dim=1,
+                )
+                mass_matrix = numpyro.param(
+                    "{}_mass_matrix".format(self.prefix),
+                    jnp.ones((N, D)),
+                    constraint=constraints.positive,
+                    event_dim=1,
+                )
 
-            gamma = numpyro.param(
-                "{}_gamma".format(self.prefix),
-                jnp.ones(N) * 0.9,
-                constraint=constraints.interval(0, 1),
-                event_dim=0,
-            )
-            betas = numpyro.param(
-                "{}_beta_increments".format(self.prefix),
-                jnp.ones((N, K)),
-                constraint=constraints.positive,
-                event_dim=1,
-            )
             betas = jnp.cumsum(betas, axis=-1)
             betas = betas / betas[..., -1:]
 
-            mass_matrix = numpyro.param(
-                "{}_mass_matrix".format(self.prefix),
-                jnp.ones((N, D)),
-                constraint=constraints.positive,
-                event_dim=1,
-            )
             inv_mass_matrix = 0.5 / mass_matrix
             assert inv_mass_matrix.shape == (subsample_size, D)
 
             local_kwargs["_subsample_idx"] = {plate_name: idx}
             if self.local_guide is not None:
-                key = numpyro.prng_key()
                 subsample_guide = partial(_subsample_model, self.local_guide)
-                with handlers.block(), handlers.trace() as tr, handlers.seed(
-                    rng_seed=key
-                ), handlers.substitute(data=local_guide_params):
+                with (
+                    handlers.block(),
+                    handlers.trace() as tr,
+                    handlers.substitute(data=local_guide_params),
+                ):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         subsample_guide(*local_args, **local_kwargs)
@@ -1458,7 +1722,7 @@ class AutoSemiDAIS(AutoGuide):
             def scan_body(carry, eps_beta):
                 eps, beta = eps_beta
                 eta = eta0 + eta_coeff * beta
-                eta = jnp.clip(eta, a_min=0.0, a_max=self.eta_max)
+                eta = jnp.clip(eta, 0.0, self.eta_max)
                 assert eps.shape == (subsample_size, D)
                 assert eta.shape == beta.shape == (subsample_size,)
                 z_prev, v_prev, log_factor = carry
@@ -1513,7 +1777,7 @@ class AutoSemiDAIS(AutoGuide):
         if sample_shape:
             rng_key = random.split(rng_key, int(np.prod(sample_shape)))
             samples = lax.map(_single_sample, rng_key)
-            return tree_map(
+            return jax.tree.map(
                 lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                 samples,
             )
@@ -1646,6 +1910,118 @@ class AutoMultivariateNormal(AutoContinuous):
         return self._unpack_and_constrain(latent, params)
 
 
+class AutoBatchedMixin:
+    """
+    Mixin to infer the batch and event shapes of batched auto guides.
+    """
+
+    # Available from AutoContinuous.
+    latent_dim: int
+
+    def __init__(self, *args, **kwargs):
+        self._batch_shape = None
+        self._event_shape = None
+        # Pop the number of batch dimensions and pass the rest to the other constructor.
+        self.batch_ndim = kwargs.pop("batch_ndim")
+        super().__init__(*args, **kwargs)
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+
+        # Extract the batch shape.
+        batch_shape = None
+        for site in self.prototype_trace.values():
+            if site["type"] == "sample" and not site["is_observed"]:
+                shape = site["value"].shape
+                if site["value"].ndim < self.batch_ndim + site["fn"].event_dim:
+                    raise ValueError(
+                        f"Expected {self.batch_ndim} batch dimensions, but site "
+                        f"`{site['name']}` only has shape {shape}."
+                    )
+                shape = shape[: self.batch_ndim]
+                if batch_shape is None:
+                    batch_shape = shape
+                elif shape != batch_shape:
+                    raise ValueError("Encountered inconsistent batch shapes.")
+        self._batch_shape = batch_shape
+
+        # Save the event shape of the non-batched part. This will always be a vector.
+        batch_size = math.prod(self._batch_shape)
+        if self.latent_dim % batch_size:
+            raise RuntimeError(
+                f"Incompatible batch shape {batch_shape} (size {batch_size}) and "
+                f"latent dims {self.latent_dim}."
+            )
+        self._event_shape = (self.latent_dim // batch_size,)
+
+    def _get_batched_posterior(self):
+        raise NotImplementedError
+
+    def _get_posterior(self):
+        return dist.TransformedDistribution(
+            self._get_batched_posterior(),
+            self._get_reshape_transform(),
+        )
+
+    def _get_reshape_transform(self) -> ReshapeTransform:
+        return ReshapeTransform(
+            (self.latent_dim,), self._batch_shape + self._event_shape
+        )
+
+
+class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a batched MultivariateNormal
+    distribution to construct a guide over the entire latent space.
+    The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoBatchedMultivariateNormal(model, batch_ndim=1, ...)
+        svi = SVI(model, guide, ...)
+    """
+
+    scale_tril_constraint = constraints.scaled_unit_lower_cholesky
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+        batch_ndim=1,
+    ):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
+        super().__init__(
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            batch_ndim=batch_ndim,
+        )
+
+    def _get_batched_posterior(self):
+        init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
+        loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
+        init_scale = (
+            jnp.ones(self._batch_shape + (1, 1))
+            * jnp.identity(init_latent.shape[-1])
+            * self._init_scale
+        )
+        scale_tril = numpyro.param(
+            "{}_scale_tril".format(self.prefix),
+            init_scale,
+            constraint=self.scale_tril_constraint,
+        )
+        return dist.MultivariateNormal(loc, scale_tril=scale_tril)
+
+    def median(self, params):
+        loc = self._get_reshape_transform()(params["{}_loc".format(self.prefix)])
+        return self._unpack_and_constrain(loc, params)
+
+
 class AutoLowRankMultivariateNormal(AutoContinuous):
     """
     This implementation of :class:`AutoContinuous` uses a LowRankMultivariateNormal
@@ -1724,6 +2100,65 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         return self._unpack_and_constrain(latent, params)
 
 
+class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a batched
+    AutoLowRankMultivariateNormal distribution to construct a guide over the entire
+    latent space. The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoBatchedLowRankMultivariateNormal(model, batch_ndim=1, ...)
+        svi = SVI(model, guide, ...)
+    """
+
+    scale_constraint = constraints.softplus_positive
+
+    def __init__(
+        self,
+        model,
+        *,
+        prefix="auto",
+        init_loc_fn=init_to_uniform,
+        init_scale=0.1,
+        rank=None,
+        batch_ndim=1,
+    ):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
+        self.rank = rank
+        super().__init__(
+            model,
+            prefix=prefix,
+            init_loc_fn=init_loc_fn,
+            batch_ndim=batch_ndim,
+        )
+
+    def _get_batched_posterior(self):
+        rank = (
+            int(round(self._event_shape[0] ** 0.5)) if self.rank is None else self.rank
+        )
+        init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
+        loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
+        cov_factor = numpyro.param(
+            "{}_cov_factor".format(self.prefix),
+            jnp.zeros(self._batch_shape + self._event_shape + (rank,)),
+        )
+        scale = numpyro.param(
+            "{}_scale".format(self.prefix),
+            jnp.full(self._batch_shape + self._event_shape, self._init_scale),
+            constraint=self.scale_constraint,
+        )
+        cov_diag = scale * scale
+        cov_factor = cov_factor * scale[..., None]
+        return dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
+
+    def median(self, params):
+        loc = self._get_reshape_transform()(params["{}_loc".format(self.prefix)])
+        return self._unpack_and_constrain(loc, params)
+
+
 class AutoLaplaceApproximation(AutoContinuous):
     r"""
     Laplace approximation (quadratic approximation) approximates the posterior
@@ -1770,7 +2205,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         def loss_fn(params):
             # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
             return Trace_ELBO().loss(
-                random.PRNGKey(0), params, self.model, self, *args, **kwargs
+                random.key(0), params, self.model, self, *args, **kwargs
             )
 
         self._loss_fn = loss_fn
@@ -1808,9 +2243,14 @@ class AutoLaplaceApproximation(AutoContinuous):
         Returns a multivariate Normal posterior distribution.
         """
         transform = self.get_transform(params)
-        return dist.MultivariateNormal(transform.loc, scale_tril=transform.scale_tril)
+        # When the Hessian at the MAP point is singular, ``get_transform`` warns
+        # and falls back to a zeroed ``scale_tril`` (a degenerate, constant
+        # posterior). That fallback is intentional, so skip argument validation.
+        return dist.MultivariateNormal(
+            transform.loc, scale_tril=transform.scale_tril, validate_args=False
+        )
 
-    def sample_posterior(self, rng_key, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, *args, sample_shape=(), **kwargs):
         latent_sample = self.get_posterior(params).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 

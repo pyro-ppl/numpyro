@@ -3,6 +3,7 @@
 
 from abc import ABC, abstractmethod
 import math
+from typing import Iterable
 
 import numpy as np
 
@@ -12,6 +13,12 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
+from numpyro.distributions.transforms import (
+    ComposeTransform,
+    DiscreteCosineTransform,
+    HaarTransform,
+    Transform,
+)
 from numpyro.distributions.util import is_identically_one, safe_normalize, sum_rightmost
 from numpyro.infer.autoguide import AutoContinuous
 from numpyro.util import not_jax_tracer
@@ -225,7 +232,7 @@ class NeuTraReparam(Reparam):
 
         # Step 2. Use trained guide in NeuTra MCMC
         neutra = NeuTraReparam(guide)
-        model = netra.reparam(model)
+        model = neutra.reparam(model)
         nuts = NUTS(model)
         # ...now use the model in HMC or NUTS...
 
@@ -280,9 +287,15 @@ class NeuTraReparam(Reparam):
         compute_density = numpyro.get_mask() is not False
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
+            model_plates = {
+                msg["name"]
+                for msg in self.guide.prototype_trace.values()
+                if msg["type"] == "plate"
+            }
             z_unconstrained = numpyro.sample(
                 "{}_shared_latent".format(self.guide.prefix),
                 self.guide.get_base_dist().mask(False),
+                infer={"block_plates": model_plates},
             )
 
             # Differentiably transform.
@@ -331,6 +344,7 @@ class CircularReparam(Reparam):
         if isinstance(support, constraints.independent):
             support = fn.support.base_constraint
         assert support is constraints.circular
+        assert obs is None, "CircularReparam does not support observe statements"
 
         # Draw parameter-free noise.
         new_fn = dist.ImproperUniform(constraints.real, fn.batch_shape, fn.event_shape)
@@ -346,3 +360,151 @@ class CircularReparam(Reparam):
         # Simulate a pyro.deterministic() site.
         numpyro.factor(f"{name}_factor", fn.log_prob(value))
         return None, value
+
+
+class ExplicitReparam(Reparam):
+    """
+    Explicit reparametrizer of a latent variable :code:`x` to a transformed space
+    :code:`y = transform(x)` with more amenable geometry. This reparametrizer is similar
+    to :class:`.TransformReparam` but allows reparametrizations to be decoupled from the
+    model declaration.
+
+    :param transform: Bijective transform to the reparameterized space.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> from jax import numpy as jnp
+        >>> import numpyro
+        >>> from numpyro import handlers, distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS
+        >>> from numpyro.infer.reparam import ExplicitReparam
+        >>>
+        >>> def model():
+        ...    numpyro.sample("x", dist.Gamma(4, 4))
+        >>>
+        >>> # Sample in unconstrained space using a soft-plus instead of exp transform.
+        >>> reparam = ExplicitReparam(dist.transforms.SoftplusTransform().inv)
+        >>> reparametrized = handlers.reparam(model, {"x": reparam})
+        >>> kernel = NUTS(model=reparametrized)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, num_chains=1)
+        >>> mcmc.run(random.key(2))  # doctest: +SKIP
+        sample: 100%|██████████| 2000/2000 [00:00<00:00, 2306.47it/s, 3 steps of size 9.65e-01. acc. prob=0.93]
+    """
+
+    def __init__(self, transform):
+        if isinstance(transform, Iterable) and all(
+            isinstance(t, dist.transforms.Transform) for t in transform
+        ):
+            transform = dist.transforms.ComposeTransform(transform)
+        self.transform = transform
+
+    def __call__(self, name, fn, obs):
+        assert obs is None, "ExplicitReparam does not support observe statements"
+        transformed = dist.TransformedDistribution(fn, self.transform)
+        x = numpyro.sample(f"{name}_base", transformed)
+        return None, self.transform.inv(x)
+
+
+class UnitJacobianReparam(Reparam):
+    """
+    Reparameterizer for a :class:`~numpyro.distributions.transforms.Transform`
+    whose Jacobian determinant is one.
+
+    The latent variable is reparameterized to a new space ``y = transform(x)``
+    via a transform applied to the unconstrained representation of the latent.
+    Because the Jacobian determinant is one, the log density of the model is
+    unchanged. This reparameterization works only for latent variables, not
+    likelihoods. The targeted (e.g. time) axis must be an event dimension.
+
+    This is intended for latent variables with real or independent positive
+    support (the transform is applied in the unconstrained representation, via
+    ``biject_to(support).inv``). It is not meaningful for non-trivial
+    constrained supports such as simplex, ordered, or correlation matrices,
+    where the axis-wise transform does not correspond to a useful change of
+    geometry.
+
+    :param transform: A transform whose Jacobian has determinant one.
+    :param str suffix: A suffix to append to the auxiliary site name.
+    """
+
+    def __init__(self, transform: Transform, suffix: str = "transformed") -> None:
+        self.transform = transform
+        self.suffix = suffix
+
+    def __call__(self, name, fn, obs):
+        assert obs is None, "UnitJacobianReparam does not support observe statements"
+        fn, expand_shape, event_dim = self._unwrap(fn)
+
+        # Map the constrained latent to the (unconstrained) reparameterized space.
+        transform = ComposeTransform([biject_to(fn.support).inv, self.transform])
+        base_event_dim = max(event_dim, self.transform.domain.event_dim)
+
+        # Draw noise in the reparameterized space.
+        x = numpyro.sample(
+            f"{name}_{self.suffix}",
+            dist.TransformedDistribution(
+                self._wrap(fn, expand_shape, base_event_dim), transform
+            ),
+        )
+
+        # Differentiably transform back. This simulates a deterministic site.
+        return None, transform.inv(x)
+
+
+class HaarReparam(UnitJacobianReparam):
+    """
+    Haar wavelet reparameterizer, using a
+    :class:`~numpyro.distributions.transforms.HaarTransform`.
+
+    This is useful for sequential models where coupling along a time-like axis
+    (e.g. a banded precision matrix) introduces long-range correlation. This
+    reparameterizes to a frequency-domain representation where the posterior
+    covariance should be closer to diagonal, thereby improving the accuracy of
+    diagonal guides in SVI and the effectiveness of a diagonal mass matrix in
+    HMC.
+
+    This reparameterization works only for latent variables, not likelihoods.
+    The time axis must be an event dimension (e.g. via ``.to_event(1)``).
+
+    :param int dim: Dimension along which to transform. Must be negative. This
+        is an absolute dim counting from the right.
+    :param bool flip: Whether to flip the time axis before applying the Haar
+        transform. Defaults to False.
+    """
+
+    def __init__(self, dim: int = -1, flip: bool = False) -> None:
+        super().__init__(HaarTransform(dim=dim, flip=flip), suffix="haar")
+
+
+class DiscreteCosineReparam(UnitJacobianReparam):
+    """
+    Discrete Cosine reparameterizer, using a
+    :class:`~numpyro.distributions.transforms.DiscreteCosineTransform`.
+
+    This is useful for sequential models where coupling along a time-like axis
+    (e.g. a banded precision matrix) introduces long-range correlation. This
+    reparameterizes to a frequency-domain representation where the posterior
+    covariance should be closer to diagonal, thereby improving the accuracy of
+    diagonal guides in SVI and the effectiveness of a diagonal mass matrix in
+    HMC.
+
+    When reparameterizing variables that are approximately continuous along the
+    time dimension, set ``smooth=1``. For variables that are approximately
+    continuously differentiable along the time axis, set ``smooth=2``.
+
+    This reparameterization works only for latent variables, not likelihoods.
+    The time axis must be an event dimension (e.g. via ``.to_event(1)``).
+
+    :param int dim: Dimension along which to transform. Must be negative. This
+        is an absolute dim counting from the right.
+    :param float smooth: Smoothing parameter. When 0, this transforms white
+        noise to white noise; when 1 this transforms Brownian noise to white
+        noise; when -1 this transforms violet noise to white noise; etc. Any
+        real number is allowed. See https://en.wikipedia.org/wiki/Colors_of_noise.
+    """
+
+    def __init__(self, dim: int = -1, smooth: float = 0.0) -> None:
+        super().__init__(DiscreteCosineTransform(dim=dim, smooth=smooth), suffix="dct")

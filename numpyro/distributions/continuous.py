@@ -25,17 +25,22 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union, cast
+
 import numpy as np
 
-from jax import lax, vmap
+import jax
+from jax import Array, lax, vmap
 from jax.experimental.sparse import BCOO
 from jax.lax import scan
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.linalg import cho_solve, solve_triangular
+from jax.scipy.linalg import cho_solve, solve_triangular, toeplitz
 from jax.scipy.special import (
     betaln,
+    digamma,
     expi,
     expit,
     gammainc,
@@ -48,33 +53,80 @@ from jax.scipy.special import (
     xlogy,
 )
 from jax.scipy.stats import norm as jax_norm
+from jax.typing import ArrayLike
 
+from numpyro._typing import NonScalarArray
 from numpyro.distributions import constraints
-from numpyro.distributions.discrete import _to_logits_bernoulli
-from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.discrete import HurdleProbs, _to_logits_bernoulli
+from numpyro.distributions.distribution import (
+    Distribution,
+    TransformedDistribution,
+)
 from numpyro.distributions.transforms import (
     AffineTransform,
+    CholeskyTransform,
     CorrMatrixCholeskyTransform,
     ExpTransform,
+    PackRealFastFourierCoefficientsTransform,
     PowerTransform,
+    RealFastFourierTransform,
+    RecursiveLinearTransform,
     SigmoidTransform,
+    Transform,
+    ZeroSumTransform,
 )
 from numpyro.distributions.util import (
+    _reshape,
+    add_diag,
+    assert_one_of,
     betainc,
     betaincinv,
     cholesky_of_inverse,
     gammaincinv,
     lazy_property,
     matrix_to_tril_vec,
+    multidigamma,
     promote_shapes,
     signed_stick_breaking_tril,
+    tri_logabsdet,
     validate_sample,
     vec_to_tril_matrix,
 )
 from numpyro.util import is_prng_key
 
+if TYPE_CHECKING:
+    import scipy.sparse
+
 
 class AsymmetricLaplace(Distribution):
+    r"""Asymmetric Laplace distribution on :math:`\mathbb{R}` with location
+    :math:`\mu`, scale :math:`\sigma > 0` and asymmetry :math:`\kappa > 0`.
+    It generalizes :class:`Laplace` by using different exponential decay rates
+    on either side of the location: the left and right scales are
+    :math:`\sigma \kappa` and :math:`\sigma / \kappa`, so :math:`\kappa = 1`
+    recovers :class:`Laplace` while larger :math:`\kappa` puts more spread
+    (and more mass) below :math:`\mu`.
+
+    The Probability Density Function (PDF) of the Asymmetric Laplace
+    distribution is defined as:
+
+    .. math::
+        f(x ; \mu, \sigma, \kappa) =
+        \frac{\kappa}{\sigma (1 + \kappa^2)}
+        \begin{cases}
+            \exp\left(-\displaystyle\frac{|x - \mu|}{\sigma \kappa}\right) & x < \mu, \\
+            \exp\left(-\kappa \displaystyle\frac{|x - \mu|}{\sigma}\right) & x \geq \mu,
+        \end{cases}
+
+    where :math:`\mu` is :attr:`loc` (the mode), :math:`\sigma` is
+    :attr:`scale` and :math:`\kappa` is :attr:`asymmetry`. The probability
+    mass below :math:`\mu` is :math:`\kappa^2 / (1 + \kappa^2)`, the mean is
+    :math:`\mu + \sigma (1 / \kappa - \kappa)` and the variance is
+    :math:`\sigma^2 (\kappa^2 + \kappa^{-2})`. A draw can be represented as
+    :math:`\mu - \sigma \kappa \, U + (\sigma / \kappa) \, V` with
+    independent :math:`U, V \sim \mathrm{Exponential}(1)`.
+    """
+
     arg_constraints = {
         "loc": constraints.real,
         "scale": constraints.positive,
@@ -83,7 +135,21 @@ class AsymmetricLaplace(Distribution):
     reparametrized_params = ["loc", "scale", "asymmetry"]
     support = constraints.real
 
-    def __init__(self, loc=0.0, scale=1.0, asymmetry=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        asymmetry: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param loc: Location :math:`\mu \in \mathbb{R}` (the mode). Defaults to ``0.0``.
+        :param scale: Scale :math:`\sigma > 0`. Defaults to ``1.0``.
+        :param asymmetry: Asymmetry :math:`\kappa > 0`; ``1.0`` gives the symmetric
+            Laplace distribution. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
         )
@@ -96,33 +162,78 @@ class AsymmetricLaplace(Distribution):
 
     @lazy_property
     def left_scale(self):
+        r"""Scale of the exponential decay below :attr:`loc`,
+        :math:`\sigma \kappa`."""
         return self.scale * self.asymmetry
 
     @lazy_property
     def right_scale(self):
+        r"""Scale of the exponential decay above :attr:`loc`,
+        :math:`\sigma / \kappa`."""
         return self.scale / self.asymmetry
 
-    def log_prob(self, value):
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \mu, \sigma, \kappa) =
+            -\frac{|x - \mu|}{s(x)}
+            - \ln\!\left(\sigma \kappa + \frac{\sigma}{\kappa}\right),
+            \qquad
+            s(x) = \begin{cases}
+                \sigma \kappa & x < \mu, \\
+                \sigma / \kappa & x \geq \mu.
+            \end{cases}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :param intermediates: Not used.
+        :return: Log probability density evaluated under the asymmetric Laplace
+            distribution.
+        """
         if self._validate_args:
             self._validate_sample(value)
         z = value - self.loc
         z = -jnp.abs(z) / jnp.where(z < 0, self.left_scale, self.right_scale)
         return z - jnp.log(self.left_scale + self.right_scale)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples via the scale-mixture representation
+        :math:`X = \mu - \sigma \kappa \, U + (\sigma / \kappa) \, V` with
+        independent :math:`U, V \sim \mathrm{Exponential}(1)` drawn from
+        :func:`~jax.random.exponential`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the asymmetric Laplace distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         shape = (2,) + sample_shape + self.batch_shape + self.event_shape
         u, v = random.exponential(key, shape=shape)
         return self.loc - self.left_scale * u + self.right_scale * v
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the asymmetric Laplace distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu + \sigma \left(\frac{1}{\kappa} - \kappa\right)
+        """
         total_scale = self.left_scale + self.right_scale
         mean = self.loc + (self.right_scale**2 - self.left_scale**2) / total_scale
         return jnp.broadcast_to(mean, self.batch_shape)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the asymmetric Laplace distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \sigma^2 \left(\kappa^2 + \kappa^{-2}\right)
+        """
         left = self.left_scale
         right = self.right_scale
         total = left + right
@@ -131,7 +242,24 @@ class AsymmetricLaplace(Distribution):
         variance = p * left**2 + q * right**2 + p * q * total**2
         return jnp.broadcast_to(variance, self.batch_shape)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the asymmetric Laplace
+        distribution:
+
+        .. math::
+            F(x ; \mu, \sigma, \kappa) =
+            \begin{cases}
+                \displaystyle\frac{\kappa^2}{1 + \kappa^2}
+                \exp\left(-\displaystyle\frac{|x - \mu|}{\sigma \kappa}\right)
+                & x < \mu, \\
+                1 - \displaystyle\frac{1}{1 + \kappa^2}
+                \exp\left(-\displaystyle\frac{|x - \mu|}{\sigma / \kappa}\right)
+                & x \geq \mu.
+            \end{cases}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         z = value - self.loc
         k = self.asymmetry
         return jnp.where(
@@ -140,17 +268,50 @@ class AsymmetricLaplace(Distribution):
             k**2 / (1 + k**2) * jnp.exp(-jnp.abs(z) / self.left_scale),
         )
 
-    def icdf(self, value):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the asymmetric Laplace
+        distribution. With :math:`t = \kappa^2 / (1 + \kappa^2)`,
+
+        .. math::
+            F^{-1}(q ; \mu, \sigma, \kappa) =
+            \begin{cases}
+                \mu + \sigma \kappa \ln(q / t) & q \leq t, \\
+                \mu - \displaystyle\frac{\sigma}{\kappa}
+                \ln\!\bigl((1 + \kappa^2) (1 - q)\bigr) & q > t.
+            \end{cases}
+
+        :param q: Quantile(s) in :math:`[0, 1]`.
+        :return: Quantile values :math:`x` such that :math:`F(x) = q`.
+        """
         k = self.asymmetry
         temp = k**2 / (1 + k**2)
         return jnp.where(
-            value <= temp,
-            self.loc + self.left_scale * jnp.log(value / temp),
-            self.loc - self.right_scale * jnp.log((1 + k**2) * (1 - value)),
+            q <= temp,
+            self.loc + self.left_scale * jnp.log(q / temp),
+            self.loc - self.right_scale * jnp.log((1 + k**2) * (1 - q)),
         )
 
 
 class Beta(Distribution):
+    r"""Beta distribution parameterized by concentration parameters alpha (:attr:`concentration1`)
+    and beta (:attr:`concentration0`), on the unit interval :math:`[0,1]`.
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \alpha, \beta) = \frac{x^{\alpha - 1} (1 - x)^{\beta - 1}}{\text{B}(\alpha, \beta)}
+
+    Where, :math:`x \in [0, 1]`, :math:`\alpha > 0`, :math:`\beta > 0`,
+    and :math:`\text{B}(\alpha, \beta)` is the Beta function.
+
+    :param concentration1: Alpha parameter (1st shape parameter).
+    :type concentration1: ArrayLike
+    :param concentration0: Beta parameter (2nd shape parameter).
+    :type concentration0: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
@@ -159,7 +320,13 @@ class Beta(Distribution):
     support = constraints.unit_interval
     pytree_data_fields = ("concentration0", "concentration1", "_dirichlet")
 
-    def __init__(self, concentration1, concentration0, *, validate_args=None):
+    def __init__(
+        self,
+        concentration1: ArrayLike,
+        concentration0: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.concentration1, self.concentration0 = promote_shapes(
             concentration1, concentration0
         )
@@ -173,49 +340,190 @@ class Beta(Distribution):
             jnp.stack([concentration1, concentration0], axis=-1)
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples from the distribution using the underlying Dirichlet implementation.
+
+        Since a :math:`\mathrm{Beta}(\alpha, \beta)` distribution is equivalent to a
+        2-category :math:`\mathrm{Dirichlet}(\alpha, \beta)`, this method samples from
+        the Dirichlet and slices the first component.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Beta distribution of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
         return self._dirichlet.sample(key, sample_shape)[..., 0]
 
     @validate_sample
-    def log_prob(self, value):
-        return self._dirichlet.log_prob(jnp.stack([value, 1.0 - value], -1))
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        To avoid `NaN` gradients at the boundaries :math:`x=0` or :math:`x=1`, this
+        implementation masks boundary values with a safe constant (0.5) during the
+        differentiation path. The forward pass value is then corrected using
+        :func:`~jax.lax.stop_gradient` to ensure numerical stability without sacrificing accuracy.
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
+        # Use double-where trick to avoid NaN gradients at boundary conditions
+        # Reference: https://github.com/tensorflow/probability/blob/main/discussion/where-nan.pdf
+        is_boundary = (value == 0.0) | (value == 1.0)
+
+        # Mask boundary values (0 or 1) to safe value (0.5) for gradient computation
+        safe_value = jnp.where(is_boundary, 0.5, value)
+        safe_complement = jnp.where(is_boundary, 0.5, 1.0 - value)
+
+        # Compute log_prob with safe values (gradients flow through this path)
+        safe_dirichlet_value = jnp.stack([safe_value, safe_complement], axis=-1)
+        safe_log_prob = self._dirichlet.log_prob(safe_dirichlet_value)
+
+        # At boundaries, compute correct forward value using xlogy (handles 0*log(0)=0)
+        # Use stop_gradient so gradients come only from safe_log_prob
+        correct_value = (
+            xlogy(self.concentration1 - 1.0, value)
+            + xlogy(self.concentration0 - 1.0, 1.0 - value)
+            - betaln(self.concentration1, self.concentration0)
+        )
+
+        # Apply correction at boundaries, return safe value elsewhere
+        return jnp.where(
+            is_boundary, jax.lax.stop_gradient(correct_value), safe_log_prob
+        )
 
     @property
-    def mean(self):
-        return self.concentration1 / (self.concentration1 + self.concentration0)
+    def mean(self) -> Array:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \frac{\alpha}{\alpha + \beta}
+        """
+        return jnp.asarray(
+            self.concentration1 / (self.concentration1 + self.concentration0)
+        )
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Calculates the analytical variance.
+
+        .. math:: Var(X) = \frac{\alpha \beta}{(\alpha + \beta)^2 (\alpha + \beta + 1)}
+        """
         total = self.concentration1 + self.concentration0
-        return self.concentration1 * self.concentration0 / (total**2 * (total + 1))
+        return jnp.asarray(
+            self.concentration1 * self.concentration0 / (total**2 * (total + 1))
+        )
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function using the regularized incomplete beta function.
+
+        .. math:: I_x(\alpha, \beta) = \frac{\text{B}(x; \alpha, \beta)}{\text{B}(\alpha, \beta)}
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return betainc(self.concentration1, self.concentration0, value)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return betaincinv(self.concentration1, self.concentration0, q)
+
+    def entropy(self) -> Array:
+        r"""Entropy of the Beta distribution.
+
+        .. math::
+           H(X) = \ln \text{B}(\alpha, \beta) - (\alpha - 1)\psi(\alpha) -
+           (\beta - 1)\psi(\beta) + (\alpha + \beta - 2)\psi(\alpha + \beta)
+
+        where :math:`\psi` is the digamma function.
+        """
+        total = self.concentration0 + self.concentration1
+        return (
+            betaln(self.concentration0, self.concentration1)
+            - (self.concentration0 - 1) * digamma(self.concentration0)
+            - (self.concentration1 - 1) * digamma(self.concentration1)
+            + (total - 2) * digamma(total)
+        )
 
 
 class Cauchy(Distribution):
+    r"""Cauchy distribution parameterized by location (:attr:`loc`) and
+    scale (:attr:`scale`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; x_0, \gamma) = \frac{1}{\pi \gamma \left[1 +
+       \left(\frac{x - x_0}{\gamma}\right)^2\right]}
+
+    where :math:`x \in \mathbb{R}`, :math:`x_0 \in \mathbb{R}` is the location,
+    and :math:`\gamma > 0` is the scale. The Cauchy distribution has no finite
+    mean or variance.
+
+    :param loc: Location parameter (:math:`x_0`).
+    :type loc: ArrayLike
+    :param scale: Scale parameter (:math:`\gamma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Cauchy, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples using the inverse CDF method via :func:`~jax.random.cauchy`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Cauchy distribution of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
+        assert key is not None
         eps = random.cauchy(key, shape=sample_shape + self.batch_shape)
         return self.loc + eps * self.scale
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; x_0, \gamma) = -\log(\pi) - \log(\gamma)
+           - \log\!\left[1 + \left(\frac{x - x_0}{\gamma}\right)^2\right]
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         return (
             -jnp.log(jnp.pi)
             - jnp.log(self.scale)
@@ -223,51 +531,159 @@ class Cauchy(Distribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""The mean of the Cauchy distribution is undefined.
+
+        Returns ``NaN`` for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.nan)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""The variance of the Cauchy distribution is undefined.
+
+        Returns ``NaN`` for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.nan)
 
-    def cdf(self, value):
-        scaled = (value - self.loc) / self.scale
-        return jnp.arctan(scaled) / jnp.pi + 0.5
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function.
 
-    def icdf(self, q):
-        return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
+        .. math::
+           F(x; x_0, \gamma) = \frac{1}{\pi}\arctan\!\left(\frac{x - x_0}{\gamma}\right)
+           + \frac{1}{2}
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
+        scaled = (value - self.loc) / self.scale
+        # In the lower tail, use arctan(z) / pi + 1/2 = -arctan(1 / z) / pi to avoid
+        # cancellation when adding 1/2.
+        lower = jnp.where(scaled < -1, scaled, -1.0)
+        return jnp.where(
+            scaled < -1,
+            -jnp.arctan(1 / lower) / jnp.pi,
+            jnp.arctan(scaled) / jnp.pi + 0.5,
+        )
+
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; x_0, \gamma) = x_0 + \gamma \tan\!\left[\pi\!\left(q
+           - \frac{1}{2}\right)\right]
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
+        # In the tails, use tan(pi * (q - 1/2)) = -1 / tan(pi * q) = 1 / tan(pi * (1 - q))
+        # so that tan is evaluated near 0 instead of near pi / 2. This keeps precision and
+        # gives -inf/inf at q = 0/1 (pi / 2 rounds up in float32, which flips the sign).
+        q = jnp.asarray(q)
+        x = jnp.where(
+            q < 0.25,
+            -1 / jnp.tan(jnp.pi * q),
+            jnp.where(
+                q > 0.75, 1 / jnp.tan(jnp.pi * (1 - q)), jnp.tan(jnp.pi * (q - 0.5))
+            ),
+        )
+        return self.loc + self.scale * x
+
+    def entropy(self) -> Array:
+        r"""Entropy of the Cauchy distribution.
+
+        .. math::
+           H(X) = \log(4\pi\gamma)
+        """
+        return jnp.broadcast_to(jnp.log(4 * np.pi * self.scale), self.batch_shape)
 
 
 class Dirichlet(Distribution):
+    r"""Dirichlet distribution parameterized by concentration (:attr:`concentration`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+        f(\mathbf{x}; \boldsymbol{\alpha}) = \frac{\Gamma(\alpha_0)}{\prod_{i=1}^{K}\Gamma(\alpha_i)}
+        \prod_{i=1}^{K}x_i^{\alpha_i-1},
+
+    where :math:`\alpha_0 = \sum_{i=1}^{K}\alpha_i`,
+    each concentration parameter satisfies :math:`\alpha_i > 0`, and
+    :math:`\mathbf{x}` lies on the probability simplex in
+    :math:`\mathbb{R}^{K}`:
+
+    .. math::
+        x_i \geq 0, \qquad \sum_{i=1}^{K}x_i = 1.
+
+    :param concentration: Positive concentration parameters. The final
+        dimension determines the event size (:math:`\alpha`)
+    :type concentration: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {
         "concentration": constraints.independent(constraints.positive, 1)
     }
     reparametrized_params = ["concentration"]
     support = constraints.simplex
 
-    def __init__(self, concentration, *, validate_args=None):
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         if jnp.ndim(concentration) < 1:
             raise ValueError(
                 "`concentration` parameter must be at least one-dimensional."
             )
         self.concentration = concentration
-        batch_shape, event_shape = concentration.shape[:-1], concentration.shape[-1:]
+        batch_shape, event_shape = (
+            jnp.shape(concentration)[:-1],
+            jnp.shape(concentration)[-1:],
+        )
         super(Dirichlet, self).__init__(
             batch_shape=batch_shape,
             event_shape=event_shape,
             validate_args=validate_args,
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples using :func:`~jax.random.dirichlet`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Dirichlet distribution of shape ``sample_shape + batch_shape + event_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
+        assert key is not None
         shape = sample_shape + self.batch_shape
         samples = random.dirichlet(key, self.concentration, shape=shape)
         return jnp.clip(
-            samples, a_min=jnp.finfo(samples).tiny, a_max=1 - jnp.finfo(samples).eps
+            samples, jnp.finfo(samples.dtype).tiny, 1 - jnp.finfo(samples.dtype).eps
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(\mathbf{x}; \boldsymbol{\alpha}) = \log\Gamma(\alpha_0)
+            - \sum_{i=1}^{K}\log\Gamma(\alpha_i)
+            + \sum_{i=1}^{K}(\alpha_i - 1)\log x_i.
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         normalize_term = jnp.sum(gammaln(self.concentration), axis=-1) - gammaln(
             jnp.sum(self.concentration, axis=-1)
         )
@@ -277,27 +693,83 @@ class Dirichlet(Distribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Calculates the mean of the Dirichlet distribution per element.
+
+        .. math::
+            \mathbb{E}[X_i] = \frac{\alpha_i}{\alpha_0},
+
+        where :math:`\alpha_0 = \sum_{j=1}^K\alpha_j`,
+        """
         return self.concentration / jnp.sum(self.concentration, axis=-1, keepdims=True)
 
     @property
-    def variance(self):
-        con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
-        return (
-            self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
-        )
+    def variance(self) -> Array:
+        r"""Calculates the variance of the Dirichlet distribution.
 
-    @staticmethod
-    def infer_shapes(concentration):
+        .. math::
+            \mathrm{Var}(X_i) = \frac{\alpha_i(\alpha_0-\alpha_i)}
+            {\alpha_0^2(\alpha_0+1)},
+
+        where :math:`\alpha_0 = \sum_{j=1}^K\alpha_j`
+        """
+        con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
+        return self.concentration * (con0 - self.concentration) / (con0**2 * (con0 + 1))
+
+    @classmethod
+    def infer_shapes(cls, concentration):
         batch_shape = concentration[:-1]
         event_shape = concentration[-1:]
         return batch_shape, event_shape
 
+    def entropy(self) -> Array:
+        r"""Entropy of the Dirichlet distribution.
+
+        .. math::
+            H(X) = \sum_{i=1}^{K} \ln \Gamma(\alpha_i)
+            - \ln \Gamma(\alpha_0)
+            + (\alpha_0-K)\psi(\alpha_0)
+            - \sum_{i=1}^{K}(\alpha_i-1)\psi(\alpha_i),
+
+        where :math:`\alpha_0 = \sum_{i=1}^{K}\alpha_i`,
+        :math:`B(\boldsymbol{\alpha})` is the multivariate beta function, and
+        :math:`\psi` is the digamma function.
+        """
+        (n,) = self.event_shape
+        total = jnp.sum(self.concentration, axis=-1)
+        return (
+            gammaln(self.concentration).sum(axis=-1)
+            - gammaln(total)
+            + (total - n) * digamma(total)
+            - ((self.concentration - 1) * digamma(self.concentration)).sum(axis=-1)
+        )
+
 
 class EulerMaruyama(Distribution):
-    """
+    r"""
     Euler–Maruyama method is a method for the approximate numerical solution
     of a stochastic differential equation (SDE)
+
+    .. math::
+       dX_t = f(X_t, t)\, dt + g(X_t, t)\, dW_t
+
+    On a discrete time grid :math:`t_0 < t_1 < \cdots < t_N` with step sizes
+    :math:`\Delta t_k = t_{k+1} - t_k`, the method approximates the solution by
+
+    .. math::
+       X_{k+1} = X_k + \Delta t_k\, f(X_k, t_k) + \sqrt{\Delta t_k}\, g(X_k, t_k)\, \varepsilon_k,
+       \qquad \varepsilon_k \sim \mathcal{N}(0, 1),
+
+    with :math:`X_0 \sim` ``init_dist``. Each transition is therefore Gaussian,
+    and the joint density of the path :math:`x_0, \ldots, x_N` factorizes as
+
+    .. math::
+       p(x_0, \ldots, x_N) = p_0(x_0) \prod_{k=0}^{N-1}
+       \mathcal{N}\!\left(x_{k+1};\; x_k + \Delta t_k\, f(x_k, t_k),\;
+       \Delta t_k\, g(x_k, t_k)^2\right),
+
+    where :math:`p_0` is the density of ``init_dist``. The diffusion coefficient
+    :math:`g` is the per-coordinate scale of independent Gaussian noise.
 
     :param ndarray t: discretized time
     :param callable sde_fn: function returning the drift and diffusion coefficients of SDE
@@ -312,7 +784,14 @@ class EulerMaruyama(Distribution):
     pytree_data_fields = ("t", "init_dist")
     pytree_aux_fields = ("sde_fn",)
 
-    def __init__(self, t, sde_fn, init_dist, *, validate_args=None):
+    def __init__(
+        self,
+        t: ArrayLike,
+        sde_fn: Callable[[Array, Array], tuple[Array, Array]],
+        init_dist: Distribution,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.t = t
         self.sde_fn = sde_fn
         self.init_dist = init_dist
@@ -329,11 +808,14 @@ class EulerMaruyama(Distribution):
         )
 
     @constraints.dependent_property(is_discrete=False)
-    def support(self):
+    def support(self) -> constraints.Constraint:
         return constraints.independent(constraints.real, self.event_dim)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         batch_shape = sample_shape + self.batch_shape
 
         def step(y_curr, xs):
@@ -356,7 +838,7 @@ class EulerMaruyama(Distribution):
 
         batch_dim = len(batch_shape)
         if batch_dim:
-            inits = inits.reshape((-1,) + inits.shape[batch_dim:])
+            inits = jnp.reshape(inits, (-1,) + jnp.shape(inits)[batch_dim:])
             noises = noises.reshape((-1,) + noises.shape[batch_dim:])
             t = jnp.broadcast_to(self.t, batch_shape + (self.event_shape[0],))
             t = t.reshape((-1,) + t.shape[batch_dim:])
@@ -366,15 +848,15 @@ class EulerMaruyama(Distribution):
             sde_out = jnp.reshape(sde_out, batch_shape + self.event_shape)
         else:
             dt = jnp.diff(self.t, axis=-1)
-            _, sde_out = scan_fn(inits, noises, self.t[:-1], dt)
-            sde_out = jnp.concatenate([inits[None], sde_out], axis=0)
+            _, sde_out = scan_fn(inits, noises, jnp.asarray(self.t)[:-1], dt)
+            sde_out = jnp.concatenate([jnp.expand_dims(inits, 0), sde_out], axis=0)
 
         return sde_out
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
         sample_shape = lax.broadcast_shapes(
-            value.shape[: -self.event_dim], self.batch_shape
+            jnp.shape(value)[: -self.event_dim], self.batch_shape
         )
         value = jnp.broadcast_to(value, sample_shape + self.event_shape)
 
@@ -397,7 +879,7 @@ class EulerMaruyama(Distribution):
             xtm1, xt = value[:-1], value[1:]
             value0 = value[0]
 
-            f, g = vmap(self.sde_fn)(xtm1, self.t[:-1])
+            f, g = vmap(self.sde_fn)(xtm1, jnp.asarray(self.t)[:-1])
 
         # add missing event dimensions
         batch_dim = len(sample_shape)
@@ -417,49 +899,136 @@ class EulerMaruyama(Distribution):
         mu = xtm1 + dt * f
         sigma = jnp.sqrt(dt) * g
 
-        sde_log_prob = Normal(mu, sigma).to_event(self.event_dim).log_prob(xt)
+        # Normal is location-invariant, so evaluate the residual under a
+        # zero-mean Normal. This keeps the loc valid even for out-of-support
+        # ``value`` (where ``mu`` would be NaN); the public log_prob's
+        # @validate_sample still warns about out-of-support values.
+        sde_log_prob = Normal(0.0, sigma).to_event(self.event_dim).log_prob(xt - mu)
         init_log_prob = self.init_dist.log_prob(value0)
 
-        return sde_log_prob + init_log_prob
+        return jnp.add(sde_log_prob, init_log_prob)
 
 
 class Exponential(Distribution):
+    r"""Exponential distribution parameterized by rate (:attr:`rate`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \lambda) = \lambda e^{-\lambda x}
+
+    where :math:`x \geq 0` and :math:`\lambda > 0` is the rate parameter.
+
+    :param rate: Rate parameter (:math:`\lambda`), the inverse of the mean.
+    :type rate: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     reparametrized_params = ["rate"]
     arg_constraints = {"rate": constraints.positive}
     support = constraints.positive
 
-    def __init__(self, rate=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.rate = rate
         super(Exponential, self).__init__(
             batch_shape=jnp.shape(rate), validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples by scaling standard exponential draws by the
+        inverse rate: :math:`X = E / \lambda`, where :math:`E \sim \mathrm{Exp}(1)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Exponential distribution of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
+        assert key is not None
         return (
             random.exponential(key, shape=sample_shape + self.batch_shape) / self.rate
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \lambda) = \log \lambda - \lambda x
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         return jnp.log(self.rate) - self.rate * value
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \frac{1}{\lambda}
+        """
         return jnp.reciprocal(self.rate)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Calculates the analytical variance.
+
+        .. math:: \mathrm{Var}(X) = \frac{1}{\lambda^2}
+        """
         return jnp.reciprocal(self.rate**2)
 
-    def cdf(self, value):
-        return -jnp.expm1(-self.rate * value)
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function.
 
-    def icdf(self, q):
-        return -jnp.log1p(-q) / self.rate
+        .. math::
+           F(x; \lambda) = 1 - e^{-\lambda x}
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
+        return -jnp.expm1(jnp.negative(self.rate) * value)
+
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \lambda) = -\frac{\ln(1 - q)}{\lambda}
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
+        return -jnp.log1p(jnp.negative(q)) / self.rate
+
+    def entropy(self) -> Array:
+        r"""Entropy of the Exponential distribution.
+
+        .. math::
+           H(X) = 1 - \ln \lambda
+        """
+        return 1 - jnp.log(self.rate)
 
 
 class Gamma(Distribution):
+    r"""Implementation of the `Gamma distribution <https://en.wikipedia.org/wiki/Gamma_distribution>`_,
+    :math:`\mathrm{Gamma}(\alpha, \lambda)`, where, :math:`\alpha` is the concentration
+    and :math:`\lambda` is the rate.
+
+    :param ArrayLike concentration: concentration parameter :math:`\alpha` (also known as shape parameter).
+    :param ArrayLike rate: rate parameter :math:`\lambda` (inverse scale parameter).
+    """
+
     arg_constraints = {
         "concentration": constraints.positive,
         "rate": constraints.positive,
@@ -467,20 +1036,43 @@ class Gamma(Distribution):
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
 
-    def __init__(self, concentration, rate=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.concentration, self.rate = promote_shapes(concentration, rate)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
         super(Gamma, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Method to generate samples :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`.
+        It uses :func:`~jax.random.gamma` under the hood to generate samples.
+        """
         assert is_prng_key(key)
+        assert key is not None
         shape = sample_shape + self.batch_shape + self.event_shape
         return random.gamma(key, self.concentration, shape=shape) / self.rate
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+
+            f_X(x\mid \alpha, \lambda) =
+            \frac{\lambda^{\alpha} x^{\alpha - 1} e^{-\lambda x}}{\Gamma(\alpha)},
+            \quad x > 0
+
+        It uses :func:`~jax.scipy.special.gammaln` to compute the logarithm of the
+        gamma function.
+        """
         normalize_term = gammaln(self.concentration) - self.concentration * jnp.log(
             self.rate
         )
@@ -491,39 +1083,364 @@ class Gamma(Distribution):
         )
 
     @property
-    def mean(self):
-        return self.concentration / self.rate
+    def mean(self) -> Array:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            \mathbb{E}[X] = \frac{\alpha}{\lambda}
+        """
+        return jnp.asarray(self.concentration / self.rate)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            \mathrm{Var}(X) = \frac{\alpha}{\lambda^2}
+        """
         return self.concentration / jnp.power(self.rate, 2)
 
-    def cdf(self, x):
-        return gammainc(self.concentration, self.rate * x)
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
 
-    def icdf(self, q):
+        .. math::
+            F_X(x \mid \alpha, \lambda) = \frac{1}{\Gamma(\alpha)}
+            \gamma\left(\alpha, \lambda x\right)
+
+        where, :math:`\gamma(\cdot,\cdot)` is the `lower incomplete gamma function <https://en.wikipedia.org/wiki/Incomplete_gamma_function>`_.
+        This method uses regularized incomplete gamma function,
+        which is implemented as :func:`~jax.scipy.special.gammainc`.
+        """
+        return gammainc(self.concentration, self.rate * value)
+
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            F^{-1}_X(q \mid \alpha, \lambda) = \frac{1}{\lambda}
+            \gamma^{-1}\left(\alpha, q \Gamma(\alpha)\right)
+
+        where, :math:`\gamma^{-1}(\cdot,\cdot)` is the inverse of the lower incomplete gamma function.
+        This method uses regularized incomplete gamma inverse function,
+        which is implemented as :func:`~numpyro.distributions.util.gammaincinv`.
+        """
         return gammaincinv(self.concentration, q) / self.rate
+
+    def entropy(self) -> Array:
+        r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
+
+        .. math::
+            H[X] = \alpha - \ln(\lambda) + \ln\Gamma(\alpha)
+            + (1 - \alpha) \psi(\alpha)
+
+        where, :math:`\psi(\cdot)` is the `digamma function <https://en.wikipedia.org/wiki/Digamma_function>`_.
+        This methods uses which is implemented as :func:`~jax.scipy.special.digamma`.
+        """
+        return (
+            self.concentration
+            - jnp.log(self.rate)
+            + gammaln(self.concentration)
+            + (1 - self.concentration) * digamma(self.concentration)
+        )
 
 
 class Chi2(Gamma):
+    r"""A chi-square continuous random variable, parameterized by the degrees of
+    freedom :math:`k`.
+
+    The Probability Density Function (PDF) of the chi-square distribution with
+    :math:`k` degrees of freedom is defined as:
+
+    .. math::
+        f(x; k) = \frac{x^{k/2 - 1} e^{-x/2}}{2^{k/2}\,\Gamma(k/2)},
+        \quad x > 0
+
+    Where, :math:`k` represents the degrees of freedom (:attr:`df`),
+    :math:`\Gamma(\cdot)` is the gamma function, and :math:`x` is the observed value.
+    The support domain is :math:`x \in (0, \infty)`.
+
+    The chi-square distribution is a special case of the Gamma distribution:
+
+    .. math::
+        \chi^2(k) \equiv \mathrm{Gamma}(k/2,\; 1/2)
+
+    so this class inherits sampling, log-probability, mean, variance, and entropy
+    implementations from :class:`Gamma`.
+    """
+
     arg_constraints = {"df": constraints.positive}
     reparametrized_params = ["df"]
 
-    def __init__(self, df, *, validate_args=None):
+    def __init__(self, df: ArrayLike, *, validate_args: Optional[bool] = None) -> None:
+        r"""
+        :param df: Degrees of freedom parameter :math:`k > 0` (:attr:`df`).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
+class GaussianStateSpace(TransformedDistribution):
+    r"""Joint distribution of a linear Gaussian state sequence.
+
+    For a fixed initial state :math:`\mathbf{z}_0 \in \mathbb{R}^d`, a
+    transition matrix :math:`\mathbf{A} \in \mathbb{R}^{d \times d}`, and
+    independent innovations with covariance :math:`\mathbf{Q}`, the states evolve
+    according to
+
+    .. math::
+
+        \mathbf{z}_t = \mathbf{A}\mathbf{z}_{t-1} + \boldsymbol{\epsilon}_t,
+        \qquad \boldsymbol{\epsilon}_t \sim \mathcal{N}(\mathbf{0}, \mathbf{Q}),
+        \qquad t = 1, \ldots, T.
+
+    A sample contains :math:`(\mathbf{z}_1, \ldots, \mathbf{z}_T)` and has
+    event shape ``(num_steps, d)``. The deterministic initial state is not included
+    in the sample. The support is :math:`\mathbb{R}^{T \times d}`, and the joint
+    density is
+
+    .. math::
+
+        p(\mathbf{z}_{1:T} \mid \mathbf{z}_0) =
+        \prod_{t=1}^{T} \mathcal{N}
+        (\mathbf{z}_t; \mathbf{A}\mathbf{z}_{t-1}, \mathbf{Q}).
+
+    Sampling applies :class:`~numpyro.distributions.transforms.RecursiveLinearTransform`
+    to independent multivariate Normal innovations. ``log_prob`` recovers those
+    innovations as :math:`\mathbf{z}_t - \mathbf{A}\mathbf{z}_{t-1}` and sums
+    their log densities over time. The transformation has unit Jacobian
+    determinant. This distribution describes the states themselves; it does not
+    include an observation model or marginalize latent states.
+
+    The marginal mean and covariance at step :math:`t` are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{z}_t] &= \mathbf{A}^t\mathbf{z}_0, \\
+        \mathbf{P}_t &= \mathbf{A}\mathbf{P}_{t-1}\mathbf{A}^{\mathsf{T}}
+            + \mathbf{Q}, \qquad \mathbf{P}_0 = \mathbf{0}.
+
+    ``variance`` returns the diagonal of each :math:`\mathbf{P}_t`, with shape
+    ``batch_shape + (num_steps, d)``. In contrast, ``covariance_matrix``,
+    ``precision_matrix``, and ``scale_tril`` describe the innovation noise, not
+    the covariance of the state sequence. With :math:`\mathbf{A}=\mathbf{I}`,
+    this is a multivariate Gaussian random walk.
+
+    Specify exactly one of ``covariance_matrix``, ``precision_matrix``, or
+    ``scale_tril``. These matrices may have leading batch dimensions, but the
+    transition matrix must be two-dimensional and is shared across the batch.
+
+    :param num_steps: Positive number of sampled steps :math:`T`.
+    :param transition_matrix: Square transition matrix :math:`\mathbf{A}` of
+        shape ``(d, d)``, shared across time.
+    :param covariance_matrix: Positive-definite innovation covariance
+        :math:`\mathbf{Q}`, of shape ``(..., d, d)``, shared across time.
+    :param precision_matrix: Inverse innovation covariance
+        :math:`\mathbf{Q}^{-1}`, of shape ``(..., d, d)``.
+    :param scale_tril: Lower-triangular Cholesky factor :math:`\mathbf{L}` such
+        that :math:`\mathbf{Q}=\mathbf{L}\mathbf{L}^{\mathsf{T}}`, of shape
+        ``(..., d, d)``.
+    :param initial_value: Deterministic initial state :math:`\mathbf{z}_0`, of
+        shape ``(..., d)``. Defaults to zero when ``None``.
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+
+    **Example:**
+
+    Two independent position/velocity trajectories with different initial
+    positions share the same transition and innovation covariance:
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> from numpyro import distributions as dist
+        >>> process = dist.GaussianStateSpace(
+        ...     num_steps=3,
+        ...     transition_matrix=jnp.array([[1., 1.], [0., 1.]]),
+        ...     scale_tril=0.1 * jnp.eye(2),
+        ...     initial_value=jnp.array([[0., 1.], [10., 1.]]),
+        ... )
+        >>> process.batch_shape, process.event_shape
+        ((2,), (3, 2))
+        >>> process.mean[0].tolist()
+        [[1.0, 1.0], [2.0, 1.0], [3.0, 1.0]]
+        >>> paths = process.sample(random.key(0), sample_shape=(4,))
+        >>> paths.shape
+        (4, 2, 3, 2)
+        >>> process.log_prob(paths).shape
+        (4, 2)
+    """
+
+    arg_constraints = {
+        "covariance_matrix": constraints.positive_definite,
+        "precision_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+        "transition_matrix": constraints.real_matrix,
+        "initial_value": constraints.real_vector,
+    }
+    support = constraints.real_matrix
+    pytree_data_fields = ("transition_matrix", "_initial_value", "scale_tril")
+    pytree_aux_fields = ("num_steps",)
+
+    def __init__(
+        self,
+        num_steps: int,
+        transition_matrix: NonScalarArray,
+        covariance_matrix: Optional[Array] = None,
+        precision_matrix: Optional[Array] = None,
+        scale_tril: Optional[Array] = None,
+        initial_value: Optional[NonScalarArray] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        assert isinstance(num_steps, int) and num_steps > 0, (
+            "`num_steps` argument should be a positive integer."
+        )
+        self.num_steps = num_steps
+        assert jnp.ndim(transition_matrix) == 2, (
+            "`transition_matrix` argument should be a square matrix"
+        )
+        self.transition_matrix = transition_matrix
+        self._initial_value = initial_value
+
+        # Expand the covariance/precision/scale matrices to the right number of steps.
+        def expand_to_steps(matrix: Optional[Array]) -> Optional[Array]:
+            if matrix is None:
+                return None
+            return jnp.expand_dims(matrix, axis=-3).repeat(num_steps, axis=-3)
+
+        base_distribution = MultivariateNormal(
+            covariance_matrix=expand_to_steps(covariance_matrix),
+            precision_matrix=expand_to_steps(precision_matrix),
+            scale_tril=expand_to_steps(scale_tril),
+        )
+        self.scale_tril = base_distribution.scale_tril[..., 0, :, :]
+        base_distribution = base_distribution.to_event(1)
+
+        # The base distribution must have at least the same batch shape as the initial
+        # value.
+        if initial_value is not None:
+            batch_shape = jnp.shape(initial_value)[:-1]
+            base_distribution = base_distribution.expand(batch_shape)
+
+        transform = RecursiveLinearTransform(
+            transition_matrix,
+            initial_value=initial_value,
+        )
+        super().__init__(base_distribution, transform, validate_args=validate_args)
+
+    @property
+    def initial_value(self) -> Array:
+        if self._initial_value is None:
+            return jnp.zeros(jnp.shape(self.transition_matrix)[-1:])
+        return jnp.asarray(self._initial_value)
+
+    @property
+    def mean(self) -> Array:
+        # If there's no initial value, the mean is zero (base distribution mean).
+        if self._initial_value is None:
+            return self.base_dist.mean
+
+        # Otherwise, compute A^t @ z_0 for each time step t.
+        # z_t = A @ z_{t-1} for the deterministic part with z_0 = initial_value
+        def propagate(z, _):
+            z_next = jnp.einsum("...ij,...j->...i", self.transition_matrix, z)
+            return z_next, z_next
+
+        _, means = scan(propagate, self.initial_value, jnp.arange(self.num_steps))
+        # means has shape (num_steps, ..., state_dim)
+        # We need to move num_steps to axis -2 to match base_dist.mean shape
+        return jnp.moveaxis(means, 0, -2)
+
+    @property
+    def variance(self) -> Array:
+        # Given z_t = z_0 + \sum_{k=1}^t A^{t-k} \epsilon_t, the covariance of the state
+        # vector at step t is E[z_t transpose(z_t)] = \sum_{k,k'}^t A^{t-k}
+        # E[\epsilon_k transpose(\epsilon_{k'})] transpose(A^{t-k'}). We only have
+        # contributions for k = k' because innovations at different steps are
+        # independent such that E[z_t transpose(z_t)] = \sum_k^t A^{t-k} @
+        # @ covariance_matrix @ transpose(A^{t-k}). The initial value is deterministic,
+        # and we don't need to consider it here. Using `scan` is an easy way to evaluate
+        # this expression.
+        _, scale_tril = scan(
+            lambda carry, _: (self.transition_matrix @ carry, carry),
+            self.scale_tril,
+            jnp.arange(self.num_steps),
+        )
+        variance = (
+            jnp.diagonal(scale_tril @ scale_tril.mT, axis1=-1, axis2=-2)
+            .cumsum(axis=0)
+            .swapaxes(0, -2)
+        )
+        # The variance does not depend on the (deterministic) initial value, but the
+        # batch shape may be contributed by `initial_value`. Broadcast to the full
+        # `batch_shape + event_shape` so the moment shape matches the distribution.
+        return jnp.broadcast_to(variance, self.batch_shape + self.event_shape)
+
+    @lazy_property
+    def covariance_matrix(self):
+        return self.scale_tril @ self.scale_tril.mT
+
+    @lazy_property
+    def precision_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+
 class GaussianRandomWalk(Distribution):
+    r"""Gaussian random walk distribution parameterized by scale (:attr:`scale`)
+    and the number of steps (:attr:`num_steps`).
+
+    A Gaussian random walk :math:`\mathbf{X} = (X_0, \ldots, X_{n-1})` of
+    length :math:`n` (given by :attr:`num_steps`) starts at :math:`X_0` and evolves
+    through independent Normal increments:
+
+    .. math::
+
+        X_0 \sim \mathcal{N}(0, \sigma^2),
+        \qquad X_t - X_{t-1} \sim \mathcal{N}(0, \sigma^2), \quad
+        t = 1, \ldots, n - 1,
+
+    where :math:`\sigma > 0` is the scale. The joint probability density
+    function over :math:`\mathbb{R}^n` is
+
+    .. math::
+
+        p(\mathbf{x}) = f(x_0; 0, \sigma)
+        \prod_{t=1}^{n-1} f(x_t - x_{t-1}; 0, \sigma),
+
+    where :math:`f(\cdot; \mu, \sigma)` denotes the univariate Normal
+    density with mean :math:`\mu` and standard deviation :math:`\sigma`.
+
+    :param scale: Scale parameter (:math:`\sigma`), the standard deviation of
+        the initial position and of each increment.
+    :type scale: ArrayLike
+    :param num_steps: Number of steps (:math:`n`), i.e. the length of the
+        event vector.
+    :type num_steps: int
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"scale": constraints.positive}
     support = constraints.real_vector
     reparametrized_params = ["scale"]
     pytree_aux_fields = ("num_steps",)
 
-    def __init__(self, scale=1.0, num_steps=1, *, validate_args=None):
-        assert (
-            isinstance(num_steps, int) and num_steps > 0
-        ), "`num_steps` argument should be an positive integer."
+    def __init__(
+        self,
+        scale: ArrayLike = 1.0,
+        num_steps: int = 1,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        assert isinstance(num_steps, int) and num_steps > 0, (
+            "`num_steps` argument should be a positive integer."
+        )
         self.scale = scale
         self.num_steps = num_steps
         batch_shape, event_shape = jnp.shape(scale), (num_steps,)
@@ -531,25 +1448,77 @@ class GaussianRandomWalk(Distribution):
             batch_shape, event_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples as the cumulative sum of standard Normal draws.
+
+        .. math::
+
+            X_t = \sigma \sum_{s=0}^{t} \epsilon_s, \qquad
+            \epsilon_s \sim \mathcal{N}(0, 1).
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Gaussian random walk of shape
+            ``sample_shape + batch_shape + event_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
+        assert key is not None
         shape = sample_shape + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
         return jnp.cumsum(walks, axis=-1) * jnp.expand_dims(self.scale, axis=-1)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the joint probability density function.
+
+        .. math::
+
+            \log p(\mathbf{x}) = \log f(x_0; 0, \sigma)
+            + \sum_{t=1}^{n-1} \log f(x_t - x_{t-1}; 0, \sigma),
+
+        where :math:`f(\cdot; \mu, \sigma)` is the univariate Normal density.
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
+        value = jnp.asarray(value)
         init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
-        step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
+        # Normal is location-invariant, so evaluate the increments under a
+        # zero-mean Normal. This keeps the loc valid even for out-of-support
+        # ``value``; the public log_prob's @validate_sample still warns about
+        # out-of-support values.
+        step_probs = Normal(0.0, scale).log_prob(value[..., 1:] - value[..., :-1])
         return init_prob + jnp.sum(step_probs, axis=-1)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Calculates the analytical mean of the Gaussian random walk.
+
+        .. math::
+
+            \mathbb{E}[X_t] = 0, \qquad t = 0, \ldots, n - 1.
+        """
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Calculates the analytical variance of the Gaussian random walk.
+
+        The variance grows linearly with the step index:
+
+        .. math::
+
+            \mathrm{Var}(X_t) = (t + 1) \sigma^2, \qquad
+            t = 0, \ldots, n - 1.
+        """
         return jnp.broadcast_to(
             jnp.expand_dims(self.scale, -1) ** 2 * jnp.arange(1, self.num_steps + 1),
             self.batch_shape + self.event_shape,
@@ -557,82 +1526,257 @@ class GaussianRandomWalk(Distribution):
 
 
 class HalfCauchy(Distribution):
+    r"""Half-Cauchy distribution parameterized by scale (:attr:`scale`).
+
+    This is a Cauchy distribution folded at zero, with support on
+    :math:`[0, \infty)`. Sampling draws a Cauchy random variable and
+    takes the absolute value. The log density adds :math:`\log 2` to the
+    underlying Cauchy log density so the folded mass is accounted for.
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \sigma) = \frac{2}{\pi \sigma \left[1 +
+       \left(\frac{x}{\sigma}\right)^2\right]}, \qquad x \ge 0
+
+    where :math:`\sigma > 0` is the scale. The mean and variance are
+    undefined (this implementation returns infinity).
+
+    :param scale: Scale parameter (:math:`\sigma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
     pytree_data_fields = ("_cauchy", "scale")
 
-    def __init__(self, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self._cauchy = Cauchy(0.0, scale)
         self.scale = scale
         super(HalfCauchy, self).__init__(
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples by folding a Cauchy draw:
+        :math:`X = |Y|` where :math:`Y \sim \mathrm{Cauchy}(0, \sigma)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
         return jnp.abs(self._cauchy.sample(key, sample_shape))
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \sigma) = \log f_{\mathrm{Cauchy}}(x; 0, \sigma) + \log 2
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         return self._cauchy.log_prob(value) + jnp.log(2)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; \sigma) = 2 F_{\mathrm{Cauchy}}(x; 0, \sigma) - 1
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return self._cauchy.cdf(value) * 2 - 1
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \sigma) = F_{\mathrm{Cauchy}}^{-1}\!\left(\frac{q+1}{2};
+           0, \sigma\right)
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return self._cauchy.icdf((q + 1) / 2)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""The mean of the Half-Cauchy distribution is undefined.
+
+        Returns infinity for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.inf)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""The variance of the Half-Cauchy distribution is undefined.
+
+        Returns infinity for all batch elements.
+        """
         return jnp.full(self.batch_shape, jnp.inf)
 
 
 class HalfNormal(Distribution):
+    r"""Half-Normal distribution parameterized by scale (:attr:`scale`).
+
+    This is a Normal distribution folded at zero, with support on
+    :math:`[0, \infty)`. Sampling draws a Normal random variable and
+    takes the absolute value. The log density adds :math:`\log 2` to the
+    underlying Normal log density so the folded mass is accounted for.
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \sigma) = \frac{\sqrt{2}}{\sigma \sqrt{\pi}}
+       \exp\!\left( -\frac{x^2}{2\sigma^2} \right), \qquad x \ge 0
+
+    where :math:`\sigma > 0` is the scale (standard deviation of the
+    unfolded Normal).
+
+    :param scale: Scale parameter (:math:`\sigma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     reparametrized_params = ["scale"]
     support = constraints.positive
     arg_constraints = {"scale": constraints.positive}
     pytree_data_fields = ("_normal", "scale")
 
-    def __init__(self, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self._normal = Normal(0.0, scale)
         self.scale = scale
         super(HalfNormal, self).__init__(
             batch_shape=jnp.shape(scale), validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples by folding a Normal draw:
+        :math:`X = |Y|` where :math:`Y \sim \mathcal{N}(0, \sigma^2)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
         return jnp.abs(self._normal.sample(key, sample_shape))
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \sigma) = \log f_{\mathcal{N}}(x; 0, \sigma) + \log 2
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         return self._normal.log_prob(value) + jnp.log(2)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; \sigma) = 2 \Phi\!\left(\frac{x}{\sigma}\right) - 1
+
+        where :math:`\Phi` is the standard Normal CDF. Implemented via
+        :meth:`~numpyro.distributions.continuous.Normal.cdf`.
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return self._normal.cdf(value) * 2 - 1
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \sigma) = \sigma\,\Phi^{-1}\!\left(\frac{q+1}{2}\right)
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return self._normal.icdf((q + 1) / 2)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \sigma \sqrt{2 / \pi}
+        """
         return jnp.sqrt(2 / jnp.pi) * self.scale
 
     @property
-    def variance(self):
-        return (1 - 2 / jnp.pi) * self.scale**2
+    def variance(self) -> Array:
+        r"""Calculates the analytical variance.
+
+        .. math:: \mathrm{Var}(X) = \sigma^2 \left(1 - 2/\pi\right)
+        """
+        return jnp.asarray((1 - 2 / jnp.pi) * self.scale**2)
 
 
 class InverseGamma(TransformedDistribution):
-    """
-    .. note:: We keep the same notation `rate` as in Pyro but
-        it plays the role of scale parameter of InverseGamma in literatures
-        (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
+    r"""The Inverse-Gamma distribution, a continuous distribution on the
+    positive reals parameterized by concentration :math:`\alpha > 0` and
+    a positive parameter called ``rate`` in this library. It is the
+    distribution of :math:`1/Y` where
+    :math:`Y \sim \mathrm{Gamma}(\alpha, \beta)` with the same
+    concentration and rate :math:`\beta`, and is implemented as a
+    :class:`~numpyro.distributions.TransformedDistribution` of that Gamma
+    under a :class:`~numpyro.distributions.transforms.PowerTransform` with
+    exponent ``-1``.
+
+    .. note:: We keep the same notation ``rate`` as in Pyro, but it plays
+        the role of the *scale* parameter of the Inverse-Gamma in the
+        literature (e.g. Wikipedia:
+        https://en.wikipedia.org/wiki/Inverse-gamma_distribution).
+        In the formulas below, :math:`\beta` denotes this NumPyro ``rate``
+        parameter (Wikipedia scale), not a rate in the Wikipedia sense.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \alpha, \beta) =
+        \frac{\beta^{\alpha}}{\Gamma(\alpha)}
+        x^{-\alpha-1}
+        \exp\!\left(-\frac{\beta}{x}\right),
+        \quad x > 0
+
+    where :math:`\alpha > 0` is the concentration (:attr:`concentration`)
+    and :math:`\beta > 0` is the NumPyro ``rate`` parameter (:attr:`rate`),
+    which corresponds to Wikipedia's scale.
     """
 
     arg_constraints = {
@@ -642,7 +1786,20 @@ class InverseGamma(TransformedDistribution):
     reparametrized_params = ["concentration", "rate"]
     support = constraints.positive
 
-    def __init__(self, concentration, rate=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param concentration: Concentration (shape) :math:`\alpha > 0`.
+        :param rate: NumPyro ``rate`` parameter :math:`\beta > 0`, which
+            plays the role of Wikipedia's *scale* (see class note). Defaults
+            to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         base_dist = Gamma(concentration, rate)
         self.concentration = base_dist.concentration
         self.rate = base_dist.rate
@@ -651,19 +1808,50 @@ class InverseGamma(TransformedDistribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Inverse-Gamma distribution:
+
+        .. math::
+            \mathbb{E}[X] = \frac{\beta}{\alpha - 1} \quad (\alpha > 1)
+
+        For :math:`\alpha \le 1` the mean is infinite (returned as ``inf``).
+        """
         # mean is inf for alpha <= 1
         a = self.rate / (self.concentration - 1)
         return jnp.where(self.concentration <= 1, jnp.inf, a)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Inverse-Gamma distribution:
+
+        .. math::
+            \mathrm{Var}(X) =
+            \frac{\beta^{2}}{(\alpha - 1)^{2} (\alpha - 2)}
+            \quad (\alpha > 2)
+
+        For :math:`\alpha \le 2` the variance is infinite (returned as
+        ``inf``).
+        """
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
-    def cdf(self, x):
-        return 1 - self.base_dist.cdf(1 / x)
+    def entropy(self) -> Array:
+        r"""Differential entropy of the Inverse-Gamma distribution:
+
+        .. math::
+            H(X) =
+            \alpha + \ln\beta + \ln\Gamma(\alpha)
+            - (1 + \alpha)\,\psi(\alpha)
+
+        where :math:`\psi` is the digamma function.
+        """
+        return (
+            self.concentration
+            + jnp.log(self.rate)
+            + gammaln(self.concentration)
+            - (1 + self.concentration) * digamma(self.concentration)
+        )
 
 
 class Gompertz(Distribution):
@@ -676,10 +1864,20 @@ class Gompertz(Distribution):
     However, we call the parameter "eta" a concentration parameter and the parameter
     "b" a rate parameter (as opposed to scale parameter as in wikipedia description.)
 
-    The CDF, in terms of `concentration` (`con`) and `rate`, is
+    The Probability Density Function (PDF), in terms of ``concentration``
+    (:math:`\eta > 0`) and ``rate`` (:math:`b > 0`), is
 
     .. math::
-        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{x * rate \} - 1 \right ] \right\}
+        f(x ; \eta, b) = b\,\eta\,\exp\!\left(\eta + b x - \eta e^{b x}\right),
+        \quad x > 0
+
+    and the corresponding Cumulative Distribution Function (CDF) is
+
+    .. math::
+        F(x ; \eta, b) = 1 - \exp\!\left\{ -\eta \left[ e^{b x} - 1 \right] \right\}
+
+    where :math:`\eta > 0` is the concentration (:attr:`concentration`) and
+    :math:`b > 0` is the rate (:attr:`rate`).
     """
 
     arg_constraints = {
@@ -689,21 +1887,54 @@ class Gompertz(Distribution):
     support = constraints.positive
     reparametrized_params = ["concentration", "rate"]
 
-    def __init__(self, concentration, rate=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param concentration: Concentration parameter :math:`\eta > 0` (called
+            ``eta`` in the Wikipedia entry). Broadcasts against ``rate``.
+        :param rate: Rate parameter :math:`b > 0` (called ``b`` in the Wikipedia
+            entry). Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.concentration, self.rate = promote_shapes(concentration, rate)
         super(Gompertz, self).__init__(
             batch_shape=lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate)),
             validate_args=validate_args,
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Positive samples from the Gompertz distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         random_shape = sample_shape + self.batch_shape + self.event_shape
         unifs = random.uniform(key, shape=random_shape)
         return self.icdf(unifs)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; \eta, b) = \ln \eta + \ln b + b x
+            - \eta \left( e^{b x} - 1 \right)
+
+        :param value: Positive point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Gompertz distribution.
+        """
         scaled_value = value * self.rate
         return (
             jnp.log(self.concentration)
@@ -712,23 +1943,76 @@ class Gompertz(Distribution):
             - self.concentration * jnp.expm1(scaled_value)
         )
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Gompertz distribution:
+
+        .. math::
+            F(x ; \eta, b) = 1 - \exp\!\left\{ -\eta \left( e^{b x} - 1 \right) \right\}
+
+        :param value: Positive point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a Gompertz random variable is at most ``value``.
+        """
         return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
 
-    def icdf(self, q):
-        return jnp.log1p(-jnp.log1p(-q) / self.concentration) / self.rate
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; \eta, b) = \frac{1}{b}
+            \ln\!\left( 1 - \frac{\ln(1 - q)}{\eta} \right)
+
+        :param q: Quantile level :math:`q \in [0, 1)`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
+        return jnp.log1p(-jnp.log1p(jnp.negative(q)) / self.concentration) / self.rate
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Gompertz distribution:
+
+        .. math::
+            \mathbb{E}[X] = -\frac{1}{b}\, e^{\eta}\, \mathrm{Ei}(-\eta)
+
+        where :math:`\mathrm{Ei}` is the exponential integral, evaluated with
+        :func:`~jax.scipy.special.expi`.
+        """
         return -jnp.exp(self.concentration) * expi(-self.concentration) / self.rate
 
 
 class Gumbel(Distribution):
+    r"""The Gumbel (maximum) distribution, a continuous real-valued
+    distribution parameterized by location :math:`\mu` and scale :math:`\beta > 0`.
+    It is the limiting distribution of the maximum of a large number of i.i.d.
+    samples from an exponential-tailed distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, \beta) = \frac{1}{\beta} \exp\!\left(
+            -\frac{x - \mu}{\beta} - \exp\!\left(-\frac{x - \mu}{\beta}\right)
+        \right), \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`\beta > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`\beta > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
 
@@ -736,36 +2020,110 @@ class Gumbel(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Gumbel distribution via the location-scale
+        transform :math:`X = \mu + \beta Z`, where
+        :math:`Z \sim \mathrm{Gumbel}(0, 1)` is drawn from
+        :func:`~jax.random.gumbel`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Gumbel distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         standard_gumbel_sample = random.gumbel(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
         return self.loc + self.scale * standard_gumbel_sample
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        Letting :math:`z = (x - \mu)/\beta`,
+
+        .. math::
+            \ln f(x \mid \mu, \beta) = -z - e^{-z} - \ln \beta
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Gumbel distribution.
+        """
         z = (value - self.loc) / self.scale
         return -(z + jnp.exp(-z)) - jnp.log(self.scale)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Gumbel distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu + \beta \gamma
+
+        where :math:`\gamma \approx 0.5772\ldots` is the Euler-Mascheroni constant,
+        available at, :data:`~jax.numpy.euler_gamma`.
+        """
         return jnp.broadcast_to(
             self.loc + self.scale * jnp.euler_gamma, self.batch_shape
         )
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Gumbel distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{\pi^2}{6} \beta^2
+        """
         return jnp.broadcast_to(jnp.pi**2 / 6.0 * self.scale**2, self.batch_shape)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Gumbel distribution:
+
+        .. math::
+            F(x \mid \mu, \beta) = \exp\!\left(-\exp\!\left(-\frac{x - \mu}{\beta}\right)\right)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the Gumbel distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, \beta) = \mu - \beta \ln(-\ln q),
+            \quad q \in (0, 1)
+
+        :param q: Quantile values in :math:`(0, 1)`.
+        :return: Real-valued quantiles of the Gumbel distribution at ``q``.
+        """
         return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
-class Kumaraswamy(TransformedDistribution):
+class Kumaraswamy(Distribution):
+    r"""The Kumaraswamy distribution, a continuous distribution on the unit
+    interval parameterized by two positive shape parameters
+    :math:`a` (:attr:`concentration1`) and :math:`b`
+    (:attr:`concentration0`). It is a Beta-like family with a simple closed
+    form PDF and CDF, often used as a computationally convenient alternative
+    to the Beta distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid a, b) = a\, b\, x^{a-1}\,(1 - x^{a})^{b-1},
+        \quad x \in (0, 1)
+
+    The Cumulative Distribution Function (CDF) is:
+
+    .. math::
+        F(x \mid a, b) = 1 - (1 - x^{a})^{b}, \quad x \in (0, 1)
+
+    where :math:`a > 0` is the first shape parameter (:attr:`concentration1`)
+    and :math:`b > 0` is the second shape parameter (:attr:`concentration0`).
+    """
+
     arg_constraints = {
         "concentration1": constraints.positive,
         "concentration0": constraints.positive,
@@ -779,89 +2137,228 @@ class Kumaraswamy(TransformedDistribution):
     # we can set this flag to 1000.
     KL_KUMARASWAMY_BETA_TAYLOR_ORDER = 10
 
-    def __init__(self, concentration1, concentration0, *, validate_args=None):
+    def __init__(
+        self,
+        concentration1: ArrayLike,
+        concentration0: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param concentration1: Shape parameter :math:`a > 0`.
+        :param concentration0: Shape parameter :math:`b > 0`.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.concentration1, self.concentration0 = promote_shapes(
             concentration1, concentration0
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(concentration1), jnp.shape(concentration0)
         )
-        base_dist = Uniform(0, 1).expand(batch_shape)
-        transforms = [
-            PowerTransform(1 / concentration0),
-            AffineTransform(1, -1),
-            PowerTransform(1 / concentration1),
-        ]
-        super().__init__(base_dist, transforms, validate_args=validate_args)
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples via the inverse CDF transform. If
+        :math:`U \sim \mathrm{Uniform}(0, 1)`, then
+
+        .. math::
+            X = \bigl(1 - U^{1/b}\bigr)^{1/a}
+
+        which has the same law as the usual inverse
+        :math:`\bigl(1 - (1-U)^{1/b}\bigr)^{1/a}` because :math:`U` and
+        :math:`1-U` are equal in distribution. Values are clipped away from
+        ``0`` and ``1`` for numerical stability.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples in the open unit interval.
+        """
         assert is_prng_key(key)
-        minval = jnp.finfo(jnp.result_type(float)).tiny
-        u = random.uniform(key, shape=sample_shape + self.batch_shape, minval=minval)
-        log_sample = jnp.log1p(-(u ** (1 / self.concentration0))) / self.concentration1
-        finfo = jnp.finfo(u)
-        return jnp.clip(jnp.exp(log_sample), a_min=finfo.tiny, a_max=1 - finfo.eps)
+        assert key is not None
+        finfo = jnp.finfo(jnp.result_type(float))
+        u = random.uniform(
+            key, shape=sample_shape + self.batch_shape, minval=finfo.tiny
+        )
+        u_con0 = jnp.clip(u ** (1 / self.concentration0), None, 1 - finfo.eps)
+        log_sample = jnp.log1p(-u_con0) / self.concentration1
+        return jnp.clip(jnp.exp(log_sample), finfo.tiny, 1 - finfo.eps)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x \mid a, b) =
+            \ln a + \ln b
+            + (a - 1)\ln x
+            + (b - 1)\ln(1 - x^{a})
+
+        :param value: Point :math:`x \in (0, 1)` at which to evaluate the log PDF.
+        :return: Log probability density under the Kumaraswamy distribution.
+        """
+        finfo = jnp.finfo(jnp.result_type(float))
         normalize_term = jnp.log(self.concentration0) + jnp.log(self.concentration1)
+        value_con1 = jnp.clip(value**self.concentration1, None, 1 - finfo.eps)
         return (
             xlogy(self.concentration1 - 1, value)
-            + xlog1py(self.concentration0 - 1, -(value**self.concentration1))
+            + xlog1py(self.concentration0 - 1, -value_con1)
             + normalize_term
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Kumaraswamy distribution:
+
+        .. math::
+            \mathbb{E}[X] = b\, B\!\left(1 + \tfrac{1}{a},\, b\right)
+
+        where :math:`B` is the beta function.
+        """
         log_beta = betaln(1 + 1 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Kumaraswamy distribution:
+
+        .. math::
+            \mathrm{Var}(X) =
+            b\, B\!\left(1 + \tfrac{2}{a},\, b\right)
+            - \bigl(\mathbb{E}[X]\bigr)^{2}
+        """
         log_beta = betaln(1 + 2 / self.concentration1, self.concentration0)
         return self.concentration0 * jnp.exp(log_beta) - jnp.square(self.mean)
 
 
 class Laplace(Distribution):
+    r"""The Laplace (double-exponential) distribution, a continuous real-valued
+    distribution parameterized by location :math:`\mu` and scale :math:`b > 0`.
+    It is the distribution of the difference of two i.i.d. exponential variates
+    and has heavier tails than the Normal distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, b) = \frac{1}{2 b}
+            \exp\!\left(-\frac{|x - \mu|}{b}\right),
+            \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`b > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`b > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Laplace, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples via the location-scale transform
+        :math:`X = \mu + b Z`, where :math:`Z \sim \mathrm{Laplace}(0, 1)` is
+        drawn from :func:`~jax.random.laplace`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Laplace distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         eps = random.laplace(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
         return self.loc + eps * self.scale
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x \mid \mu, b) = -\frac{|x - \mu|}{b} - \ln(2 b)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Laplace distribution.
+        """
         normalize_term = jnp.log(2 * self.scale)
         value_scaled = jnp.abs(value - self.loc) / self.scale
         return -value_scaled - normalize_term
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Laplace distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Laplace distribution:
+
+        .. math::
+            \mathrm{Var}(X) = 2 b^2
+        """
         return jnp.broadcast_to(2 * self.scale**2, self.batch_shape)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Laplace distribution.
+        Letting :math:`z = (x - \mu)/b`,
+
+        .. math::
+            F(x \mid \mu, b) = \frac{1}{2} - \frac{1}{2}\,
+                \operatorname{sgn}(z)\,\left(e^{-|z|} - 1\right)
+
+        The implementation uses :func:`~jax.numpy.expm1` for numerical
+        stability near :math:`z = 0`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         scaled = (value - self.loc) / self.scale
         return 0.5 - 0.5 * jnp.sign(scaled) * jnp.expm1(-jnp.abs(scaled))
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the Laplace distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, b) = \mu - b\,\mathrm{sgn}\left(q - \frac{1}{2}\right)\,
+                \ln\!\left(1 - 2 \left| q - \frac{1}{2} \right| \right),
+            \quad q \in [0, 1]
+
+        :param q: Quantile values in :math:`[0, 1]`.
+        :return: Real-valued quantiles of the Laplace distribution at ``q``.
+        """
         a = q - 0.5
         return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
+
+    def entropy(self) -> Array:
+        r"""Differential entropy of the Laplace distribution:
+
+        .. math::
+            H(X) = \ln(2 b) + 1
+        """
+        return jnp.log(2 * self.scale) + 1
 
 
 class LKJ(TransformedDistribution):
@@ -871,11 +2368,31 @@ class LKJ(TransformedDistribution):
     to :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
     uniform distribution over correlation matrices.
 
-    When ``concentration > 1``, the distribution favors samples with large large determinent. This
+    When ``concentration > 1``, the distribution favors samples with large determinant. This
     is useful when we know a priori that the underlying variables are not correlated.
 
-    When ``concentration < 1``, the distribution favors samples with small determinent. This is
+    When ``concentration < 1``, the distribution favors samples with small determinant. This is
     useful when we know a priori that some underlying variables are correlated.
+
+    The probability density of a :math:`D \times D` correlation matrix :math:`M`, with respect to
+    Lebesgue measure on its strictly lower-triangular entries, is
+
+    .. math::
+        p(M \mid \eta) = c_D(\eta) \det(M)^{\eta - 1},
+        \qquad
+        c_D(\eta) = \frac{\Gamma(\alpha)^{D-1}}
+        {\pi^{(D-1)/2} \, \Gamma_{D-1}\!\left(\alpha - \tfrac{1}{2}\right)},
+        \qquad \alpha = \eta + \frac{D-1}{2},
+
+    where :math:`\Gamma_{D-1}` is the multivariate gamma function.
+
+    The support is the set of symmetric positive-definite :math:`D \times D` matrices with unit
+    diagonal. The mean is :math:`\mathbb{E}[M] = I`, and each off-diagonal entry satisfies
+    :math:`\tfrac{M_{ij} + 1}{2} \sim \mathrm{Beta}\!\left(\eta - 1 + \tfrac{D}{2},\,
+    \eta - 1 + \tfrac{D}{2}\right)`, so that
+
+    .. math::
+        \mathrm{Var}[M_{ij}] = \frac{1}{2\eta + D - 1}, \qquad i \neq j.
 
     Sample code for using LKJ in the context of multivariate normal sample::
 
@@ -888,7 +2405,7 @@ class LKJ(TransformedDistribution):
             concentration = jnp.ones(1)  # Implies a uniform distribution over correlation matrices
             corr_mat = numpyro.sample("corr_mat", dist.LKJ(d, concentration))
             sigma = jnp.sqrt(theta)
-            # we can also use a faster formula `cov_mat = jnp.outer(theta, theta) * corr_mat`
+            # we can also use a faster formula `cov_mat = jnp.outer(sigma, sigma) * corr_mat`
             cov_mat = jnp.matmul(jnp.matmul(jnp.diag(sigma), corr_mat), jnp.diag(sigma))
 
             # Vector of expectations
@@ -909,15 +2426,22 @@ class LKJ(TransformedDistribution):
 
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
+    https://doi.org/10.1016/j.jmva.2009.04.008
     """
+
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
     pytree_aux_fields = ("dimension", "sample_method")
 
     def __init__(
-        self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
-    ):
+        self,
+        dimension: int,
+        concentration: ArrayLike = 1.0,
+        sample_method: Literal["onion", "cvine"] = "onion",
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         base_dist = LKJCholesky(dimension, concentration, sample_method)
         self.dimension, self.concentration = (
             base_dist.dimension,
@@ -929,7 +2453,7 @@ class LKJ(TransformedDistribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         return jnp.broadcast_to(
             jnp.identity(self.dimension),
             self.batch_shape + (self.dimension, self.dimension),
@@ -940,17 +2464,43 @@ class LKJCholesky(Distribution):
     r"""
     LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is
     controlled by ``concentration`` parameter :math:`\eta` to make the probability of the
-    correlation matrix :math:`M` generated from a Cholesky factor propotional to
+    correlation matrix :math:`M` generated from a Cholesky factor proportional to
     :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
     uniform distribution over Cholesky factors of correlation matrices.
 
     When ``concentration > 1``, the distribution favors samples with large diagonal entries
-    (hence large determinent). This is useful when we know a priori that the underlying
+    (hence large determinant). This is useful when we know a priori that the underlying
     variables are not correlated.
 
     When ``concentration < 1``, the distribution favors samples with small diagonal entries
-    (hence small determinent). This is useful when we know a priori that some underlying
+    (hence small determinant). This is useful when we know a priori that some underlying
     variables are correlated.
+
+    Writing :math:`M = LL^\top` for the correlation matrix generated by a lower Cholesky factor
+    :math:`L` of dimension :math:`D \times D` (so :math:`L_{11} = 1`), the probability density of
+    :math:`L`, with respect to Lebesgue measure on its strictly lower-triangular entries, is
+
+    .. math::
+        p(L \mid \eta) = c_D(\eta) \prod_{i=2}^{D} L_{ii}^{\,2\eta - 2 + D - i},
+        \qquad
+        c_D(\eta) = \frac{\Gamma(\alpha)^{D-1}}
+        {\pi^{(D-1)/2} \, \Gamma_{D-1}\!\left(\alpha - \tfrac{1}{2}\right)},
+        \qquad \alpha = \eta + \frac{D-1}{2},
+
+    where :math:`\Gamma_{D-1}` is the multivariate gamma function and :math:`c_D(\eta)` is the
+    same normalizing constant as in :class:`LKJ`. The exponent combines
+    :math:`\det(M)^{\eta - 1} = \prod_{i=2}^{D} L_{ii}^{2\eta - 2}` (recall :math:`L_{11} = 1`)
+    with the Jacobian :math:`\prod_{i=2}^{D} L_{ii}^{D-i}` of the map from the strictly
+    lower-triangular entries of :math:`L` to those of :math:`M`.
+
+    The support is the set of lower-triangular :math:`D \times D` matrices with positive diagonal
+    and unit-norm rows. The correlation matrix :math:`M = LL^\top` has mean
+    :math:`\mathbb{E}[M] = I`, and each off-diagonal entry satisfies
+    :math:`\tfrac{M_{ij} + 1}{2} \sim \mathrm{Beta}\!\left(\eta - 1 + \tfrac{D}{2},\,
+    \eta - 1 + \tfrac{D}{2}\right)`, so that
+
+    .. math::
+        \mathrm{Var}[M_{ij}] = \frac{1}{2\eta + D - 1}, \qquad i \neq j.
 
     Sample code for using LKJCholesky in the context of multivariate normal sample::
 
@@ -985,7 +2535,9 @@ class LKJCholesky(Distribution):
 
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
+    https://doi.org/10.1016/j.jmva.2009.04.008
     """
+
     arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_cholesky
@@ -993,8 +2545,13 @@ class LKJCholesky(Distribution):
     pytree_aux_fields = ("dimension", "sample_method")
 
     def __init__(
-        self, dimension, concentration=1.0, sample_method="onion", *, validate_args=None
-    ):
+        self,
+        dimension: int,
+        concentration: ArrayLike = 1.0,
+        sample_method: Literal["onion", "cvine"] = "onion",
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         if dimension < 2:
             raise ValueError("Dimension must be greater than or equal to 2.")
         self.dimension = dimension
@@ -1004,7 +2561,7 @@ class LKJCholesky(Distribution):
 
         # We construct base distributions to generate samples for each method.
         # The purpose of this base distribution is to generate a distribution for
-        # correlation matrices which is propotional to `det(M)^{\eta - 1}`.
+        # correlation matrices which is proportional to `det(M)^{\eta - 1}`.
         # (note that this is not a unique way to define base distribution)
         # Both of the following methods have marginal distribution of each off-diagonal
         # element of sampled correlation matrices is Beta(eta + (D-2) / 2, eta + (D-2) / 2)
@@ -1038,7 +2595,7 @@ class LKJCholesky(Distribution):
             validate_args=validate_args,
         )
 
-    def _cvine(self, key, size):
+    def _cvine(self, key: jax.Array, size):
         # C-vine method first uses beta_dist to generate partial correlations,
         # then apply signed stick breaking to transform to cholesky factor.
         # Here is an attempt to prove that using signed stick breaking to
@@ -1059,7 +2616,7 @@ class LKJCholesky(Distribution):
         partial_correlation = 2 * beta_sample - 1  # scale to domain to (-1, 1)
         return signed_stick_breaking_tril(partial_correlation)
 
-    def _onion(self, key, size):
+    def _onion(self, key: jax.Array, size):
         key_beta, key_normal = random.split(key)
         # Now we generate w term in Algorithm 3.2 of [1].
         beta_sample = self._beta.sample(key_beta, size)
@@ -1083,20 +2640,20 @@ class LKJCholesky(Distribution):
         # correct the diagonal
         # NB: beta_sample = sum(w ** 2) because norm 2 of u is 1.
         diag = jnp.ones(cholesky.shape[:-1]).at[..., 1:].set(jnp.sqrt(1 - beta_sample))
-        cholesky = cholesky + jnp.expand_dims(diag, axis=-1) * jnp.identity(
-            self.dimension
-        )
-        return cholesky
+        return add_diag(cholesky, diag)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         if self.sample_method == "onion":
             return self._onion(key, sample_shape)
         else:
             return self._cvine(key, sample_shape)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
         # Note about computing Jacobian of the transformation from Cholesky factor to
         # correlation matrix:
         #
@@ -1109,12 +2666,12 @@ class LKJCholesky(Distribution):
         #   Generally, for a D dimensional matrix, we have:
         #       Jacobian = L22^(D-2) * L33^(D-3) * ... * Ldd^0
         #
-        # From [1], we know that probability of a correlation matrix is propotional to
+        # From [1], we know that probability of a correlation matrix is proportional to
         #   determinant ** (concentration - 1) = prod(L_ii ^ 2(concentration - 1))
         # On the other hand, Jabobian of the transformation from Cholesky factor to
         # correlation matrix is:
         #   prod(L_ii ^ (D - i))
-        # So the probability of a Cholesky factor is propotional to
+        # So the probability of a Cholesky factor is proportional to
         #   prod(L_ii ^ (2 * concentration - 2 + D - i)) =: prod(L_ii ^ order_i)
         # with order_i = 2 * concentration - 2 + D - i,
         # i = 2..D (we omit the element i = 1 because L_11 = 1)
@@ -1142,11 +2699,40 @@ class LKJCholesky(Distribution):
 
 
 class LogNormal(TransformedDistribution):
+    r"""The Log-Normal distribution, a continuous distribution on the positive
+    reals parameterized by :math:`\mu` and :math:`\sigma > 0`. It is the
+    distribution of :math:`\exp(Y)` where
+    :math:`Y \sim \mathrm{Normal}(\mu, \sigma)`, so :math:`\mu` and
+    :math:`\sigma` describe the variable on the log scale rather than the mean
+    and standard deviation of :math:`X` itself.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, \sigma) = \frac{1}{x \sigma \sqrt{2\pi}}
+        \exp\!\left(-\frac{(\ln x - \mu)^{2}}{2\sigma^{2}}\right), \quad x > 0
+
+    where :math:`\mu \in \mathbb{R}` is the location on the log scale
+    (:attr:`loc`) and :math:`\sigma > 0` is the scale on the log scale
+    (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param loc: Location on the log scale :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale on the log scale :math:`\sigma > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         base_dist = Normal(loc, scale)
         self.loc, self.scale = base_dist.loc, base_dist.scale
         super(LogNormal, self).__init__(
@@ -1154,93 +2740,248 @@ class LogNormal(TransformedDistribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Log-Normal distribution:
+
+        .. math::
+            \mathbb{E}[X] = \exp\!\left(\mu + \frac{\sigma^{2}}{2}\right)
+        """
         return jnp.exp(self.loc + self.scale**2 / 2)
 
     @property
-    def variance(self):
-        return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
+    def variance(self) -> Array:
+        r"""Variance of the Log-Normal distribution:
 
-    def cdf(self, x):
-        return self.base_dist.cdf(jnp.log(x))
+        .. math::
+            \mathrm{Var}(X) = \left(e^{\sigma^{2}} - 1\right) e^{2\mu + \sigma^{2}}
+        """
+        return jnp.expm1(self.scale**2) * jnp.exp(2 * self.loc + self.scale**2)
+
+    def entropy(self) -> Array:
+        r"""Differential entropy of the Log-Normal distribution:
+
+        .. math::
+            H(X) = \mu + \frac{1}{2}\ln\!\left(2\pi e \sigma^{2}\right)
+        """
+        return (1 + jnp.log(2 * jnp.pi)) / 2 + self.loc + jnp.log(self.scale)
 
 
 class Logistic(Distribution):
+    r"""The Logistic distribution, a continuous real-valued distribution
+    parameterized by location :math:`\mu` and scale :math:`s > 0`. Its CDF is
+    the standard logistic (sigmoid) function shifted and scaled to :math:`\mu`,
+    :math:`s`, which makes it the natural latent distribution underlying
+    logistic regression.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, s) = \frac{
+            \exp\!\left(-\displaystyle\frac{x - \mu}{s}\right)
+        }{
+            s \left(1 + \exp\!\left(-\displaystyle\frac{x - \mu}{s}\right)\right)^{2}
+        }, \quad x \in \mathbb{R}
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`s > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param loc: Location parameter :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale parameter :math:`s > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples via the location-scale transform
+        :math:`X = \mu + s Z`, where :math:`Z \sim \mathrm{Logistic}(0, 1)` is
+        drawn from :func:`~jax.random.logistic`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Logistic distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         z = random.logistic(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
         return self.loc + z * self.scale
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        Letting :math:`u = (\mu - x)/s`, the log PDF is
+
+        .. math::
+            \ln f(x \mid \mu, s) = u - \ln s - 2 \ln(1 + e^{u})
+
+        The implementation uses :func:`~jax.nn.softplus` for
+        :math:`\ln(1 + e^{u})`, which is numerically stable for both large
+        positive and large negative values of :math:`u`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Logistic distribution.
+        """
         log_exponent = (self.loc - value) / self.scale
         log_denominator = jnp.log(self.scale) + 2 * nn.softplus(log_exponent)
         return log_exponent - log_denominator
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Logistic distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Logistic distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{\pi^2 s^2}{3}
+        """
         var = (self.scale**2) * (jnp.pi**2) / 3
         return jnp.broadcast_to(var, self.batch_shape)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Logistic distribution.
+        Letting :math:`z = (x - \mu)/s`,
+
+        .. math::
+            F(x \mid \mu, s) = \sigma(z) = \frac{1}{1 + e^{-z}}
+
+        where :math:`\sigma` is the logistic sigmoid, computed via
+        :func:`~jax.scipy.special.expit`.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         scaled = (value - self.loc) / self.scale
         return expit(scaled)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the Logistic distribution:
+
+        .. math::
+            F^{-1}(q \mid \mu, s) = \mu + s\,\operatorname{logit}(q),
+            \quad q \in [0, 1]
+
+        where :math:`\operatorname{logit}(q) = \ln(q / (1 - q))`.
+
+        :param q: Quantile values in :math:`[0, 1]`.
+        :return: Real-valued quantiles of the Logistic distribution at ``q``.
+        """
         return self.loc + self.scale * logit(q)
+
+    def entropy(self) -> Array:
+        r"""Differential entropy of the Logistic distribution:
+
+        .. math::
+            H(X) = \ln(s) + 2
+        """
+        return jnp.broadcast_to(jnp.log(self.scale) + 2, self.batch_shape)
 
 
 class LogUniform(TransformedDistribution):
+    r"""The Log-Uniform (reciprocal) distribution, a continuous distribution on
+    :math:`[a, b]` with :math:`0 < a < b`. It is the distribution of
+    :math:`\exp(Y)` where :math:`Y` is uniform on :math:`[\ln a, \ln b]`, so
+    its density is flat on a log scale and every order of magnitude in
+    :math:`[a, b]` carries equal probability.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid a, b) = \frac{1}{x \left(\ln b - \ln a\right)},
+        \quad a \leq x \leq b
+
+    where :math:`a > 0` is the lower bound (:attr:`low`) and :math:`b > a` is
+    the upper bound (:attr:`high`).
+    """
+
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
     reparametrized_params = ["low", "high"]
-    pytree_data_fields = ("low", "high", "_support")
+    pytree_data_fields = ("low", "high")
 
-    def __init__(self, low, high, *, validate_args=None):
+    def __init__(
+        self,
+        low: ArrayLike,
+        high: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param low: Lower bound :math:`a > 0` of the support.
+        :param high: Upper bound :math:`b > a` of the support.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         base_dist = Uniform(jnp.log(low), jnp.log(high))
         self.low, self.high = promote_shapes(low, high)
-        self._support = constraints.interval(self.low, self.high)
         super(LogUniform, self).__init__(
             base_dist, ExpTransform(), validate_args=validate_args
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self):
-        return self._support
+    def support(self) -> constraints.Constraint:
+        return constraints.interval(self.low, self.high)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Log-Uniform distribution:
+
+        .. math::
+            \mathbb{E}[X] = \frac{b - a}{\ln b - \ln a}
+        """
         return (self.high - self.low) / jnp.log(self.high / self.low)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Log-Uniform distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \frac{b^{2} - a^{2}}{2\left(\ln b - \ln a\right)}
+            - \left(\frac{b - a}{\ln b - \ln a}\right)^{2}
+        """
         return (
             0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
             - self.mean**2
         )
 
-    def cdf(self, x):
-        return self.base_dist.cdf(jnp.log(x))
+    def entropy(self) -> Array:
+        r"""Differential entropy of the Log-Uniform distribution:
+
+        .. math::
+            H(X) = \frac{\ln a + \ln b}{2} + \ln\!\left(\ln b - \ln a\right)
+        """
+        log_low = jnp.log(self.low)
+        log_high = jnp.log(self.high)
+        return (log_low + log_high) / 2 + jnp.log(log_high - log_low)
 
 
 def _batch_solve_triangular(A, B):
     """
     Extende solve_triangular for the case that B.ndim > A.ndim.
-    This is achived by first flattening the leading B.ndim - A.ndim dimensions of B and then
+    This is achieved by first flattening the leading B.ndim - A.ndim dimensions of B and then
     moving the first dimension to the end.
 
 
@@ -1276,16 +3017,81 @@ def _batch_solve_triangular(A, B):
     return X
 
 
-class MatrixNormal(Distribution):
-    """
-    Matrix variate normal distribution as described in [1] but with a lower_triangular parametrization,
-    i.e. :math:`U=scale_tril_row @ scale_tril_row^{T}` and :math:`V=scale_tril_column @ scale_tril_column^{T}`.
-    The distribution is related to the multivariate normal distribution in the following way.
-    If :math:`X ~ MN(loc,U,V)` then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
+def _batch_trace_from_cholesky(L):
+    """Computes the trace of matrix X given it's Cholesky decomposition matrix L.
 
-    :param array_like loc: Location of the distribution.
-    :param array_like scale_tril_row: Lower cholesky of rows correlation matrix.
-    :param array_like scale_tril_column: Lower cholesky of columns correlation matrix.
+    :param jnp.ndarray(..., M, M) L: An array with lower triangular structure in the last two dimensions.
+
+    :return: Trace of X, where X = L L^T
+    """
+    return jnp.square(L).sum((-1, -2))
+
+
+class MatrixNormal(Distribution):
+    r"""
+    Matrix normal distribution on real matrices with ``event_shape = (n, p)``
+    and mean matrix :math:`M` (``loc``), as described in [1]. The row and column
+    covariance matrices are :math:`U = L_r L_r^\top` and
+    :math:`V = L_c L_c^\top`, where :math:`L_r` (``scale_tril_row``) and
+    :math:`L_c` (``scale_tril_column``) are lower Cholesky factors with positive
+    diagonal entries.
+
+    The probability density function is
+
+    .. math::
+        f(X; M, U, V) =
+        \frac{\exp\left(-\frac{1}{2}\operatorname{tr}\left[
+        U^{-1}(X-M)V^{-1}(X-M)^\top\right]\right)}
+        {(2\pi)^{np/2}|U|^{p/2}|V|^{n/2}},
+        \qquad X \in \mathbb{R}^{n \times p}.
+
+    Equivalently,
+    :math:`\operatorname{vec}(X) \sim \mathcal{N}(\operatorname{vec}(M), V \otimes U)`,
+    where :math:`\operatorname{vec}` stacks the columns of a matrix and
+    :math:`\otimes` denotes the Kronecker product. For an unbatched matrix ``x``,
+    this is ``x.reshape(-1, order="F")``.
+
+    Samples are generated as :math:`X = M + L_r Z L_c^\top`, where :math:`Z`
+    is an :math:`n \times p` matrix of independent standard normal entries.
+    The log density is evaluated using triangular solves and the diagonals of
+    the Cholesky factors, without constructing the :math:`np \times np`
+    Kronecker covariance matrix.
+
+    Leading dimensions of all three parameters must be broadcast-compatible
+    and determine ``batch_shape``. The last two dimensions are matrix dimensions:
+    ``loc`` has shape ``(..., n, p)``, ``scale_tril_row`` has shape
+    ``(..., n, n)``, and ``scale_tril_column`` has shape ``(..., p, p)``.
+    Samples have shape ``sample_shape + batch_shape + (n, p)``, and
+    ``log_prob`` reduces the two event dimensions to give one value per matrix.
+
+    :param array_like loc: Mean matrix with shape ``(..., n, p)``.
+    :param array_like scale_tril_row: Lower Cholesky factor of the row covariance
+        matrix, with shape ``(..., n, n)`` and positive diagonal entries.
+    :param array_like scale_tril_column: Lower Cholesky factor of the column
+        covariance matrix, with shape ``(..., p, p)`` and positive diagonal entries.
+
+    **Example**
+
+    A matrix with two rows and three columns is equivalent to a six-dimensional
+    multivariate normal when its columns are stacked:
+
+    .. doctest::
+
+        >>> import jax.numpy as jnp
+        >>> from numpyro.distributions import MatrixNormal, MultivariateNormal
+        >>> loc = jnp.arange(6.0).reshape(2, 3)
+        >>> row = jnp.array([[1.0, 0.0], [0.4, 0.8]])
+        >>> column = jnp.array([[1.0, 0.0, 0.0], [0.3, 1.2, 0.0], [0.2, -0.1, 0.7]])
+        >>> matrix_normal = MatrixNormal(loc, row, column)
+        >>> vector_normal = MultivariateNormal(
+        ...     loc.reshape(-1, order="F"), scale_tril=jnp.kron(column, row)
+        ... )
+        >>> x = loc + jnp.array([[0.2, -0.3, 0.5], [0.7, 0.1, -0.4]])
+        >>> bool(jnp.allclose(
+        ...     matrix_normal.log_prob(x),
+        ...     vector_normal.log_prob(x.reshape(-1, order="F")),
+        ... ))
+        True
 
     **References**
 
@@ -1304,19 +3110,26 @@ class MatrixNormal(Distribution):
         "scale_tril_column",
     ]
 
-    def __init__(self, loc, scale_tril_row, scale_tril_column, validate_args=None):
-        event_shape = loc.shape[-2:]
+    def __init__(
+        self,
+        loc: ArrayLike,
+        scale_tril_row: ArrayLike,
+        scale_tril_column: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        event_shape = jnp.shape(loc)[-2:]
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-2],
             jnp.shape(scale_tril_row)[:-2],
             jnp.shape(scale_tril_column)[:-2],
         )
-        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-2:])
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + jnp.shape(loc)[-2:])
         (self.scale_tril_row,) = promote_shapes(
-            scale_tril_row, shape=batch_shape + scale_tril_row.shape[-2:]
+            scale_tril_row, shape=batch_shape + jnp.shape(scale_tril_row)[-2:]
         )
         (self.scale_tril_column,) = promote_shapes(
-            scale_tril_column, shape=batch_shape + scale_tril_column.shape[-2:]
+            scale_tril_column, shape=batch_shape + jnp.shape(scale_tril_column)[-2:]
         )
         super(MatrixNormal, self).__init__(
             batch_shape=batch_shape,
@@ -1325,10 +3138,13 @@ class MatrixNormal(Distribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         return jnp.broadcast_to(self.loc, self.shape())
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert key is not None
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
@@ -1339,15 +3155,11 @@ class MatrixNormal(Distribution):
         return samples
 
     @validate_sample
-    def log_prob(self, values):
+    def log_prob(self, values) -> Array:
         n, p = self.event_shape
 
-        row_log_det = jnp.log(
-            jnp.diagonal(self.scale_tril_row, axis1=-2, axis2=-1)
-        ).sum(-1)
-        col_log_det = jnp.log(
-            jnp.diagonal(self.scale_tril_column, axis1=-2, axis2=-1)
-        ).sum(-1)
+        row_log_det = tri_logabsdet(self.scale_tril_row)
+        col_log_det = tri_logabsdet(self.scale_tril_column)
         log_det_term = (
             p * row_log_det + n * col_log_det + 0.5 * n * p * jnp.log(2 * jnp.pi)
         )
@@ -1358,9 +3170,7 @@ class MatrixNormal(Distribution):
         diff_col_solve = _batch_solve_triangular(
             A=self.scale_tril_column, B=jnp.swapaxes(diff_row_solve, -2, -1)
         )
-        batched_trace_term = jnp.square(
-            diff_col_solve.reshape(diff_col_solve.shape[:-2] + (-1,))
-        ).sum(-1)
+        batched_trace_term = _batch_trace_from_cholesky(diff_col_solve)
 
         log_prob = -0.5 * batched_trace_term - log_det_term
 
@@ -1414,6 +3224,27 @@ def _batch_mahalanobis(bL, bx):
 
 
 class MultivariateNormal(Distribution):
+    r"""Multivariate normal (Gaussian) distribution on :math:`\mathbb{R}^d`
+    with mean vector :math:`\mu` and positive definite covariance matrix
+    :math:`\Sigma`. Exactly one of :attr:`covariance_matrix`,
+    :attr:`precision_matrix` (:math:`\Sigma^{-1}`) or :attr:`scale_tril` (the
+    lower Cholesky factor :math:`L` with :math:`\Sigma = L L^\top`) must be
+    specified; internally all three are represented by :attr:`scale_tril`.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x ; \mu, \Sigma) =
+        (2 \pi)^{-d/2} |\Sigma|^{-1/2}
+        \exp\left(-\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)\right),
+        \quad x \in \mathbb{R}^d
+
+    where :math:`d` is the event size. Samples are generated as
+    :math:`\mu + L z` with :math:`z \sim \mathrm{Normal}(0, I_d)`, and the
+    quadratic form and log determinant are evaluated from :math:`L` via
+    triangular solves.
+    """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "covariance_matrix": constraints.positive_definite,
@@ -1430,16 +3261,34 @@ class MultivariateNormal(Distribution):
 
     def __init__(
         self,
-        loc=0.0,
-        covariance_matrix=None,
-        precision_matrix=None,
-        scale_tril=None,
-        validate_args=None,
-    ):
+        loc: ArrayLike = 0.0,
+        covariance_matrix: Optional[ArrayLike] = None,
+        precision_matrix: Optional[ArrayLike] = None,
+        scale_tril: Optional[ArrayLike] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param loc: Mean vector :math:`\mu \in \mathbb{R}^d`. A scalar is promoted
+            to a vector of length 1. Defaults to ``0.0``.
+        :param covariance_matrix: Covariance matrix :math:`\Sigma` (positive
+            definite). Mutually exclusive with :attr:`precision_matrix` and
+            :attr:`scale_tril`.
+        :param precision_matrix: Precision matrix :math:`\Sigma^{-1}` (positive
+            definite).
+        :param scale_tril: Lower Cholesky factor :math:`L` of :math:`\Sigma`.
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
+        """
+        assert_one_of(
+            covariance_matrix=covariance_matrix,
+            precision_matrix=precision_matrix,
+            scale_tril=scale_tril,
+        )
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
         # temporary append a new axis to loc
-        loc = loc[..., jnp.newaxis]
+        loc = jnp.expand_dims(loc, -1)
         if covariance_matrix is not None:
             loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
             self.scale_tril = jnp.linalg.cholesky(self.covariance_matrix)
@@ -1448,11 +3297,6 @@ class MultivariateNormal(Distribution):
             self.scale_tril = cholesky_of_inverse(self.precision_matrix)
         elif scale_tril is not None:
             loc, self.scale_tril = promote_shapes(loc, scale_tril)
-        else:
-            raise ValueError(
-                "One of `covariance_matrix`, `precision_matrix`, `scale_tril`"
-                " must be specified."
-            )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2]
         )
@@ -1464,8 +3308,19 @@ class MultivariateNormal(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples via the reparameterization :math:`X = \mu + L Z` with
+        :math:`Z \sim \mathrm{Normal}(0, I_d)` drawn from
+        :func:`~jax.random.normal` and :math:`L` = :attr:`scale_tril`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples from the multivariate normal distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
@@ -1474,11 +3329,24 @@ class MultivariateNormal(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \mu, \Sigma) =
+            -\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)
+            -\frac{1}{2} \ln |\Sigma| - \frac{d}{2} \ln(2 \pi)
+
+        The Mahalanobis quadratic form and :math:`\ln |\Sigma|` are evaluated
+        from the Cholesky factor :attr:`scale_tril` via triangular solves.
+
+        :param value: Point :math:`x \in \mathbb{R}^d` at which to evaluate the
+            log PDF.
+        :return: Log probability density evaluated under the multivariate normal
+            distribution.
+        """
         M = _batch_mahalanobis(self.scale_tril, value - self.loc)
-        half_log_det = jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(
-            -1
-        )
+        half_log_det = tri_logabsdet(self.scale_tril)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * jnp.log(
             2 * jnp.pi
         )
@@ -1486,35 +3354,71 @@ class MultivariateNormal(Distribution):
 
     @lazy_property
     def covariance_matrix(self):
+        r"""Covariance matrix :math:`\Sigma = L L^\top`, recovered from
+        :attr:`scale_tril`."""
         return jnp.matmul(self.scale_tril, jnp.swapaxes(self.scale_tril, -1, -2))
 
     @lazy_property
     def precision_matrix(self):
+        r"""Precision matrix :math:`\Sigma^{-1} = L^{-\top} L^{-1}`, recovered
+        from :attr:`scale_tril`."""
         identity = jnp.broadcast_to(
             jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
         )
         return cho_solve((self.scale_tril, True), identity)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the multivariate normal distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.shape())
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance (diagonal of :math:`\Sigma`) of the multivariate normal
+        distribution:
+
+        .. math::
+            \mathrm{Var}(X_i) = \Sigma_{ii} = \sum_j L_{ij}^2
+        """
         return jnp.broadcast_to(
             jnp.sum(self.scale_tril**2, axis=-1), self.batch_shape + self.event_shape
         )
 
-    @staticmethod
+    @classmethod
     def infer_shapes(
-        loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None
+        cls, loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None
     ):
+        r"""Infer the batch and event shapes from the shapes of the arguments.
+
+        :return: A tuple ``(batch_shape, event_shape)``.
+        """
+        assert_one_of(
+            covariance_matrix=covariance_matrix,
+            precision_matrix=precision_matrix,
+            scale_tril=scale_tril,
+        )
         batch_shape, event_shape = loc[:-1], loc[-1:]
         for matrix in [covariance_matrix, precision_matrix, scale_tril]:
             if matrix is not None:
                 batch_shape = lax.broadcast_shapes(batch_shape, matrix[:-2])
                 event_shape = lax.broadcast_shapes(event_shape, matrix[-1:])
-        return batch_shape, event_shape
+                return batch_shape, event_shape
+
+    def entropy(self) -> Array:
+        r"""Differential entropy of the multivariate normal distribution:
+
+        .. math::
+            H(X) = \frac{d}{2} \ln(2 \pi e) + \frac{1}{2} \ln |\Sigma|
+
+        :return: Entropy in nats.
+        """
+        (n,) = self.event_shape
+        half_log_det = tri_logabsdet(self.scale_tril)
+        return n * (jnp.log(2 * np.pi) + 1) / 2 + half_log_det
 
 
 def _is_sparse(A):
@@ -1531,22 +3435,128 @@ def _to_sparse(A):
 
 class CAR(Distribution):
     r"""
-    The Conditional Autoregressive (CAR) distribution is a special case of the multivariate
-    normal in which the precision matrix is structured according to the adjacency matrix of
-    sites. The amount of autocorrelation between sites is controlled by ``correlation``. The
-    distribution is a popular prior for areal spatial data.
+    The Conditional Autoregressive (CAR) distribution is a multivariate normal
+    whose precision matrix is structured by an adjacency matrix. It is commonly
+    used as a prior for areal spatial data.
+
+    Let :math:`W` be ``adj_matrix``, let
+    :math:`n_i = \sum_j W_{ij}`, and define
+    :math:`D = \operatorname{diag}(n_1, \ldots, n_N)`. With
+    :math:`\rho` denoting ``correlation`` and :math:`\tau` denoting
+    ``conditional_precision``, the precision matrix is
+
+    .. math::
+        Q = \tau (D - \rho W).
+
+    Therefore, for :math:`x, \mu \in \mathbb{R}^N`, with :math:`\mu`
+    denoting ``loc``, the density is
+
+    .. math::
+        p(x) = \frac{|Q|^{1/2}}{(2\pi)^{N/2}}
+        \exp\left(-\frac{1}{2}(x-\mu)^\top Q(x-\mu)\right).
+
+    If :math:`W` has a zero diagonal, the corresponding full conditional is
+
+    .. math::
+        x_i \mid x_{-i} \sim \mathcal{N}\left(
+        \mu_i + \frac{\rho}{n_i}\sum_j W_{ij}(x_j-\mu_j),
+        \frac{1}{\tau n_i}\right).
+
+    Here :math:`n_i` is the weighted row sum; it equals the number of neighbors
+    only for a binary adjacency matrix. Let :math:`\lambda_{\min}` and
+    :math:`\lambda_{\max}` be the extreme eigenvalues of
+    :math:`D^{-1/2} W D^{-1/2}`. Then :math:`Q` is positive definite exactly
+    when :math:`\rho\lambda_i < 1` for every eigenvalue, which for
+    :math:`\lambda_{\min} < 0 < \lambda_{\max}` is the interval
+
+    .. math::
+        \frac{1}{\lambda_{\min}} < \rho
+        < \frac{1}{\lambda_{\max}}.
+
+    For symmetric, nonnegative :math:`W` with positive row sums,
+    :math:`\lambda_{\max}=1` and :math:`\lambda_{\min}\geq -1`, with equality
+    exactly when some connected component is bipartite; a zero diagonal also
+    gives :math:`\lambda_{\min}<0`. Thus :math:`|\rho| < 1` is always
+    sufficient, but it can exclude admissible negative values. This class
+    restricts ``correlation`` to :math:`(-1, 1)`.
+
+    ``log_prob`` computes the log determinant without factorizing :math:`Q`.
+    If :math:`\lambda_1,\ldots,\lambda_N` are the eigenvalues above, it uses
+    the identity [2]
+
+    .. math::
+        \log |Q| = N\log\tau + \sum_i\log n_i
+        + \sum_i\log(1-\rho\lambda_i).
+
+    With a NumPy or SciPy sparse adjacency matrix, ``log_prob`` computes the
+    eigenvalues with NumPy on the host; when the distribution is constructed
+    inside a traced function, as in a model, they enter the compiled
+    computation as constants. With a JAX adjacency matrix, the eigendecomposition
+    remains in the traced graph and is recomputed on each evaluation; JAX
+    adjacency inputs are therefore supported but not recommended.
+
+    When validation is enabled, symmetry and positive row sums are checked by
+    assertions for NumPy and SciPy sparse inputs. JAX adjacency inputs are not
+    validated. Nonnegative weights and a zero diagonal are the caller's
+    responsibility. With ``is_sparse=True``, the adjacency matrix
+    is stored in SciPy CSR format and converted to JAX ``BCOO`` for the
+    quadratic form in ``log_prob``. The normalized adjacency is nevertheless
+    densified on the host for NumPy eigenvalue computation, and
+    ``precision_matrix`` and sampling are dense. Thus, ``is_sparse=True`` does
+    not provide fully sparse inference. This mode accepts only two-dimensional
+    NumPy or SciPy sparse adjacency inputs.
 
     :param float or ndarray loc: mean of the multivariate normal
-    :param float correlation: autoregression parameter. For most cases, the value should lie
-        between 0 (sites are independent, collapses to an iid multivariate normal) and
-        1 (perfect autocorrelation between sites), but the specification allows for negative
+    :param float correlation: autoregression parameter. At zero, sites are
+        independent with variances :math:`1/(\tau n_i)`, which need not be
+        identical. The value one is the excluded intrinsic-CAR boundary; this
+        class implements the proper CAR distribution and also permits negative
         correlations.
-    :param float conditional_precision: positive precision for the multivariate normal
-    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
-        indicates adjacency between sites and 0 otherwise. :class:`jax.numpy.ndarray` ``adj_matrix`` is
-        supported but is **not** recommended over :class:`numpy.ndarray` or :class:`scipy.sparse.spmatrix`.
+    :param float conditional_precision: positive multiplier :math:`\tau` of the
+        conditional precision, so that
+        :math:`\operatorname{Var}(x_i \mid x_{-i}) = 1/(\tau n_i)` when the
+        adjacency diagonal is zero
+    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric,
+        nonnegative weight matrix :math:`W` with zero diagonal and positive row
+        sums, shape ``(..., N, N)`` (two-dimensional only when
+        ``is_sparse=True``). The standard CAR uses a binary matrix (one for
+        neighboring sites, zero otherwise). A :class:`jax.numpy.ndarray` is
+        supported but not recommended (see above).
     :param bool is_sparse: whether to use a sparse form of ``adj_matrix`` in calculations (must be True if
         ``adj_matrix`` is a :class:`scipy.sparse.spmatrix`)
+
+    **Example**
+
+    ``CAR.log_prob`` agrees with a multivariate normal constructed from the
+    precision matrix above:
+
+    .. doctest::
+
+        >>> import jax.numpy as jnp
+        >>> import numpy as np
+        >>> from numpyro.distributions import CAR, MultivariateNormal
+        >>> loc = jnp.zeros(3)
+        >>> adjacency = np.array([[0.0, 1.0, 1.0],
+        ...                       [1.0, 0.0, 1.0],
+        ...                       [1.0, 1.0, 0.0]])
+        >>> rho, tau = 0.4, 2.0
+        >>> degree = adjacency.sum(axis=-1)
+        >>> precision = tau * (jnp.diag(degree) - rho * adjacency)
+        >>> car = CAR(loc, rho, tau, adjacency)
+        >>> normal = MultivariateNormal(loc, precision_matrix=precision)
+        >>> value = jnp.array([0.2, -0.1, 0.3])
+        >>> bool(jnp.allclose(car.log_prob(value), normal.log_prob(value)))
+        True
+
+    **References**
+
+    [1] Besag, J. (1974). Spatial interaction and the statistical analysis of
+    lattice systems. *Journal of the Royal Statistical Society: Series B*,
+    36(2), 192--225. https://doi.org/10.1111/j.2517-6161.1974.tb00999.x
+
+    [2] Jin, X., Carlin, B. P., and Banerjee, S. (2005). Generalized
+    hierarchical multivariate CAR models for areal data. *Biometrics*, 61(4),
+    950--961. https://doi.org/10.1111/j.1541-0420.2005.00359.x
     """
 
     arg_constraints = {
@@ -1566,14 +3576,14 @@ class CAR(Distribution):
 
     def __init__(
         self,
-        loc,
-        correlation,
-        conditional_precision,
-        adj_matrix,
+        loc: ArrayLike,
+        correlation: ArrayLike,
+        conditional_precision: ArrayLike,
+        adj_matrix: Union[ArrayLike, "scipy.sparse.spmatrix"],
         *,
-        is_sparse=False,
-        validate_args=None,
-    ):
+        is_sparse: bool = False,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
 
@@ -1587,7 +3597,7 @@ class CAR(Distribution):
         )
 
         if self.is_sparse:
-            if adj_matrix.ndim != 2:
+            if len(jnp.shape(adj_matrix)) != 2:
                 raise ValueError(
                     "Currently, we only support 2-dimensional adj_matrix. Please make a feature request",
                     " if you need higher dimensional adj_matrix.",
@@ -1600,12 +3610,12 @@ class CAR(Distribution):
             # TODO: look into future jax sparse csr functionality and other developments
             self.adj_matrix = _to_sparse(adj_matrix)
         else:
-            assert not _is_sparse(
-                adj_matrix
-            ), "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
+            assert not _is_sparse(adj_matrix), (
+                "adj_matrix is a sparse matrix so please specify `is_sparse=True`."
+            )
             # TODO: look into static jax ndarray representation
             (self.adj_matrix,) = promote_shapes(
-                adj_matrix, shape=batch_shape + adj_matrix.shape[-2:]
+                adj_matrix, shape=batch_shape + jnp.shape(adj_matrix)[-2:]
             )
 
         event_shape = jnp.shape(self.adj_matrix)[-1:]
@@ -1621,26 +3631,28 @@ class CAR(Distribution):
         )
 
         if self._validate_args and (isinstance(adj_matrix, np.ndarray) or is_sparse):
-            assert (
-                self.adj_matrix.sum(axis=-1) > 0
-            ).all() > 0, "all sites in adjacency matrix must have neighbours"
+            assert (self.adj_matrix.sum(axis=-1) > 0).all() > 0, (
+                "all sites in adjacency matrix must have neighbours"
+            )
 
             if self.is_sparse:
-                assert (
-                    self.adj_matrix != self.adj_matrix.T
-                ).nnz == 0, "adjacency matrix must be symmetric"
+                assert (self.adj_matrix != self.adj_matrix.T).nnz == 0, (
+                    "adjacency matrix must be symmetric"
+                )
             else:
                 assert np.array_equal(
                     self.adj_matrix, np.swapaxes(self.adj_matrix, -2, -1)
                 ), "adjacency matrix must be symmetric"
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         # TODO: look into a sparse sampling method
         mvn = MultivariateNormal(self.mean, precision_matrix=self.precision_matrix)
         return mvn.sample(key, sample_shape=sample_shape)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
         phi = value - self.loc
         adj_matrix = self.adj_matrix
 
@@ -1662,7 +3674,7 @@ class CAR(Distribution):
                 D_rsqrt[..., None, :] * D_rsqrt[..., None]
             )
 
-        # TODO: look into sparse eignvalue methods
+        # TODO: look into sparse eigenvalue methods
         if isinstance(adj_matrix_scaled, np.ndarray):
             lam = np.linalg.eigvalsh(adj_matrix_scaled)
         else:
@@ -1687,7 +3699,7 @@ class CAR(Distribution):
         return 0.5 * (-n * jnp.log(2 * jnp.pi) + logprec + logdet - logquad)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         return jnp.broadcast_to(self.loc, self.shape())
 
     @lazy_property
@@ -1702,8 +3714,8 @@ class CAR(Distribution):
         correlation = jnp.expand_dims(self.correlation, (-2, -1))
         return conditional_precision * (D - correlation * adj_matrix)
 
-    @staticmethod
-    def infer_shapes(loc, correlation, conditional_precision, adj_matrix):
+    @classmethod
+    def infer_shapes(cls, loc, correlation, conditional_precision, adj_matrix):
         event_shape = adj_matrix[-1:]
         batch_shape = lax.broadcast_shapes(
             loc[:-1], correlation, conditional_precision, adj_matrix[:-2]
@@ -1727,7 +3739,7 @@ class CAR(Distribution):
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        d = super().tree_unflatten(aux_data, params)
+        d = cast(CAR, super().tree_unflatten(aux_data, params))
         if not d.is_sparse:
             adj_matrix_data_idx = cls.gather_pytree_data_fields().index("adj_matrix")
             setattr(d, "adj_matrix", params[adj_matrix_data_idx])
@@ -1738,6 +3750,33 @@ class CAR(Distribution):
 
 
 class MultivariateStudentT(Distribution):
+    r"""Multivariate Student's t-distribution on :math:`\mathbb{R}^d` with
+    degrees of freedom :math:`\nu > 0`, location vector :math:`\mu` and
+    positive definite scale matrix :math:`\Sigma = L L^\top`, given by its
+    lower Cholesky factor :attr:`scale_tril`. It is the distribution of
+    :math:`\mu + L Z / \sqrt{V / \nu}` where
+    :math:`Z \sim \mathrm{Normal}(0, I_d)` is independent of
+    :math:`V \sim \chi^2(\nu)`; equivalently, a multivariate normal with a
+    shared :math:`\chi^2` scale mixture. As :math:`\nu \to \infty` it
+    approaches :class:`MultivariateNormal`, and :math:`\nu = 1` gives the
+    multivariate Cauchy distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x ; \nu, \mu, \Sigma) =
+        \frac{\Gamma\left(\displaystyle\frac{\nu + d}{2}\right)}
+        {\Gamma\left(\displaystyle\frac{\nu}{2}\right) (\nu \pi)^{d/2} |\Sigma|^{1/2}}
+        \left(1 + \frac{1}{\nu} (x - \mu)^\top \Sigma^{-1}
+        (x - \mu)\right)^{-\frac{\nu + d}{2}},
+        \quad x \in \mathbb{R}^d
+
+    where :math:`d` is the event size. Note that :math:`\Sigma` is a scale
+    matrix, not the covariance: the covariance is
+    :math:`\frac{\nu}{\nu - 2} \Sigma` for :math:`\nu > 2`, and the mean
+    equals :math:`\mu` only for :math:`\nu > 1`.
+    """
+
     arg_constraints = {
         "df": constraints.positive,
         "loc": constraints.real_vector,
@@ -1749,20 +3788,31 @@ class MultivariateStudentT(Distribution):
 
     def __init__(
         self,
-        df,
-        loc=0.0,
-        scale_tril=None,
-        validate_args=None,
-    ):
+        df: ArrayLike,
+        loc: ArrayLike = 0.0,
+        scale_tril: Optional[Array] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param df: Degrees of freedom :math:`\nu > 0`.
+        :param loc: Location vector :math:`\mu`. A scalar is promoted to a vector
+            of length 1. Defaults to ``0.0``.
+        :param scale_tril: Lower Cholesky factor :math:`L` of the scale matrix
+            :math:`\Sigma` (required).
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
+        """
+        assert scale_tril is not None
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
         batch_shape = lax.broadcast_shapes(
             jnp.shape(df), jnp.shape(loc)[:-1], jnp.shape(scale_tril)[:-2]
         )
         (self.df,) = promote_shapes(df, shape=batch_shape)
-        (self.loc,) = promote_shapes(loc, shape=batch_shape + loc.shape[-1:])
+        (self.loc,) = promote_shapes(loc, shape=batch_shape + jnp.shape(loc)[-1:])
         (self.scale_tril,) = promote_shapes(
-            scale_tril, shape=batch_shape + scale_tril.shape[-2:]
+            scale_tril, shape=batch_shape + jnp.shape(scale_tril)[-2:]
         )
         event_shape = jnp.shape(self.scale_tril)[-1:]
         self._chi2 = Chi2(self.df)
@@ -1772,8 +3822,20 @@ class MultivariateStudentT(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples via the scale-mixture representation
+        :math:`X = \mu + L Z / \sqrt{V / \nu}` with
+        :math:`Z \sim \mathrm{Normal}(0, I_d)` independent of
+        :math:`V \sim \chi^2(\nu)` and :math:`L` = :attr:`scale_tril`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples from the multivariate Student's t-distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(
             key_normal,
@@ -1786,10 +3848,31 @@ class MultivariateStudentT(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \nu, \mu, \Sigma) =
+            -\frac{\nu + d}{2}
+            \ln\!\left(1 + \frac{1}{\nu}
+            (x - \mu)^\top \Sigma^{-1} (x - \mu)\right)
+            - \ln Z,
+            \quad
+            Z = \frac{\Gamma\!\left(\frac{\nu}{2}\right)
+                (\nu \pi)^{d/2} |\Sigma|^{1/2}}
+                {\Gamma\!\left(\frac{\nu + d}{2}\right)}
+
+        The Mahalanobis quadratic form and :math:`\ln |\Sigma|` are evaluated
+        from the Cholesky factor :attr:`scale_tril` via triangular solves.
+
+        :param value: Point :math:`x \in \mathbb{R}^d` at which to evaluate the
+            log PDF.
+        :return: Log probability density evaluated under the multivariate
+            Student's t-distribution.
+        """
         n = self.scale_tril.shape[-1]
         Z = (
-            jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+            tri_logabsdet(self.scale_tril)
             + 0.5 * n * jnp.log(self.df)
             + 0.5 * n * jnp.log(jnp.pi)
             + gammaln(0.5 * self.df)
@@ -1800,19 +3883,33 @@ class MultivariateStudentT(Distribution):
 
     @lazy_property
     def covariance_matrix(self):
+        r"""Scale matrix :math:`\Sigma = L L^\top`, recovered from
+        :attr:`scale_tril`. Note this is *not* the covariance of the
+        distribution; the actual covariance is
+        :math:`\frac{\nu}{\nu - 2} \Sigma` for :math:`\nu > 2`."""
         # NB: this is not covariance of this distribution;
         # the actual covariance is df / (df - 2) * covariance_matrix
         return jnp.matmul(self.scale_tril, jnp.swapaxes(self.scale_tril, -1, -2))
 
     @lazy_property
-    def precision_matrix(self):
+    def precision_matrix(self) -> Array:
+        r"""Inverse of the scale matrix, :math:`\Sigma^{-1} = L^{-\top} L^{-1}`,
+        recovered from :attr:`scale_tril`."""
         identity = jnp.broadcast_to(
             jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
         )
         return cho_solve((self.scale_tril, True), identity)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the multivariate Student's t-distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu, \quad \nu > 1
+
+        Returns ``inf`` for :math:`\nu \leq 1`, where the mean is undefined
+        (matching SciPy).
+        """
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
             jnp.where(jnp.expand_dims(self.df, -1) <= 1, jnp.inf, self.loc),
@@ -1820,21 +3917,34 @@ class MultivariateStudentT(Distribution):
         )
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the multivariate Student's t-distribution:
+
+        .. math::
+            \mathrm{Var}(X_i) = \frac{\nu}{\nu - 2} \, \Sigma_{ii},
+            \quad \nu > 2
+
+        Returns ``nan`` for :math:`\nu \leq 1` and ``inf`` for
+        :math:`1 < \nu \leq 2`, where the variance is undefined.
+        """
         df = jnp.expand_dims(self.df, -1)
         var = jnp.power(self.scale_tril, 2).sum(-1) * (df / (df - 2))
         var = jnp.where(df > 2, var, jnp.inf)
         var = jnp.where(df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape + self.event_shape)
 
-    @staticmethod
-    def infer_shapes(df, loc, scale_tril):
+    @classmethod
+    def infer_shapes(cls, df, loc, scale_tril):
+        r"""Infer the batch and event shapes from the shapes of the arguments.
+
+        :return: A tuple ``(batch_shape, event_shape)``.
+        """
         event_shape = (scale_tril[-1],)
         batch_shape = lax.broadcast_shapes(df, loc[:-1], scale_tril[:-2])
         return batch_shape, event_shape
 
 
-def _batch_mv(bmat, bvec):
+def _batch_mv(bmat: Array, bvec: Array) -> Array:
     r"""
     Performs a batched matrix-vector product, with compatible but different batch shapes.
     This function takes as input `bmat`, containing :math:`n \times n` matrices, and
@@ -1846,7 +3956,7 @@ def _batch_mv(bmat, bvec):
     return jnp.squeeze(jnp.matmul(bmat, jnp.expand_dims(bvec, axis=-1)), axis=-1)
 
 
-def _batch_capacitance_tril(W, D):
+def _batch_capacitance_tril(W: Array, D: Array) -> Array:
     r"""
     Computes Cholesky of :math:`I + W.T @ inv(D) @ W` for a batch of matrices :math:`W`
     and a batch of vectors :math:`D`.
@@ -1854,22 +3964,22 @@ def _batch_capacitance_tril(W, D):
     Wt_Dinv = jnp.swapaxes(W, -1, -2) / jnp.expand_dims(D, -2)
     K = jnp.matmul(Wt_Dinv, W)
     # could be inefficient
-    return jnp.linalg.cholesky(jnp.add(K, jnp.identity(K.shape[-1])))
+    return jnp.linalg.cholesky(add_diag(K, 1))
 
 
-def _batch_lowrank_logdet(W, D, capacitance_tril):
+def _batch_lowrank_logdet(W: Array, D: Array, capacitance_tril: Array) -> Array:
     r"""
     Uses "matrix determinant lemma"::
         log|W @ W.T + D| = log|C| + log|D|,
     where :math:`C` is the capacitance matrix :math:`I + W.T @ inv(D) @ W`, to compute
     the log determinant.
     """
-    return 2 * jnp.sum(
-        jnp.log(jnp.diagonal(capacitance_tril, axis1=-2, axis2=-1)), axis=-1
-    ) + jnp.log(D).sum(-1)
+    return 2 * tri_logabsdet(capacitance_tril) + jnp.log(D).sum(-1)
 
 
-def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
+def _batch_lowrank_mahalanobis(
+    W: Array, D: Array, x: Array, capacitance_tril: Array
+) -> Array:
     r"""
     Uses "Woodbury matrix identity"::
         inv(W @ W.T + D) = inv(D) - inv(D) @ W @ inv(C) @ W.T @ inv(D),
@@ -1884,6 +3994,46 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
 
 
 class LowRankMultivariateNormal(Distribution):
+    r"""Multivariate normal distribution on :math:`\mathbb{R}^d` whose covariance
+    matrix is the sum of a low-rank matrix and a positive diagonal matrix,
+
+    .. math::
+        \Sigma = W W^\top + \operatorname{diag}(D),
+
+    where :math:`W \in \mathbb{R}^{d \times m}` is the covariance factor (usually
+    with :math:`m \ll d`) and :math:`D \in \mathbb{R}_{>0}^{d}` is the diagonal
+    part. The Probability Density Function (PDF) is
+
+    .. math::
+        f(x ; \mu, W, D) =
+        (2 \pi)^{-d/2} |\Sigma|^{-1/2}
+        \exp\left(-\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)\right),
+        \quad x \in \mathbb{R}^d
+
+    The mean is :math:`\mu` and the marginal variances are
+    :math:`\operatorname{Var}(x_i) = \sum_{j=1}^{m} W_{ij}^2 + D_i`.
+
+    A sample is generated as
+    :math:`x = \mu + W \epsilon_W + \sqrt{D} \odot \epsilon_D` with
+    :math:`\epsilon_W \sim \mathrm{Normal}(0, I_m)` and
+    :math:`\epsilon_D \sim \mathrm{Normal}(0, I_d)`. The log density avoids
+    forming the :math:`d \times d` matrix :math:`\Sigma` by using the
+    Woodbury matrix identity and the matrix determinant lemma with the
+    :math:`m \times m` capacitance matrix :math:`C = I_m + W^\top \operatorname{diag}(D)^{-1} W`:
+
+    .. math::
+        \Sigma^{-1} = \operatorname{diag}(D)^{-1}
+        - \operatorname{diag}(D)^{-1} W C^{-1} W^\top \operatorname{diag}(D)^{-1},
+        \qquad
+        \log |\Sigma| = \log |C| + \sum_{i=1}^{d} \log D_i.
+
+    :param loc: Mean vector :math:`\mu \in \mathbb{R}^d`.
+    :param cov_factor: Factor :math:`W` of the low-rank part of the covariance,
+        with shape ``(..., d, m)``.
+    :param cov_diag: Diagonal part :math:`D > 0` of the covariance, with shape
+        ``(..., d)``.
+    """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "cov_factor": constraints.independent(constraints.real, 2),
@@ -1893,7 +4043,14 @@ class LowRankMultivariateNormal(Distribution):
     reparametrized_params = ["loc", "cov_factor", "cov_diag"]
     pytree_data_fields = ("loc", "cov_factor", "cov_diag", "_capacitance_tril")
 
-    def __init__(self, loc, cov_factor, cov_diag, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike,
+        cov_factor: ArrayLike,
+        cov_diag: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         if jnp.ndim(loc) < 1:
             raise ValueError("`loc` must be at least one-dimensional.")
         event_shape = jnp.shape(loc)[-1:]
@@ -1916,7 +4073,7 @@ class LowRankMultivariateNormal(Distribution):
             )
 
         loc, cov_factor, cov_diag = promote_shapes(
-            loc[..., jnp.newaxis], cov_factor, cov_diag[..., jnp.newaxis]
+            jnp.expand_dims(loc, -1), cov_factor, jnp.expand_dims(cov_diag, -1)
         )
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(cov_factor), jnp.shape(cov_diag)
@@ -1933,16 +4090,16 @@ class LowRankMultivariateNormal(Distribution):
         )
 
     @property
-    def mean(self):
-        return self.loc
+    def mean(self) -> Array:
+        return jnp.asarray(self.loc)
 
     @lazy_property
-    def variance(self):
+    def variance(self) -> Array:
         raw_variance = jnp.square(self.cov_factor).sum(-1) + self.cov_diag
         return jnp.broadcast_to(raw_variance, self.batch_shape + self.event_shape)
 
     @lazy_property
-    def scale_tril(self):
+    def scale_tril(self) -> Array:
         # The following identity is used to increase the numerically computation stability
         # for Cholesky decomposition (see http://www.gaussianprocess.org/gpml/, Section 3.4.3):
         #     W @ W.T + D = D1/2 @ (I + D-1/2 @ W @ W.T @ D-1/2) @ D1/2
@@ -1951,37 +4108,35 @@ class LowRankMultivariateNormal(Distribution):
         cov_diag_sqrt_unsqueeze = jnp.expand_dims(jnp.sqrt(self.cov_diag), axis=-1)
         Dinvsqrt_W = self.cov_factor / cov_diag_sqrt_unsqueeze
         K = jnp.matmul(Dinvsqrt_W, jnp.swapaxes(Dinvsqrt_W, -1, -2))
-        K = jnp.add(K, jnp.identity(K.shape[-1]))
+        K = add_diag(K, 1)
         scale_tril = cov_diag_sqrt_unsqueeze * jnp.linalg.cholesky(K)
         return scale_tril
 
     @lazy_property
-    def covariance_matrix(self):
-        # TODO: find a better solution to create a diagonal matrix
-        new_diag = self.cov_diag[..., jnp.newaxis] * jnp.identity(self.loc.shape[-1])
-        covariance_matrix = new_diag + jnp.matmul(
-            self.cov_factor, jnp.swapaxes(self.cov_factor, -1, -2)
+    def covariance_matrix(self) -> Array:
+        covariance_matrix = add_diag(
+            jnp.matmul(self.cov_factor, jnp.swapaxes(self.cov_factor, -1, -2)),
+            self.cov_diag,
         )
         return covariance_matrix
 
     @lazy_property
-    def precision_matrix(self):
+    def precision_matrix(self) -> Array:
         # We use "Woodbury matrix identity" to take advantage of low rank form::
         #     inv(W @ W.T + D) = inv(D) - inv(D) @ W @ inv(C) @ W.T @ inv(D)
         # where :math:`C` is the capacitance matrix.
         Wt_Dinv = jnp.swapaxes(self.cov_factor, -1, -2) / jnp.expand_dims(
             self.cov_diag, axis=-2
         )
-        A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
-        # TODO: find a better solution to create a diagonal matrix
+        A = solve_triangular(self._capacitance_tril, Wt_Dinv, lower=True)
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
-        diag_embed = inverse_cov_diag[..., jnp.newaxis] * jnp.identity(
-            self.loc.shape[-1]
-        )
-        return diag_embed - jnp.matmul(jnp.swapaxes(A, -1, -2), A)
+        return add_diag(-jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         key_W, key_D = random.split(key)
         batch_shape = sample_shape + self.batch_shape
         W_shape = batch_shape + self.cov_factor.shape[-1:]
@@ -1995,7 +4150,7 @@ class LowRankMultivariateNormal(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
         diff = value - self.loc
         M = _batch_lowrank_mahalanobis(
             self.cov_factor, self.cov_diag, diff, self._capacitance_tril
@@ -2005,86 +4160,225 @@ class LowRankMultivariateNormal(Distribution):
         )
         return -0.5 * (self.loc.shape[-1] * jnp.log(2 * jnp.pi) + log_det + M)
 
-    def entropy(self):
+    def entropy(self) -> Array:
         log_det = _batch_lowrank_logdet(
             self.cov_factor, self.cov_diag, self._capacitance_tril
         )
         H = 0.5 * (self.loc.shape[-1] * (1.0 + jnp.log(2 * jnp.pi)) + log_det)
         return jnp.broadcast_to(H, self.batch_shape)
 
-    @staticmethod
-    def infer_shapes(loc, cov_factor, cov_diag):
+    @classmethod
+    def infer_shapes(cls, loc, cov_factor, cov_diag):
         event_shape = loc[-1:]
         batch_shape = lax.broadcast_shapes(loc[:-1], cov_factor[:-2], cov_diag[:-1])
         return batch_shape, event_shape
 
 
 class Normal(Distribution):
+    r"""Normal (Gaussian) distribution parameterized by mean (:attr:`loc`) and
+    standard deviation (:attr:`scale`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \mu, \sigma) = \frac{1}{\sigma \sqrt{2\pi}}
+       \exp\!\left( -\frac{(x - \mu)^2}{2\sigma^2} \right)
+
+    where :math:`x \in \mathbb{R}`, :math:`\mu \in \mathbb{R}` is the mean,
+    and :math:`\sigma > 0` is the standard deviation.
+
+    :param loc: Mean of the distribution (:math:`\mu`).
+    :type loc: ArrayLike
+    :param scale: Standard deviation of the distribution (:math:`\sigma`).
+    :type scale: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Normal, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples via the reparameterization trick:
+        :math:`X = \mu + \sigma \epsilon`, where :math:`\epsilon \sim \mathcal{N}(0,1)`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Normal distribution of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
+        assert key is not None
         eps = random.normal(
             key, shape=sample_shape + self.batch_shape + self.event_shape
         )
         return self.loc + eps * self.scale
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; \mu, \sigma) = -\frac{(x - \mu)^2}{2\sigma^2}
+           - \log(\sigma \sqrt{2\pi})
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
         return -0.5 * value_scaled**2 - normalize_term
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function.
+
+        .. math::
+           F(x; \mu, \sigma) = \Phi\!\left(\frac{x-\mu}{\sigma}\right)
+
+        where, :math:`\Phi` is the
+        `cumulative distribution function of standard normal distribution <https://en.wikipedia.org/wiki/Normal_distribution#Cumulative_distribution_function>`_.
+        Implementation uses :func:`jax.scipy.special.ndtr` for :math:`\Phi`.
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         scaled = (value - self.loc) / self.scale
         return ndtr(scaled)
 
-    def log_cdf(self, value):
+    def log_cdf(self, value: ArrayLike) -> Array:
+        r"""Log of the cumulative distribution function. Implementation
+        calls :func:`jax.scipy.stats.norm.logcdf`.
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         return jax_norm.logcdf(value, loc=self.loc, scale=self.scale)
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; \mu, \sigma) = \mu + \sigma\,\Phi^{-1}(q)
+
+        where, :math:`\mathrm{\Phi^{-1}}` is inverse
+        `cumulative distribution function of standard normal distribution <https://en.wikipedia.org/wiki/Normal_distribution#Cumulative_distribution_function>`_.
+        Implementation uses :func:`jax.scipy.special.ndtri` for :math:`\Phi^{-1}`.
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
         return self.loc + self.scale * ndtri(q)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Calculates the analytical variance.
+
+        .. math:: \mathrm{Var}(X) = \sigma^2
+        """
         return jnp.broadcast_to(self.scale**2, self.batch_shape)
+
+    def entropy(self) -> Array:
+        r"""Entropy of the Normal distribution.
+
+        .. math::
+           H(X) = \frac{1}{2} \ln(2\pi e \sigma^2)
+        """
+        return jnp.broadcast_to(
+            (jnp.log(2 * np.pi * self.scale**2) + 1) / 2, self.batch_shape
+        )
 
 
 class Pareto(TransformedDistribution):
+    r"""Pareto distribution parameterized by scale (:attr:`scale`) and tail
+    index (:attr:`alpha`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; x_m, \alpha) = \frac{\alpha x_m^{\alpha}}{x^{\alpha + 1}}
+
+    where :math:`x > x_m`, :math:`x_m > 0` is the scale and :math:`\alpha > 0`
+    is the shape. The cumulative distribution function (CDF) is
+    :math:`F(x) = 1 - (x_m / x)^{\alpha}`.
+
+    The distribution is implemented as a :class:`TransformedDistribution`:
+    :math:`X = x_m e^{E}` with :math:`E \sim \mathrm{Exponential}(\alpha)`,
+    i.e. an :class:`Exponential` base distribution followed by
+    :class:`~numpyro.distributions.transforms.ExpTransform` and
+    :class:`~numpyro.distributions.transforms.AffineTransform`.
+
+    The mean :math:`\alpha x_m / (\alpha - 1)` is finite only for
+    :math:`\alpha > 1` and the variance
+    :math:`\alpha x_m^2 / ((\alpha - 1)^2 (\alpha - 2))` only for
+    :math:`\alpha > 2`; both properties return ``inf`` otherwise.
+
+    :param scale: Scale parameter (:math:`x_m`), the lower bound of the support.
+    :type scale: ArrayLike
+    :param alpha: Shape (tail index) parameter (:math:`\alpha`).
+    :type alpha: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
     reparametrized_params = ["scale", "alpha"]
 
-    def __init__(self, scale, alpha, *, validate_args=None):
+    def __init__(
+        self,
+        scale: ArrayLike,
+        alpha: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.scale, self.alpha = promote_shapes(scale, alpha)
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
-        scale, alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(
-            alpha, batch_shape
+        scale, alpha = (
+            jnp.broadcast_to(scale, batch_shape),
+            jnp.broadcast_to(alpha, batch_shape),
         )
         base_dist = Exponential(alpha)
-        transforms = [ExpTransform(), AffineTransform(loc=0, scale=scale)]
+        transforms: list[Transform] = [
+            ExpTransform(),
+            AffineTransform(loc=0, scale=scale),
+        ]
         super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         # mean is inf for alpha <= 1
         a = jnp.divide(self.alpha * self.scale, (self.alpha - 1))
         return jnp.where(self.alpha <= 1, jnp.inf, a)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
         # var is inf for alpha <= 2
         a = jnp.divide(
             (self.scale**2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
@@ -2093,40 +4387,100 @@ class Pareto(TransformedDistribution):
 
     # override the default behaviour to save computations
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self):
+    def support(self) -> constraints.Constraint:
         return constraints.greater_than(self.scale)
 
-    def cdf(self, value):
-        return 1 - jnp.power(self.scale / value, self.alpha)
-
-    def icdf(self, q):
-        return self.scale / jnp.power(1 - q, 1 / self.alpha)
+    def entropy(self) -> Array:
+        return jnp.log(self.scale / self.alpha) + 1 + 1 / self.alpha
 
 
 class RelaxedBernoulliLogits(TransformedDistribution):
+    r"""Continuous relaxation of the Bernoulli distribution on the unit interval
+    (also known as the binary Concrete distribution), parameterized by a
+    temperature :math:`\lambda > 0` and logits :math:`\ell \in \mathbb{R}`.
+
+    A sample is generated by drawing
+    :math:`z \sim \mathrm{Logistic}(\ell / \lambda, 1 / \lambda)` and applying
+    the sigmoid function,
+
+    .. math::
+        x = \sigma(z) = \frac{1}{1 + e^{-z}}, \quad x \in (0, 1),
+
+    which is the reparameterized form of
+    :math:`x = \sigma\left((\ell + \log u - \log(1 - u)) / \lambda\right)` with
+    :math:`u \sim \mathrm{Uniform}(0, 1)`. The Probability Density Function (PDF) is
+
+    .. math::
+        f(x ; \lambda, \ell) =
+        \frac{\lambda e^{\ell} x^{-\lambda - 1} (1 - x)^{-\lambda - 1}}
+        {\left(e^{\ell} x^{-\lambda} + (1 - x)^{-\lambda}\right)^{2}},
+        \quad x \in (0, 1)
+
+    As :math:`\lambda \to 0` the samples concentrate on :math:`\{0, 1\}` with
+    :math:`\mathbb{P}(x \to 1) = \sigma(\ell)`, recovering a Bernoulli
+    distribution with the same logits.
+
+    :param temperature: Temperature parameter :math:`\lambda > 0`.
+    :param logits: Logits :math:`\ell \in \mathbb{R}` of the corresponding
+        Bernoulli distribution.
+    """
+
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
     support = constraints.unit_interval
 
-    def __init__(self, temperature, logits, *, validate_args=None):
+    def __init__(
+        self,
+        temperature: ArrayLike,
+        logits: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.temperature, self.logits = promote_shapes(temperature, logits)
         base_dist = Logistic(logits / temperature, 1 / temperature)
-        transforms = [SigmoidTransform()]
+        transforms: list[Transform] = [SigmoidTransform()]
         super().__init__(base_dist, transforms, validate_args=validate_args)
 
 
-def RelaxedBernoulli(temperature, probs=None, logits=None, *, validate_args=None):
-    if probs is None and logits is None:
-        raise ValueError("One of `probs` or `logits` must be specified.")
+def RelaxedBernoulli(
+    temperature: ArrayLike,
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
+    *,
+    validate_args: Optional[bool] = None,
+) -> RelaxedBernoulliLogits:
+    r"""Continuous relaxation of the Bernoulli distribution on the unit interval.
+
+    At least one of ``probs`` or ``logits`` must be specified; if both are
+    given, ``probs`` takes precedence and ``logits`` is ignored. A probability
+    :math:`p` is converted to logits :math:`\ell = \log p - \log(1 - p)` and a
+    :class:`RelaxedBernoulliLogits` distribution is returned; see that class for
+    the density and the sampling procedure.
+
+    :param temperature: Temperature parameter :math:`\lambda > 0`.
+    :param probs: Probability :math:`p \in (0, 1)` of the corresponding
+        Bernoulli distribution.
+    :param logits: Logits :math:`\ell \in \mathbb{R}` of the corresponding
+        Bernoulli distribution.
+    :raises ValueError: If neither ``probs`` nor ``logits`` is specified.
+    """
     if probs is not None:
         logits = _to_logits_bernoulli(probs)
+    elif logits is None:
+        raise ValueError("One of `probs` or `logits` must be specified.")
     return RelaxedBernoulliLogits(temperature, logits, validate_args=validate_args)
 
 
 class SoftLaplace(Distribution):
-    """
-    Smooth distribution with Laplace-like tail behavior.
+    r"""Smooth distribution with Laplace-like tail behavior.
 
-    This distribution corresponds to the log-convex density::
+    The Probability Density Function (PDF), in terms of location
+    :math:`\mu \in \mathbb{R}` and scale :math:`\sigma > 0`, is
+
+    .. math::
+        f(x ; \mu, \sigma) = \frac{1}{\pi\,\sigma\,\cosh\!\left(\displaystyle\frac{x-\mu}{\sigma}\right)},
+        \quad x \in \mathbb{R}
+
+    which is the log-convex density::
 
         z = (value - loc) / scale
         log_prob = log(2 / pi) - log(scale) - logaddexp(z, -z)
@@ -2136,26 +4490,52 @@ class SoftLaplace(Distribution):
     distribution, this distribution is infinitely differentiable everywhere,
     and is thus suitable for HMC and Laplace approximation.
 
-    :param loc: Location parameter.
-    :param scale: Scale parameter.
+    :param loc: Location parameter :math:`\mu \in \mathbb{R}`.
+    :param scale: Scale parameter :math:`\sigma > 0`.
     """
 
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc, scale, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike,
+        scale: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \log f(x ; \mu, \sigma) = \log\frac{2}{\pi} - \log\sigma
+            - \log\!\left(e^{z} + e^{-z}\right), \quad z = \frac{x-\mu}{\sigma}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the SoftLaplace distribution.
+        """
         z = (value - self.loc) / self.scale
         return jnp.log(2 / jnp.pi) - jnp.log(self.scale) - jnp.logaddexp(z, -z)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the SoftLaplace distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         dtype = jnp.result_type(float)
         finfo = jnp.finfo(dtype)
         minval = finfo.tiny
@@ -2163,23 +4543,84 @@ class SoftLaplace(Distribution):
         return self.icdf(u)
 
     # TODO: refactor validate_sample to only does validation check and use it here
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the SoftLaplace distribution:
+
+        .. math::
+            F(x ; \mu, \sigma) = \frac{2}{\pi}\,\arctan\!\left(e^{z}\right),
+            \quad z = \frac{x-\mu}{\sigma}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a SoftLaplace random variable is at most ``value``.
+        """
         z = (value - self.loc) / self.scale
         return jnp.arctan(jnp.exp(z)) * (2 / jnp.pi)
 
-    def icdf(self, value):
-        return jnp.log(jnp.tan(value * (jnp.pi / 2))) * self.scale + self.loc
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; \mu, \sigma) = \mu + \sigma\,
+            \log\!\left(\tan\!\left(\frac{\pi q}{2}\right)\right)
+
+        :param q: Quantile level :math:`q \in [0, 1]`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
+        # Use tan(pi * q / 2) = 1 / tan(pi * (1 - q) / 2) for q > 1/2 so that tan is
+        # evaluated away from pi / 2, which is inaccurate in the upper tail and gives
+        # NaN at q = 1.
+        q = jnp.asarray(q)
+        z = jnp.where(
+            q <= 0.5,
+            jnp.log(jnp.tan(q * (jnp.pi / 2))),
+            -jnp.log(jnp.tan((1 - q) * (jnp.pi / 2))),
+        )
+        return z * self.scale + self.loc
 
     @property
-    def mean(self):
-        return self.loc
+    def mean(self) -> Array:
+        r"""Mean of the SoftLaplace distribution, equal to the location by symmetry:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
+        return jnp.asarray(self.loc)
 
     @property
-    def variance(self):
-        return (jnp.pi / 2 * self.scale) ** 2
+    def variance(self) -> Array:
+        r"""Variance of the SoftLaplace distribution:
+
+        .. math::
+            \mathrm{Var}[X] = \left(\frac{\pi \sigma}{2}\right)^{2}
+        """
+        return jnp.asarray((jnp.pi / 2 * self.scale) ** 2)
 
 
 class StudentT(Distribution):
+    r"""Student's t-distribution, a continuous location-scale family on
+    :math:`\mathbb{R}` parameterized by degrees of freedom :math:`\nu > 0`,
+    location :math:`\mu` and scale :math:`\sigma > 0`. It is the distribution
+    of :math:`\mu + \sigma T` where :math:`T = Z / \sqrt{V / \nu}`,
+    :math:`Z \sim \mathrm{Normal}(0, 1)` independent of
+    :math:`V \sim \chi^2(\nu)`. For :math:`\nu = 1` it recovers the Cauchy
+    distribution; as :math:`\nu \to \infty` it approaches
+    :math:`\mathrm{Normal}(\mu, \sigma)`.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x ; \nu, \mu, \sigma) =
+        \frac{\Gamma\bigl(\tfrac{\nu+1}{2}\bigr)}
+        {\sqrt{\nu\pi}\,\Gamma\bigl(\tfrac{\nu}{2}\bigr)\,\sigma}
+        \left(1 + \frac{1}{\nu}\left(\frac{x-\mu}{\sigma}\right)^{2}\right)^{-\frac{\nu+1}{2}},
+        \quad x \in \mathbb{R}
+
+    where :math:`\nu > 0` is the degrees of freedom (:attr:`df`),
+    :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`) and
+    :math:`\sigma > 0` is the scale (:attr:`scale`).
+    """
+
     arg_constraints = {
         "df": constraints.positive,
         "loc": constraints.real,
@@ -2189,7 +4630,20 @@ class StudentT(Distribution):
     reparametrized_params = ["df", "loc", "scale"]
     pytree_data_fields = ("df", "loc", "scale", "_chi2")
 
-    def __init__(self, df, loc=0.0, scale=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        df: ArrayLike,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param df: Degrees of freedom :math:`\nu > 0`.
+        :param loc: Location :math:`\mu \in \mathbb{R}`. Defaults to ``0.0``.
+        :param scale: Scale :math:`\sigma > 0`. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         batch_shape = lax.broadcast_shapes(
             jnp.shape(df), jnp.shape(loc), jnp.shape(scale)
         )
@@ -2200,8 +4654,21 @@ class StudentT(Distribution):
         self._chi2 = Chi2(df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples via the location-scale representation
+        :math:`X = \mu + \sigma T` where
+        :math:`T = Z\sqrt{\nu / V}`,
+        :math:`Z \sim \mathrm{Normal}(0, 1)` is drawn using :func:`~jax.random.normal`,
+        and independent of :math:`V \sim \chi^{2}(\nu)`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the Student's t-distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(key_normal, shape=sample_shape + self.batch_shape)
         z = self._chi2.sample(key_chi2, sample_shape)
@@ -2209,7 +4676,23 @@ class StudentT(Distribution):
         return self.loc + self.scale * y
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; \nu, \mu, \sigma) =
+            \ln\Gamma\left(\frac{\nu+1}{2}\right)
+            - \ln\Gamma\left(\frac{\nu}{2}\right)
+            - \frac{1}{2}\ln(\nu\pi)
+            - \ln\sigma
+            - \frac{\nu+1}{2}
+              \ln\!\left(
+                  1 + \frac{1}{\nu}\left(\frac{x-\mu}{\sigma}\right)^{2}
+              \right)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density under the Student's t-distribution.
+        """
         y = (value - self.loc) / self.scale
         z = (
             jnp.log(self.scale)
@@ -2221,21 +4704,66 @@ class StudentT(Distribution):
         return -0.5 * (self.df + 1.0) * jnp.log1p(y**2.0 / self.df) - z
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Student's t-distribution.
+
+        .. math::
+            \mathbb{E}[X] =
+            \begin{cases}
+                \mu & \nu > 1 \\
+                \infty & \nu \le 1
+            \end{cases}
+
+        This implementation returns ``inf`` when the mean is undefined,
+        matching the implementation of scipy's :obj:`~scipy.stats.t`.
+        """
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
             jnp.where(self.df <= 1, jnp.inf, self.loc), self.batch_shape
         )
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Student's t-distribution.
+
+        .. math::
+            \mathrm{Var}(X) =
+            \begin{cases}
+                \sigma^{2} \dfrac{\nu}{\nu - 2} & \nu > 2 \\
+                \infty & 1 < \nu \le 2 \\
+                \text{undefined} & \nu \le 1
+            \end{cases}
+
+        This implementation returns ``inf`` when the variance is infinite
+        and ``nan`` when it is undefined.
+        """
         var = jnp.where(
             self.df > 2, jnp.divide(self.scale**2 * self.df, self.df - 2.0), jnp.inf
         )
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Student's
+        t-distribution.
+
+        With :math:`Z = (x - \mu)/\sigma` and
+        :math:`u = \nu / (\nu + Z^{2})`,
+
+        .. math::
+            F(x ; \nu, \mu, \sigma) =
+            \frac{1}{2}
+            + \frac{1}{2}\,\operatorname{sign}(Z)
+            \left(1 - I_{u}\left(\frac{\nu}{2}, \frac{1}{2}\right)\right)
+
+        where :math:`I_{u}` is the regularized incomplete beta function.
+        Equivalently, :math:`Z^{2}` follows an
+        :math:`F(1, \nu)` distribution, where :math:`F(\cdot, \cdot)`
+        is the `Fisher–Snedecor distribution <https://en.wikipedia.org/wiki/F-distribution>`_.
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         # Ref: https://en.wikipedia.org/wiki/Student's_t-distribution#Related_distributions
         # X^2 ~ F(1, df) -> df / (df + X^2) ~ Beta(df/2, 0.5)
         scaled = (value - self.loc) / self.scale
@@ -2250,60 +4778,213 @@ class StudentT(Distribution):
             - jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
         )
 
-    def icdf(self, q):
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the Student's t-distribution.
+
+        Obtained by inverting the Beta representation used in :meth:`cdf`:
+        with :math:`u = I^{-1}_{1 - |1 - 2q|}(\nu/2, 1/2)`,
+
+        .. math::
+            F^{-1}(q ; \nu, \mu, \sigma) =
+            \mu + \sigma\,\operatorname{sign}\left(q - \frac{1}{2}\right)
+            \sqrt{\nu\,\left(\frac{1}{u} - 1\right)},
+            \quad q \in [0, 1]
+
+        :param q: Quantile values in :math:`[0, 1]`.
+        :return: Real-valued quantiles of the Student's t-distribution at ``q``.
+        """
         beta_value = betaincinv(0.5 * self.df, 0.5, 1 - jnp.abs(1 - 2 * q))
         scaled_squared = self.df * (1 / beta_value - 1)
         scaled = jnp.sign(q - 0.5) * jnp.sqrt(scaled_squared)
         return scaled * self.scale + self.loc
 
+    def entropy(self) -> Array:
+        r"""Differential entropy of the Student's t-distribution.
+
+        .. math::
+            H(X) =
+            \frac{\nu+1}{2}
+            \left[
+                \psi\!\left(\frac{\nu+1}{2}\right)
+                - \psi\!\left(\frac{\nu}{2}\right)
+            \right]
+            + \frac{1}{2}\log\nu
+            + \log B\!\left(\frac{\nu}{2}, \frac{1}{2}\right)
+            + \log\sigma
+        """
+        return jnp.broadcast_to(
+            (self.df + 1) / 2 * (digamma((self.df + 1) / 2) - digamma(self.df / 2))
+            + jnp.log(self.df) / 2
+            + betaln(self.df / 2, 0.5)
+            + jnp.log(self.scale),
+            self.batch_shape,
+        )
+
 
 class Uniform(Distribution):
-    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
-    reparametrized_params = ["low", "high"]
-    pytree_data_fields = ("low", "high", "_support")
+    r"""Continuous uniform distribution on the interval
+    :math:`[\mathrm{low}, \mathrm{high})`.
 
-    def __init__(self, low=0.0, high=1.0, *, validate_args=None):
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; a, b) = \frac{1}{b - a}, \qquad a \le x < b
+
+    where :math:`a =` :attr:`low` and :math:`b =` :attr:`high`.
+    Sampling uses :func:`~jax.random.uniform`. The support constraint is
+    an :class:`~numpyro.distributions.constraints.interval` that depends on
+    ``low`` and ``high``.
+
+    :param low: Lower bound (:math:`a`), defaults to 0.
+    :type low: ArrayLike
+    :param high: Upper bound (:math:`b`), defaults to 1.
+    :type high: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
+    arg_constraints = {
+        "low": constraints.dependent(is_discrete=False, event_dim=0),
+        "high": constraints.dependent(is_discrete=False, event_dim=0),
+    }
+    reparametrized_params = ["low", "high"]
+    pytree_data_fields = ("low", "high")
+
+    def __init__(
+        self,
+        low: ArrayLike = 0.0,
+        high: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
-        self._support = constraints.interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self):
-        return self._support
+    def support(self) -> constraints.Constraint:
+        return constraints.interval(self.low, self.high)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples via :func:`~jax.random.uniform` on
+        :math:`[\mathrm{low}, \mathrm{high})`.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
+        assert key is not None
         shape = sample_shape + self.batch_shape
         return random.uniform(key, shape=shape, minval=self.low, maxval=self.high)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability density function.
+
+        .. math::
+           \log f(x; a, b) = -\log(b - a)
+
+        :param value: Values at which to evaluate the log density.
+        :type value: ArrayLike
+        :return: Log probability density.
+        :rtype: jax.Array
+        """
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function, clipped to :math:`[0, 1]`.
+
+        .. math::
+           F(x; a, b) = \mathrm{clip}\!\left(\frac{x - a}{b - a}, 0, 1\right)
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
         cdf = (value - self.low) / (self.high - self.low)
-        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+        return jnp.clip(cdf, 0.0, 1.0)
 
-    def icdf(self, value):
-        return self.low + value * (self.high - self.low)
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse cumulative distribution function (Quantile function).
+
+        .. math::
+           F^{-1}(q; a, b) = a + q\,(b - a)
+
+        :param q: Probability value in :math:`[0,1]`.
+        :type q: ArrayLike
+        """
+        return jnp.asarray(self.low + q * (self.high - self.low))
 
     @property
-    def mean(self):
-        return self.low + (self.high - self.low) / 2.0
+    def mean(self) -> Array:
+        r"""Calculates the analytical mean.
+
+        .. math:: E[X] = (a + b) / 2
+        """
+        return jnp.asarray(self.low + (self.high - self.low) / 2.0)
 
     @property
-    def variance(self):
-        return (self.high - self.low) ** 2 / 12.0
+    def variance(self) -> Array:
+        r"""Calculates the analytical variance.
 
-    @staticmethod
-    def infer_shapes(low=(), high=()):
+        .. math:: \mathrm{Var}(X) = (b - a)^2 / 12
+        """
+        return jnp.asarray((self.high - self.low) ** 2 / 12.0)
+
+    @classmethod
+    def infer_shapes(
+        cls, low: tuple[int, ...] = (), high: tuple[int, ...] = ()
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(low, high)
-        event_shape = ()
+        event_shape: tuple[int, ...] = ()
         return batch_shape, event_shape
+
+    def entropy(self) -> Array:
+        r"""Differential entropy of the Uniform distribution.
+
+        .. math::
+           H(X) = \log(b - a)
+        """
+        return jnp.log(self.high - self.low)
 
 
 class Weibull(Distribution):
+    r"""Weibull distribution parameterized by scale (:attr:`scale`) and shape
+    (:attr:`concentration`).
+
+    The probability density function (PDF) is defined as:
+
+    .. math::
+       f(x; \lambda, k) = \frac{k}{\lambda}
+       \left(\frac{x}{\lambda}\right)^{k - 1}
+       \exp\left(-\left(\frac{x}{\lambda}\right)^{k}\right)
+
+    where :math:`x > 0`, :math:`\lambda > 0` is the scale and :math:`k > 0` is
+    the shape. The cumulative distribution function (CDF) is
+    :math:`F(x) = 1 - \exp(-(x / \lambda)^{k})`.
+
+    For :math:`k = 1` this reduces to :math:`\mathrm{Exponential}(1 / \lambda)`.
+    The hazard rate :math:`h(x) = (k / \lambda)(x / \lambda)^{k - 1}` is
+    decreasing for :math:`k < 1` and increasing for :math:`k > 1`.
+
+    The mean is :math:`\lambda \, \Gamma(1 + 1/k)` and the variance is
+    :math:`\lambda^2 \left[\Gamma(1 + 2/k) - \Gamma(1 + 1/k)^2\right]`.
+
+    Samples are drawn with :func:`jax.random.weibull_min`.
+
+    :param scale: Scale parameter (:math:`\lambda`).
+    :type scale: ArrayLike
+    :param concentration: Shape parameter (:math:`k`).
+    :type concentration: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {
         "scale": constraints.positive,
         "concentration": constraints.positive,
@@ -2311,13 +4992,22 @@ class Weibull(Distribution):
     support = constraints.positive
     reparametrized_params = ["scale", "concentration"]
 
-    def __init__(self, scale, concentration, *, validate_args=None):
+    def __init__(
+        self,
+        scale: ArrayLike,
+        concentration: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.concentration, self.scale = promote_shapes(concentration, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(scale))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         return random.weibull_min(
             key,
             scale=self.scale,
@@ -2326,37 +5016,69 @@ class Weibull(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
         ll = -jnp.power(value / self.scale, self.concentration)
         ll += jnp.log(self.concentration)
         ll += (self.concentration - 1.0) * jnp.log(value)
         ll -= self.concentration * jnp.log(self.scale)
         return ll
 
-    def cdf(self, value):
-        return 1 - jnp.exp(-((value / self.scale) ** self.concentration))
+    def cdf(self, value: ArrayLike) -> Array:
+        scaled_value = (value / self.scale) ** self.concentration
+        # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
+        # Use exp there to retain its derivative, and expm1 near zero.
+        return jnp.where(
+            scaled_value < jnp.log(2),
+            -jnp.expm1(-scaled_value),
+            1 - jnp.exp(-scaled_value),
+        )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         return self.scale * jnp.exp(gammaln(1.0 + 1.0 / self.concentration))
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
         return self.scale**2 * (
             jnp.exp(gammaln(1.0 + 2.0 / self.concentration))
             - jnp.exp(gammaln(1.0 + 1.0 / self.concentration)) ** 2
         )
 
+    def entropy(self) -> Array:
+        return (
+            jnp.euler_gamma * (1 - 1 / self.concentration)
+            + jnp.log(self.scale / self.concentration)
+            + 1
+        )
+
 
 class BetaProportion(Beta):
-    """
-    The BetaProportion distribution is a reparameterization of the conventional
-    Beta distribution in terms of a the variate mean and a
-    precision parameter.
+    r"""Beta distribution reparameterized in terms of a mean (:attr:`mean`) and a
+    precision (:attr:`concentration`).
 
-    **Reference:**
-     `Beta regression for modelling rates and proportion`, Ferrari Silvia, and
-      Francisco Cribari-Neto. Journal of Applied Statistics  31.7 (2004): 799-815.
+    Given mean :math:`\mu` and precision :math:`\phi`, the standard Beta
+    parameters are derived as:
+
+    .. math::
+       \alpha = \mu \phi, \quad \beta = (1 - \mu) \phi
+
+    The resulting PDF is:
+
+    .. math::
+       f(x; \mu, \phi) =
+       \frac{x^{\mu\phi - 1} (1 - x)^{(1 - \mu)\phi - 1}}{\text{B}(\mu\phi, (1 - \mu)\phi)}
+
+    **Reference**
+
+    Ferrari, Silvia, and Francisco Cribari-Neto. "Beta regression for modelling
+    rates and proportions." *Journal of Applied Statistics* 31.7 (2004): 799-815.
+
+    :param mean: Mean of the distribution, restricted to the open interval (0, 1).
+    :type mean: ArrayLike
+    :param concentration: Precision parameter (:math:`\phi`), must be positive.
+    :type concentration: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to None.
+    :type validate_args: bool, optional
     """
 
     arg_constraints = {
@@ -2367,7 +5089,13 @@ class BetaProportion(Beta):
     support = constraints.unit_interval
     pytree_data_fields = ("concentration",)
 
-    def __init__(self, mean, concentration, *, validate_args=None):
+    def __init__(
+        self,
+        mean: ArrayLike,
+        concentration: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         self.concentration = jnp.broadcast_to(
             concentration, lax.broadcast_shapes(jnp.shape(concentration))
         )
@@ -2379,7 +5107,7 @@ class BetaProportion(Beta):
 
 
 class AsymmetricLaplaceQuantile(Distribution):
-    """An alternative parameterization of AsymmetricLaplace commonly applied in
+    r"""An alternative parameterization of AsymmetricLaplace commonly applied in
     Bayesian quantile regression.
 
     Instead of the `asymmetry` parameter employed by AsymmetricLaplace, to
@@ -2392,6 +5120,28 @@ class AsymmetricLaplaceQuantile(Distribution):
     AsymmetricLaplace. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
     is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
     equivalent to Laplace(0,2).
+
+    Equivalently, this is an :class:`AsymmetricLaplace` with asymmetry
+    :math:`\kappa = \sqrt{q / (1 - q)}` and scale
+    :math:`\sigma' = \sigma \kappa / q`, under which :attr:`loc` is exactly
+    the :math:`q`-th quantile. The Probability Density Function (PDF) is the
+    standard asymmetric-Laplace form used in Bayesian quantile regression [1]:
+
+    .. math::
+        f(x ; \mu, \sigma, q) =
+        \frac{q (1 - q)}{\sigma}
+        \exp\left(-\frac{\rho_q(x - \mu)}{\sigma}\right),
+        \qquad
+        \rho_q(u) = u \left(q - \mathbb{1}[u < 0]\right),
+
+    where :math:`q` is :attr:`quantile`, so the density decays at rate
+    :math:`(1 - q) / \sigma` below :math:`\mu` and :math:`q / \sigma` above
+    it.
+
+    **References:**
+
+    1. Yu, K. and Moyeed, R. A. (2001). Bayesian quantile regression.
+       *Statistics & Probability Letters*, 54(4), 437-447.
     """
 
     arg_constraints = {
@@ -2403,7 +5153,25 @@ class AsymmetricLaplaceQuantile(Distribution):
     support = constraints.real
     pytree_data_fields = ("loc", "scale", "quantile", "_ald")
 
-    def __init__(self, loc=0.0, scale=1.0, quantile=0.5, *, validate_args=None):
+    def __init__(
+        self,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        quantile: ArrayLike = 0.5,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param loc: Location :math:`\mu \in \mathbb{R}`; exactly the
+            :math:`q`-th quantile of the distribution. Defaults to ``0.0``.
+        :param scale: Scale :math:`\sigma > 0`. Note
+            ``AsymmetricLaplaceQuantile(0, 1, 0.5)`` is equivalent to
+            ``Laplace(0, 2)``. Defaults to ``1.0``.
+        :param quantile: Quantile :math:`q \in (0, 1)`; the proportion of
+            probability mass below :attr:`loc`. Defaults to ``0.5``.
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
+        """
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
         )
@@ -2417,24 +5185,1512 @@ class AsymmetricLaplaceQuantile(Distribution):
         scale_classic = scale * asymmetry / quantile
         self._ald = AsymmetricLaplace(loc=loc, scale=scale_classic, asymmetry=asymmetry)
 
-    def log_prob(self, value):
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \mu, \sigma, q) =
+            -\frac{\rho_q(x - \mu)}{\sigma}
+            + \ln\!\frac{q (1 - q)}{\sigma},
+            \qquad
+            \rho_q(u) = u \left(q - \mathbb{1}[u < 0]\right)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :param intermediates: Not used.
+        :return: Log probability density evaluated under the asymmetric Laplace
+            quantile distribution.
+        """
         if self._validate_args:
             self._validate_sample(value)
         return self._ald.log_prob(value)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples by delegating to the equivalent
+        :class:`AsymmetricLaplace` representation with asymmetry
+        :math:`\kappa = \sqrt{q / (1 - q)}` and scale
+        :math:`\sigma \kappa / q`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the asymmetric Laplace quantile
+            distribution.
+        """
         return self._ald.sample(key, sample_shape=sample_shape)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the asymmetric Laplace quantile distribution, delegated to
+        the equivalent :class:`AsymmetricLaplace` representation:
+
+        .. math::
+            \mathbb{E}[X] = \mu + \frac{\sigma (1 - 2 q)}{q (1 - q)}
+        """
         return self._ald.mean
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the asymmetric Laplace quantile distribution, delegated
+        to the equivalent :class:`AsymmetricLaplace` representation:
+
+        .. math::
+            \mathrm{Var}(X) =
+            \frac{\sigma^2 (1 - 2 q + 2 q^2)}{q^2 (1 - q)^2}
+        """
         return self._ald.variance
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the asymmetric Laplace
+        quantile distribution, delegated to the equivalent
+        :class:`AsymmetricLaplace` representation:
+
+        .. math::
+            F(x ; \mu, \sigma, q) =
+            \begin{cases}
+                q \, \exp\left(\displaystyle\frac{(1 - q) (x - \mu)}{\sigma}\right)
+                & x < \mu, \\
+                1 - (1 - q)
+                \exp\left(-\displaystyle\frac{q (x - \mu)}{\sigma}\right)
+                & x \geq \mu.
+            \end{cases}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         return self._ald.cdf(value)
 
-    def icdf(self, value):
-        return self._ald.icdf(value)
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the asymmetric Laplace quantile
+        distribution, delegated to the equivalent :class:`AsymmetricLaplace`
+        representation:
+
+        .. math::
+            F^{-1}(q ; \mu, \sigma, q_0) =
+            \begin{cases}
+                \mu + \displaystyle\frac{\sigma}{1 - q_0}
+                \ln\!\left(\frac{q}{q_0}\right) & q \leq q_0, \\
+                \mu - \displaystyle\frac{\sigma}{q_0}
+                \ln\!\left(\frac{1 - q}{1 - q_0}\right) & q > q_0.
+            \end{cases}
+
+        where :math:`q_0` is :attr:`quantile`.
+
+        :param q: Quantile(s) in :math:`[0, 1]`.
+        :return: Quantile values :math:`x` such that :math:`F(x) = q`.
+        """
+        return self._ald.icdf(q)
+
+
+class ZeroSumNormal(TransformedDistribution):
+    r"""
+    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3].
+    All axes in ``event_shape`` are constrained to sum to zero. For example,
+    ``event_shape=(3, 4)`` constrains both rows and columns to sum to zero.
+
+    For a single constrained axis, ``event_shape=(n,)``, and scalar ``scale``
+    :math:`\sigma`, the distribution is
+
+    .. math::
+        ZSN(\sigma) = N(0, \sigma^2 (I_n - \tfrac{1}{n}J_n)).
+
+    Here :math:`n` is the length of the constrained axis, and :math:`I_n` and
+    :math:`J_n` are the :math:`n \times n` identity and all-ones matrices.
+    Each entry has variance :math:`\sigma^2(1 - 1/n)`.
+
+    :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
+        enforced.
+    :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
+
+    For ``event_shape=(4,)``, there is one constrained axis of length four:
+
+    .. doctest::
+
+        >>> from numpy.testing import assert_allclose
+        >>> import numpyro.distributions as dist
+        >>> d = dist.ZeroSumNormal(1.0, event_shape=(4,))
+        >>> assert_allclose(d.variance, [0.75, 0.75, 0.75, 0.75])
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from numpy.testing import assert_allclose
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS
+
+        >>> N = 1000
+        >>> n_categories = 20
+        >>> rng_key = random.key(0)
+        >>> key1, key2, key3 = random.split(rng_key, 3)
+        >>> category_ind = random.choice(key1, jnp.arange(n_categories), shape=(N,))
+        >>> beta = random.normal(key2, shape=(n_categories,))
+        >>> beta -= beta.mean(-1)
+        >>> y = 5 + beta[category_ind] + random.normal(key3, shape=(N,))
+
+        >>> def model(category_ind, y): # category_ind is an indexed categorical variable with 20 categories
+        ...     N = len(category_ind)
+        ...     alpha = numpyro.sample("alpha", dist.Normal(0, 2.5))
+        ...     beta = numpyro.sample("beta", dist.ZeroSumNormal(1, event_shape=(n_categories,)))
+        ...     sigma =  numpyro.sample("sigma", dist.Exponential(1))
+        ...     with numpyro.plate("observations", N):
+        ...         mu = alpha + beta[category_ind]
+        ...         obs = numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
+        ...     return obs
+
+        >>> nuts_kernel = NUTS(model=model, target_accept_prob=0.9)
+        >>> mcmc = MCMC(
+        ...     sampler=nuts_kernel,
+        ...     num_samples=1_000, num_warmup=1_000, num_chains=4
+        ... )
+        >>> mcmc.run(random.key(0), category_ind=category_ind, y=y)
+        >>> posterior_samples = mcmc.get_samples()
+        >>> # Confirm everything along last axis sums to zero
+        >>> assert_allclose(posterior_samples['beta'].sum(-1), 0, atol=1e-3)
+
+    **References**
+    [1] https://github.com/pymc-devs/pymc/blob/6252d2e58dc211c913ee2e652a4058d271d48bbd/pymc/distributions/multivariate.py#L2637
+    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
+    [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
+    """
+
+    arg_constraints = {"scale": constraints.positive}
+    reparametrized_params = ["scale"]
+
+    def __init__(
+        self,
+        scale: ArrayLike,
+        event_shape: tuple[int, ...],
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        event_ndim = len(event_shape)
+        transformed_shape = tuple(size - 1 for size in event_shape)
+        self.scale = scale
+        super().__init__(
+            Normal(0, scale).expand(transformed_shape).to_event(event_ndim),
+            ZeroSumTransform(event_ndim),
+            validate_args=validate_args,
+        )
+
+    @constraints.dependent_property(is_discrete=False)
+    def support(self) -> constraints.Constraint:
+        return constraints.zero_sum(len(self.event_shape))
+
+    @property
+    def mean(self) -> Array:
+        return jnp.zeros(self.batch_shape + self.event_shape)
+
+    @property
+    def variance(self) -> Array:
+        event_ndim = len(self.event_shape)
+        zero_sum_axes = tuple(range(-event_ndim, 0))
+        theoretical_var = jnp.square(self.scale)
+        for axis in zero_sum_axes:
+            theoretical_var *= 1 - 1 / self.event_shape[axis]
+
+        return jnp.broadcast_to(theoretical_var, self.batch_shape + self.event_shape)
+
+
+class Wishart(TransformedDistribution):
+    r"""
+    Wishart distribution for covariance matrices.
+
+    The Wishart distribution is the multivariate generalization of the
+    :class:`Gamma` distribution and the conjugate prior for the precision matrix of a
+    multivariate normal distribution. If :math:`\mathbf{X} \sim W(\mathbf{V}, \nu)`,
+    its density over the :math:`p \times p` positive definite matrix
+    :math:`\mathbf{X}` is
+
+    .. math::
+
+        p(\mathbf{X} \mid \mathbf{V}, \nu) =
+        \frac{|\mathbf{X}|^{(\nu - p - 1)/2}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{V}^{-1} \mathbf{X})\right)}
+        {2^{\nu p/2} |\mathbf{V}|^{\nu/2} \Gamma_p(\nu/2)},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{V}` is the positive definite scale matrix and :math:`\Gamma_p` is
+    the multivariate gamma function. The rate matrix is :math:`\mathbf{V}^{-1}`.
+
+    The mean and the elementwise variance are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{X}] = \nu \mathbf{V}, \qquad
+        \mathrm{Var}[X_{ij}] = \nu \left(V_{ij}^2 + V_{ii} V_{jj}\right).
+
+    :param concentration: Degrees of freedom :math:`\nu`, analogous to the
+        concentration of a :class:`Gamma` distribution. Must be greater than
+        :math:`p - 1`, where :math:`p` is the dimension of the scale matrix.
+    :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
+        distribution.
+    :param rate_matrix: Rate matrix analogous to the rate of a :class:`Gamma`
+        distribution.
+    :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.positive_definite
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+    base_dist: "WishartCholesky"
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        scale_matrix: Optional[Array] = None,
+        rate_matrix: Optional[Array] = None,
+        scale_tril: Optional[Array] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        base_dist = WishartCholesky(
+            concentration,
+            scale_matrix,
+            rate_matrix,
+            scale_tril,
+            validate_args=validate_args,
+        )
+        super().__init__(
+            base_dist, CholeskyTransform().inv, validate_args=validate_args
+        )
+
+    @lazy_property
+    def concentration(self):
+        return self.base_dist.concentration
+
+    @lazy_property
+    def scale_matrix(self):
+        return self.base_dist.scale_matrix
+
+    @lazy_property
+    def rate_matrix(self):
+        return self.base_dist.rate_matrix
+
+    @lazy_property
+    def scale_tril(self):
+        return self.base_dist.scale_tril
+
+    @lazy_property
+    def mean(self) -> Array:
+        return self.concentration[..., None, None] * self.scale_matrix
+
+    @lazy_property
+    def variance(self) -> Array:
+        diag = jnp.diagonal(self.scale_matrix, axis1=-1, axis2=-2)
+        return self.concentration[..., None, None] * (
+            self.scale_matrix**2 + diag[..., :, None] * diag[..., None, :]
+        )
+
+    @classmethod
+    def infer_shapes(
+        cls, concentration=(), scale_matrix=None, rate_matrix=None, scale_tril=None
+    ):
+        return WishartCholesky.infer_shapes(
+            concentration, scale_matrix, rate_matrix, scale_tril
+        )
+
+    def entropy(self) -> Array:
+        p = self.event_shape[-1]
+        return (
+            (p + 1) * tri_logabsdet(self.scale_tril)
+            + p * (p + 1) / 2 * jnp.log(2)
+            + multigammaln(self.concentration / 2, p)
+            - (self.concentration - p - 1) / 2 * multidigamma(self.concentration / 2, p)
+            + self.concentration * p / 2
+        )
+
+
+class WishartCholesky(Distribution):
+    r"""
+    Cholesky factor of a Wishart distribution for covariance matrices.
+
+    If :math:`\mathbf{X} \sim W(\mathbf{V}, \nu)` is a :class:`Wishart` distributed
+    :math:`p \times p` positive definite matrix, this distribution describes its lower
+    triangular Cholesky factor :math:`\mathbf{L}` with positive diagonal, such that
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`. By the change of variables
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`, with Jacobian
+    :math:`|\partial \mathbf{X} / \partial \mathbf{L}| = 2^p \prod_{i=1}^p L_{ii}^{p - i + 1}`,
+    its density is
+
+    .. math::
+
+        p(\mathbf{L} \mid \mathbf{V}, \nu) =
+        \frac{|\mathbf{L} \mathbf{L}^\top|^{(\nu - p - 1)/2}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{V}^{-1} \mathbf{L} \mathbf{L}^\top)\right)}
+        {2^{\nu p/2} |\mathbf{V}|^{\nu/2} \Gamma_p(\nu/2)}
+        \, 2^p \prod_{i=1}^p L_{ii}^{p - i + 1},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{V}` is the positive definite scale matrix and :math:`\Gamma_p` is
+    the multivariate gamma function. The rate matrix is :math:`\mathbf{V}^{-1}`.
+
+    Samples are drawn with the Bartlett decomposition,
+    :math:`\mathbf{L} = \mathbf{L}_V \mathbf{A}`, where :math:`\mathbf{L}_V` is
+    :code:`scale_tril`, :math:`A_{ii} \sim \sqrt{\chi^2_{\nu - i + 1}}` and
+    :math:`A_{ij} \sim \mathcal{N}(0, 1)` for :math:`i > j`.
+
+    :param concentration: Degrees of freedom :math:`\nu`, analogous to the
+        concentration of a :class:`Gamma` distribution. Must be greater than
+        :math:`p - 1`, where :math:`p` is the dimension of the scale matrix.
+    :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
+        distribution.
+    :param rate_matrix: Rate matrix analogous to the rate of a :class:`Gamma`
+        distribution.
+    :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.lower_cholesky
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        scale_matrix: Optional[Array] = None,
+        rate_matrix: Optional[Array] = None,
+        scale_tril: Optional[Array] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        concentration = jnp.asarray(concentration)[..., None, None]
+        if scale_matrix is not None:
+            concentration, self.scale_matrix = promote_shapes(
+                concentration, scale_matrix
+            )
+            self.scale_tril = jnp.linalg.cholesky(self.scale_matrix)
+        elif rate_matrix is not None:
+            concentration, self.rate_matrix = promote_shapes(concentration, rate_matrix)
+            self.scale_tril = cholesky_of_inverse(self.rate_matrix)
+        elif scale_tril is not None:
+            concentration, self.scale_tril = promote_shapes(
+                concentration, jnp.asarray(scale_tril)
+            )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration)[:-2], jnp.shape(self.scale_tril)[:-2]
+        )
+        event_shape = jnp.shape(self.scale_tril)[-2:]
+        self.concentration = concentration[..., 0, 0]
+        super().__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> Array:
+        # The log density of the Wishart distribution includes a term
+        # t = trace(rate_matrix @ cov). Here, value = cholesky(cov) such that
+        # t = trace(value.T @ rate_matrix @ value) by the cyclical property of the
+        # trace. The rate matrix is the inverse scale matrix with Cholesky decomposition
+        # scale_tril. Thus,
+        # t = trace(value.T @ inv(scale_tril).T @ inv(scale_tril) @ value), and we can
+        # rewrite as t = trace(x.T @ x) for x = inv(scale_tril) @ value which we can
+        # obtain easily by solving a triangular system. x is again triangular such that
+        # trace(x @ x.T) is equal to the sum of squares of elements.
+        scale_tril, x = jnp.broadcast_arrays(self.scale_tril, value)
+        x = solve_triangular(scale_tril, x, lower=True)
+        trace = jnp.square(x).sum(axis=(-1, -2))
+        p = jnp.shape(value)[-1]
+        return (
+            (self.concentration - p - 1) * tri_logabsdet(value)
+            - trace / 2
+            + p * (1 - self.concentration / 2) * jnp.log(2)
+            - multigammaln(self.concentration / 2, p)
+            - self.concentration * tri_logabsdet(self.scale_tril)
+            # Part of the Jacobian of the Cholesky transformation.
+            + jnp.sum(
+                jnp.arange(p, 0, -1) * jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1)),
+                axis=-1,
+            )
+        )
+
+    @lazy_property
+    def scale_matrix(self):
+        return jnp.matmul(self.scale_tril, self.scale_tril.mT)
+
+    @lazy_property
+    def rate_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert is_prng_key(key)
+        assert key is not None
+        # Sample using the Bartlett decomposition
+        # (https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition).
+        rng_diag, rng_offdiag = random.split(key)
+        latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
+        p = self.event_shape[-1]
+        i = jnp.arange(p)
+        latent = latent.at[..., i, i].set(
+            jnp.sqrt(
+                random.chisquare(
+                    rng_diag, self.concentration[..., None] - i, latent.shape[:-1]
+                )
+            )
+        )
+        i, j = jnp.tril_indices(p, -1)
+        assert i.size == p * (p - 1) // 2
+        latent = latent.at[..., i, j].set(
+            random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
+        )
+        return jnp.matmul(*jnp.broadcast_arrays(self.scale_tril, latent))
+
+    @lazy_property
+    def mean(self) -> Array:
+        # The mean follows from the Bartlett decomposition sampling. All off-diagonal
+        # elements of the latent variable have zero expectation. The diagonal are the
+        # expected square roots of chi^2 variables which can be expressed in terms of
+        # gamma functions (see
+        # https://en.wikipedia.org/wiki/Chi-squared_distribution#Noncentral_moments).
+        k = self.concentration[..., None] - jnp.arange(self.scale_tril.shape[-1])
+        sqrtchi2 = jnp.sqrt(2) * jnp.exp(gammaln((k + 1) / 2) - gammaln(k / 2))
+        return self.scale_tril * sqrtchi2[..., None, :]
+
+    @lazy_property
+    def variance(self) -> Array:
+        # We have the same as for the mean except now the lower off-diagonals are one
+        # due to the standard normal noise, and the diagonals are equal to the dof of
+        # the chi^2 variables.
+        i = jnp.arange(self.scale_tril.shape[-1])
+        k = self.concentration[..., None] - i
+        latent = jnp.tril(
+            jnp.ones_like(k, shape=k.shape + (k.shape[-1],)).at[..., i, i].set(k)
+        )
+        return jnp.square(self.scale_tril) @ latent - jnp.square(self.mean)
+
+    @classmethod
+    def infer_shapes(
+        cls,
+        concentration: tuple[int, ...] = (),
+        scale_matrix: Optional[tuple[int, ...]] = None,
+        rate_matrix: Optional[tuple[int, ...]] = None,
+        scale_tril: Optional[tuple[int, ...]] = None,
+    ):
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        for matrix in [scale_matrix, rate_matrix, scale_tril]:
+            if matrix is not None:
+                batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
+                event_shape = matrix[-2:]
+                return batch_shape, event_shape
+
+
+class InverseWishart(TransformedDistribution):
+    r"""
+    Inverse Wishart distribution for covariance matrices.
+
+    The Inverse Wishart distribution is the conjugate prior for the covariance matrix
+    of a multivariate normal distribution. If :math:`\mathbf{X} \sim W^{-1}(\mathbf{\Psi}, \nu)`,
+    then :math:`\mathbf{X}^{-1} \sim W(\mathbf{\Psi}^{-1}, \nu)` (Wishart distribution).
+
+    .. math::
+
+        p(\mathbf{X} \mid \mathbf{\Psi}, \nu) =
+        \frac{|\mathbf{\Psi}|^{\nu/2}}{2^{\nu p/2} \Gamma_p(\nu/2)}
+        |\mathbf{X}|^{-(\nu + p + 1)/2}
+        \exp\left( -\frac{1}{2} \mathrm{tr}(\mathbf{\Psi} \mathbf{X}^{-1}) \right)
+
+    where :math:`p` is the dimension of the matrix, :math:`\nu > p - 1` is the degrees
+    of freedom, and :math:`\mathbf{\Psi}` is the positive definite scale matrix.
+
+    The scale may be given as :math:`\mathbf{\Psi}` (``scale_matrix``), as its inverse
+    :math:`\mathbf{\Psi}^{-1}` (``rate_matrix``), or as a lower-triangular factor
+    :math:`\mathbf{T}` with :math:`\mathbf{\Psi} = \mathbf{T}\mathbf{T}^\top`
+    (``scale_tril``); exactly one of the three must be provided.
+
+    The mean, mode and elementwise variance are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{X}] = \frac{\mathbf{\Psi}}{\nu - p - 1}
+        \quad (\nu > p + 1), \qquad
+        \operatorname{mode}[\mathbf{X}] = \frac{\mathbf{\Psi}}{\nu + p + 1},
+
+    .. math::
+
+        \operatorname{Var}[X_{ij}] =
+        \frac{(\nu - p + 1)\Psi_{ij}^2 + (\nu - p - 1)\Psi_{ii}\Psi_{jj}}
+        {(\nu - p)(\nu - p - 1)^2(\nu - p - 3)}
+        \quad (\nu > p + 3).
+
+    This class is a
+    :class:`~numpyro.distributions.distribution.TransformedDistribution` over
+    :class:`InverseWishartCholesky` with the inverse ``CholeskyTransform``. ``sample``
+    returns :math:`\mathbf{X} = \mathbf{L}\mathbf{L}^\top` with
+    :math:`\mathbf{L} \sim` :class:`InverseWishartCholesky`, itself generated by a
+    Bartlett decomposition so that
+    :math:`\mathbf{X}^{-1} \sim W(\mathbf{\Psi}^{-1}, \nu)`.
+    ``log_prob`` is evaluated through the Cholesky factor,
+
+    .. math::
+
+        \log p(\mathbf{X}) = \log p_{\mathbf{L}}(\operatorname{chol}\mathbf{X})
+        - \log\left|\det J\right|,
+
+    where :math:`J` is the Jacobian of
+    :math:`\mathbf{L} \mapsto \mathbf{L}\mathbf{L}^\top` and the trace term is
+    computed as
+    :math:`\mathrm{tr}(\Psi\mathbf{X}^{-1}) = \|\mathbf{L}^{-1}\mathbf{T}\|_F^2`.
+
+    :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
+        Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
+    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`, analogous
+        to the inverse rate of a :class:`Gamma` distribution.
+    :param rate_matrix: Inverse of the scale matrix, analogous to the rate of a
+        :class:`Gamma` distribution.
+    :param scale_tril: Cholesky decomposition of the scale matrix.
+
+    .. note::
+        ``mean`` returns ``nan`` where :math:`\nu \le p + 1` and ``variance`` returns
+        ``nan`` where :math:`\nu \le p + 3`; ``mode`` is always defined.
+        ``concentration`` must satisfy :math:`\nu > p - 1` for the density to be
+        normalizable; this is not validated (the constraint is ``dependent``) and
+        invalid values yield ``nan`` or ``-inf`` log densities.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Inverse-Wishart_distribution
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.positive_definite
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+    base_dist: "InverseWishartCholesky"
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        scale_matrix: Optional[Array] = None,
+        rate_matrix: Optional[Array] = None,
+        scale_tril: Optional[Array] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        base_dist = InverseWishartCholesky(
+            concentration,
+            scale_matrix,
+            rate_matrix,
+            scale_tril,
+            validate_args=validate_args,
+        )
+        super().__init__(
+            base_dist, CholeskyTransform().inv, validate_args=validate_args
+        )
+
+    @lazy_property
+    def concentration(self):
+        return self.base_dist.concentration
+
+    @lazy_property
+    def scale_matrix(self):
+        return self.base_dist.scale_matrix
+
+    @lazy_property
+    def rate_matrix(self):
+        return self.base_dist.rate_matrix
+
+    @lazy_property
+    def scale_tril(self):
+        return self.base_dist.scale_tril
+
+    @lazy_property
+    def mean(self) -> Array:
+        # Mean exists only when concentration > p + 1
+        p = self.scale_matrix.shape[-1]
+        return jnp.where(
+            self.concentration[..., None, None] > p + 1,
+            self.scale_matrix / (self.concentration[..., None, None] - p - 1),
+            jnp.full_like(self.scale_matrix, jnp.nan),
+        )
+
+    @lazy_property
+    def mode(self) -> Array:
+        p = self.scale_matrix.shape[-1]
+        return self.scale_matrix / (self.concentration[..., None, None] + p + 1)
+
+    @lazy_property
+    def variance(self) -> Array:
+        # Variance of entry (i,j) for nu > p + 3, see
+        # https://en.wikipedia.org/wiki/Inverse-Wishart_distribution#Moments
+        # Var(X_ij) = ((nu - p + 1) Psi_ij^2 + (nu - p - 1) Psi_ii Psi_jj)
+        #             / ((nu - p) (nu - p - 1)^2 (nu - p - 3))
+        p = self.scale_matrix.shape[-1]
+        nu = jnp.expand_dims(self.concentration, axis=(-1, -2))
+        psi = self.scale_matrix
+        denom = (nu - p) * (nu - p - 1) ** 2 * (nu - p - 3)
+        psi_ii = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., :, None]
+        psi_jj = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., None, :]
+        var = ((nu - p + 1) * psi**2 + (nu - p - 1) * psi_ii * psi_jj) / denom
+        return jnp.where(nu > p + 3, var, jnp.full_like(var, jnp.nan))
+
+    @classmethod
+    def infer_shapes(
+        cls, concentration=(), scale_matrix=None, rate_matrix=None, scale_tril=None
+    ):
+        return InverseWishartCholesky.infer_shapes(
+            concentration, scale_matrix, rate_matrix, scale_tril
+        )
+
+
+class InverseWishartCholesky(Distribution):
+    r"""
+    Cholesky factor of an Inverse Wishart distribution for covariance matrices.
+
+    This distribution samples the Cholesky factor :math:`\mathbf{L}` such that
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^T \sim W^{-1}(\mathbf{\Psi}, \nu)`.
+    Here :math:`\mathbf{L}` is lower triangular with positive diagonal, and its density is
+    taken with respect to Lebesgue measure on its :math:`p(p+1)/2` free entries. By the
+    change of variables :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^T`, with Jacobian
+    :math:`|\partial \mathbf{X} / \partial \mathbf{L}| = 2^p \prod_{i=1}^p L_{ii}^{p - i + 1}`,
+    and :math:`|\mathbf{X}| = \prod_{i=1}^p L_{ii}^2`, its density is
+
+    .. math::
+
+        p(\mathbf{L} \mid \mathbf{\Psi}, \nu) =
+        \frac{|\mathbf{\Psi}|^{\nu/2}}{2^{\nu p/2} \Gamma_p(\nu/2)}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{\Psi} \mathbf{L}^{-T} \mathbf{L}^{-1})\right)
+        \, 2^p \prod_{i=1}^p L_{ii}^{-(\nu + i)},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{\Psi}` is the positive definite scale matrix and :math:`\Gamma_p`
+    is the multivariate gamma function. The rate matrix is :math:`\mathbf{\Psi}^{-1}`.
+
+    .. note:: :code:`mean` returns the Cholesky factor of
+        :math:`\mathbb{E}[\mathbf{X}] = \mathbf{\Psi} / (\nu - p - 1)`, not
+        :math:`\mathbb{E}[\mathbf{L}]`, and :code:`variance` is not implemented (NaN).
+
+    Samples are drawn with a Bartlett decomposition of the precision
+    :math:`\mathbf{X}^{-1}`: :math:`\mathbf{L} = \mathbf{L}_\Psi \mathbf{A}^{-1}`, where
+    :math:`\mathbf{L}_\Psi` is :code:`scale_tril` and :math:`\mathbf{A}` is lower
+    triangular with :math:`A_{ii} \sim \sqrt{\chi^2_{\nu - p + i}}` and
+    :math:`A_{ij} \sim \mathcal{N}(0, 1)` for :math:`i > j`, so that
+    :math:`\mathbf{A}^T \mathbf{A} \sim W(\mathbf{I}, \nu)`. The degrees of freedom
+    increase with :math:`i`, unlike :class:`WishartCholesky`, because
+    :math:`\mathbf{A}^T` is the upper-triangular Bartlett factor.
+
+    :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
+        Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
+    :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`, analogous
+        to the inverse rate of a :class:`Gamma` distribution.
+    :param rate_matrix: Inverse of the scale matrix, analogous to the rate of a
+        :class:`Gamma` distribution.
+    :param scale_tril: Cholesky decomposition of the scale matrix.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/Inverse-Wishart_distribution
+    [2] https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition
+    """
+
+    arg_constraints = {
+        "concentration": constraints.dependent(is_discrete=False, event_dim=0),
+        "scale_matrix": constraints.positive_definite,
+        "rate_matrix": constraints.positive_definite,
+        "scale_tril": constraints.lower_cholesky,
+    }
+    support = constraints.lower_cholesky
+    reparametrized_params = [
+        "scale_matrix",
+        "rate_matrix",
+        "scale_tril",
+    ]
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        scale_matrix: Optional[Array] = None,
+        rate_matrix: Optional[Array] = None,
+        scale_tril: Optional[Array] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        concentration = jnp.asarray(concentration)[..., None, None]
+        if scale_matrix is not None:
+            concentration, self.scale_matrix = promote_shapes(
+                concentration, scale_matrix
+            )
+            self.scale_tril = jnp.linalg.cholesky(self.scale_matrix)
+        elif rate_matrix is not None:
+            concentration, self.rate_matrix = promote_shapes(concentration, rate_matrix)
+            self.scale_tril = cholesky_of_inverse(self.rate_matrix)
+        elif scale_tril is not None:
+            concentration, self.scale_tril = promote_shapes(
+                concentration, jnp.asarray(scale_tril)
+            )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration)[:-2], jnp.shape(self.scale_tril)[:-2]
+        )
+        event_shape = jnp.shape(self.scale_tril)[-2:]
+        self.concentration = concentration[..., 0, 0]
+        super().__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> Array:
+        # L = value (Cholesky factor), X = L @ L^T ~ InverseWishart(Psi, nu)
+        # log p(X) = (nu/2) log|Psi| - (nu*p/2) log(2) - log Gamma_p(nu/2)
+        #            - ((nu+p+1)/2) log|X| - tr(Psi @ X^{-1}) / 2
+        # Trace trick: tr(Psi @ X^{-1}) = ||L^{-1} @ scale_tril||_F^2
+        x, scale_tril = jnp.broadcast_arrays(value, self.scale_tril)
+        x = solve_triangular(x, scale_tril, lower=True)
+        trace = jnp.square(x).sum(axis=(-1, -2))
+
+        p = jnp.shape(value)[-1]
+        log_diag = jnp.log(jnp.diagonal(value, axis1=-2, axis2=-1))
+        return (
+            self.concentration * tri_logabsdet(self.scale_tril)  # (nu/2) log|Psi|
+            + p * (1 - self.concentration / 2) * jnp.log(2)  # normalization
+            - multigammaln(self.concentration / 2, p)
+            + jnp.sum(
+                (-self.concentration[..., None] - 1 - jnp.arange(p)) * log_diag,
+                axis=-1,
+            )
+            - trace / 2
+        )
+
+    @lazy_property
+    def scale_matrix(self):
+        return jnp.matmul(self.scale_tril, self.scale_tril.mT)
+
+    @lazy_property
+    def rate_matrix(self):
+        identity = jnp.broadcast_to(
+            jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
+        )
+        return cho_solve((self.scale_tril, True), identity)
+
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert is_prng_key(key)
+        assert key is not None
+        # Sample from standard InverseWishartCholesky using Bartlett decomposition
+        # Ref: https://nbviewer.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
+        rng_diag, rng_offdiag = random.split(key)
+        latent = jnp.zeros(sample_shape + self.batch_shape + self.event_shape)
+        p = self.event_shape[-1]
+        # Inverse Wishart Bartlett: nu - p + 1, nu - p + 2, ..., nu - 1, nu
+        i = jnp.arange(p)
+        latent = latent.at[..., i, i].set(
+            jnp.sqrt(
+                random.chisquare(
+                    rng_diag,
+                    self.concentration[..., None] + i - p + 1,
+                    latent.shape[:-1],
+                )
+            )
+        )
+        i, j = jnp.tril_indices(p, -1)
+        latent = latent.at[..., i, j].set(
+            random.normal(rng_offdiag, latent.shape[:-2] + (i.size,))
+        )
+        # Get Cholesky of InverseWishart(I) by inverting latent
+        identity = jnp.broadcast_to(jnp.eye(p), latent.shape)
+        L_inv_std = solve_triangular(latent, identity, lower=True)
+
+        # Transform to InverseWishart(Psi): L = scale_tril @ L_inv_std
+        return jnp.matmul(self.scale_tril, L_inv_std)
+
+    @lazy_property
+    def mean(self) -> Array:
+        # Approximate: chol(E[X]) where E[X] = Psi / (nu - p - 1) for nu > p + 1
+        p = self.scale_tril.shape[-1]
+        mean_x = jnp.where(
+            self.concentration[..., None, None] > p + 1,
+            self.scale_matrix / (self.concentration[..., None, None] - p - 1),
+            jnp.full_like(jnp.asarray(self.scale_matrix), jnp.nan),
+        )
+        return jnp.linalg.cholesky(
+            jnp.where(jnp.isnan(mean_x), jnp.eye(p), mean_x)
+        ) * jnp.where(
+            self.concentration[..., None, None] > p + 1,
+            jnp.ones_like(mean_x),
+            jnp.full_like(mean_x, jnp.nan),
+        )
+
+    @lazy_property
+    def variance(self) -> Array:
+        # Variance of Cholesky factor is complex; return NaN for now
+        return jnp.full(self.batch_shape + self.event_shape, jnp.nan)
+
+    @classmethod
+    def infer_shapes(
+        cls,
+        concentration: tuple[int, ...] = (),
+        scale_matrix: Optional[tuple[int, ...]] = None,
+        rate_matrix: Optional[tuple[int, ...]] = None,
+        scale_tril: Optional[tuple[int, ...]] = None,
+    ):
+        assert_one_of(
+            scale_matrix=scale_matrix,
+            rate_matrix=rate_matrix,
+            scale_tril=scale_tril,
+        )
+        for matrix in [scale_matrix, rate_matrix, scale_tril]:
+            if matrix is not None:
+                batch_shape = lax.broadcast_shapes(concentration, matrix[:-2])
+                event_shape = matrix[-2:]
+                return batch_shape, event_shape
+
+
+class Levy(Distribution):
+    r"""Lévy distribution is a special case of Lévy alpha-stable distribution.
+    Its probability density function is given by,
+
+    .. math::
+        f(x\mid \mu, c) = \sqrt{\frac{c}{2\pi(x-\mu)^{3}}} \exp\left(-\frac{c}{2(x-\mu)}\right), \qquad x > \mu
+
+    where :math:`\mu` is the location parameter and :math:`c` is the scale parameter.
+    The support is :math:`x > \mu`. The cumulative distribution function and its
+    inverse are
+
+    .. math::
+        F(x \mid \mu, c) = \operatorname{erfc}\!\left(\sqrt{\frac{c}{2(x-\mu)}}\right)
+        = 2 - 2\Phi\!\left(\sqrt{\frac{c}{x - \mu}}\right), \qquad
+        F^{-1}(q \mid \mu, c) = \mu + \frac{c}{\big(\Phi^{-1}(1 - q/2)\big)^2},
+
+    where :math:`\Phi` is the standard normal cumulative distribution function. The
+    density has an :math:`x^{-3/2}` tail, so no moment of order :math:`\ge 1/2`
+    exists: :math:`\mathbb{E}[X] = \operatorname{Var}[X] = \infty`. The median is
+    :math:`\mu + c / \big(\Phi^{-1}(3/4)\big)^2 \approx \mu + 2.198\,c`, the mode is
+    :math:`\mu + c/3`, and the entropy is
+
+    .. math::
+        H(X) = \frac{1 + 3\gamma + \ln(16\pi c^2)}{2},
+
+    with Euler–Mascheroni constant :math:`\gamma`. If :math:`Z \sim \mathcal{N}(0, 1)`
+    then :math:`\mu + c/Z^2 \sim \mathrm{Levy}(\mu, c)`; the Lévy distribution is the
+    stable distribution with :math:`\alpha = 1/2` and :math:`\beta = 1`.
+
+    :param loc: Location parameter :math:`\mu`.
+    :param scale: Scale parameter :math:`c`.
+
+    .. note::
+        ``sample`` draws by inverse-cdf transform of uniform variates (``ndtri``);
+        ``mean`` and ``variance`` return ``inf`` arrays; no parameter is marked as
+        reparametrized, so ``has_rsample`` is ``False``.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/L%C3%A9vy_distribution
+    """
+
+    arg_constraints = {
+        "loc": constraints.real,
+        "scale": constraints.positive,
+    }
+
+    def __init__(
+        self,
+        loc: ArrayLike,
+        scale: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        super(Levy, self).__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self) -> constraints.Constraint:
+        return constraints.greater_than(self.loc)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Compute the log probability density function of the Lévy distribution.
+
+        .. math::
+            \log f(x\mid \mu, c) = \frac{1}{2}\log\left(\frac{c}{2\pi}\right) - \frac{c}{2(x-\mu)}
+            - \frac{3}{2}\log(x-\mu), \qquad x > \mu
+
+        :param value: A batch of samples from the distribution.
+        :return: an array with shape `value.shape[:-self.event_shape]`
+        :rtype: numpy.ndarray
+        """
+        shifted_value = value - self.loc
+        return -0.5 * (
+            jnp.log(2.0 * jnp.pi) - jnp.log(self.scale) + self.scale / shifted_value
+        ) - 1.5 * jnp.log(shifted_value)
+
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert is_prng_key(key)
+        assert key is not None
+        u = random.uniform(key, shape=sample_shape + self.batch_shape)
+        return self.icdf(u)
+
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""
+        The inverse cumulative distribution function of Lévy distribution is given by,
+
+        .. math::
+            F^{-1}(q\mid \mu, c) = \mu + c\left(\Phi^{-1}(1-q/2)\right)^{-2}
+
+        where :math:`\Phi^{-1}` is the inverse of the standard normal cumulative distribution function.
+
+        :param q: quantile values, should belong to [0, 1].
+        :return: the samples whose cdf values equals to `q`.
+        """
+        return self.loc + self.scale * jnp.power(ndtri(1 - 0.5 * q), -2)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""The cumulative distribution function of Lévy distribution is given by,
+
+        .. math::
+            F(x\mid \mu, c) = 2 - 2\Phi\left(\sqrt{\frac{c}{x-\mu}}\right)
+
+        where :math:`\Phi` is the standard normal cumulative distribution function.
+
+        :param value: samples from Lévy distribution.
+        :return: output of the cumulative distribution function evaluated at `value`.
+        """
+        inv_standardized = self.scale / (value - self.loc)
+        return 2.0 - 2.0 * ndtr(jnp.sqrt(inv_standardized))
+
+    @property
+    def mean(self) -> Array:
+        return jnp.broadcast_to(jnp.inf, self.batch_shape)
+
+    @property
+    def variance(self) -> Array:
+        return jnp.broadcast_to(jnp.inf, self.batch_shape)
+
+    def entropy(self) -> Array:
+        r"""If :math:`X \sim \text{Levy}(\mu, c)`, then the entropy of :math:`X` is given by,
+
+        .. math::
+            H(X) = \frac{1}{2}+\frac{3}{2}\gamma+\frac{1}{2}\ln{\left(16\pi c^2\right)}
+
+        """
+        return jnp.broadcast_to(
+            0.5 + 1.5 * jnp.euler_gamma + 0.5 * jnp.log(16 * jnp.pi), self.batch_shape
+        ) + jnp.log(self.scale)
+
+
+class CirculantNormal(TransformedDistribution):
+    r"""
+    Multivariate normal distribution with covariance matrix :math:`\mathbf{C}` that is
+    positive-definite and circulant [1], i.e., has periodic boundary conditions. The
+    density of a sample :math:`\mathbf{x}\in\mathbb{R}^n` is the standard multivariate
+    normal density
+
+    .. math::
+
+        p\left(\mathbf{x}\mid\boldsymbol{\mu},\mathbf{C}\right) =
+        \frac{\left(\mathrm{det}\,\mathbf{C}\right)^{-1/2}}{\left(2\pi\right)^{n / 2}}
+        \exp\left(-\frac{1}{2}\left(\mathbf{x}-\boldsymbol{\mu}\right)^\intercal
+        \mathbf{C}^{-1}\left(\mathbf{x}-\boldsymbol{\mu}\right)\right),
+
+    where :math:`\mathrm{det}` denotes the determinant and :math:`^\intercal` the
+    transpose. Circulant matrices can be diagnolized efficiently using the discrete
+    Fourier transform [1], allowing the log likelihood to be evaluated in
+    :math:`n \log n` time for :math:`n` observations [2].
+
+    Concretely, let :math:`\mathbf{c}` be the first row of :math:`\mathbf{C}` and
+
+    .. math::
+
+        \lambda_k = \sum_{j=0}^{n-1} c_j e^{-2\pi i jk/n}, \qquad k = 0, \ldots, n-1,
+
+    its discrete Fourier transform. The :math:`\lambda_k` are the eigenvalues of
+    :math:`\mathbf{C}`; they are real and satisfy :math:`\lambda_k = \lambda_{n-k}`
+    because :math:`\mathbf{C}` is symmetric, and ``covariance_rfft`` holds
+    :math:`\lambda_0, \ldots, \lambda_{\lfloor n/2 \rfloor}`. With the DFT matrix
+    :math:`\mathbf{F}` and :math:`\mathbf{\Lambda} = \mathrm{diag}(\boldsymbol\lambda)`,
+    :math:`\mathbf{C} = \tfrac{1}{n}\mathbf{F}^{*}\mathbf{\Lambda}\mathbf{F}` and,
+    writing :math:`\hat{\mathbf{z}} = \mathbf{F}(\mathbf{x} - \boldsymbol\mu)`
+    for the DFT of the centered value, the log density is
+
+    .. math::
+
+        \log p(\mathbf{x} \mid \boldsymbol\mu, \mathbf{C}) =
+        -\frac{n}{2}\log 2\pi - \frac{1}{2}\sum_{k=0}^{n-1}\log\lambda_k
+        - \frac{1}{2n}\sum_{k=0}^{n-1}\frac{|\hat z_k|^2}{\lambda_k}.
+
+    :math:`\mathbf{C}` is positive definite if and only if :math:`\lambda_k > 0` for
+    all :math:`k` (``positive_definite_circulant_vector`` checks that
+    ``rfft(covariance_row)`` is real — the row is symmetric — and non-negative up
+    to a tolerance of ``10 * eps``). The moments are
+    :math:`\mathbb{E}[\mathbf{X}] = \boldsymbol\mu` and
+    :math:`\operatorname{Cov}[\mathbf{X}] = \mathbf{C}` (``covariance_matrix``) with
+    marginal :math:`\operatorname{Var}[X_j] = c_0`
+    (``variance``), and the entropy is
+
+    .. math::
+
+        H(\mathbf{X}) = \frac{n}{2}\log(2\pi e)
+        + \frac{1}{2}\sum_{k=0}^{n-1}\log\lambda_k.
+
+    :param loc: Mean of the distribution :math:`\boldsymbol{\mu}`.
+    :param covariance_row: First row of the circulant covariance matrix
+        :math:`\boldsymbol{C}`. Because of periodic boundary conditions, the covariance
+        matrix is fully determined by its first row (see
+        :func:`jax.scipy.linalg.toeplitz` for further details).
+    :param covariance_rfft: Real part of the real fast Fourier transform of
+        :code:`covariance_row`, the first row of the circulant covariance matrix
+        :math:`\boldsymbol{C}`.
+
+    .. note::
+        This class is a
+        :class:`~numpyro.distributions.distribution.TransformedDistribution` whose
+        base is a diagonal normal over the :math:`n` packed real FFT coefficients, with
+        variances :math:`n\lambda_0` (DC), :math:`n\lambda_{n/2}` (Nyquist, even
+        :math:`n` only) and :math:`n\lambda_k/2` for both the real and imaginary parts
+        of the remaining frequencies, followed by
+        ``PackRealFastFourierCoefficientsTransform``, the inverse
+        ``RealFastFourierTransform`` and a shift by ``loc``. Hence ``sample`` costs one
+        inverse FFT and ``log_prob`` one FFT plus the Jacobian terms.
+        ``covariance_rfft`` is taken as the real part of ``rfft(covariance_row)``.
+
+    **References:**
+
+    1. Wikipedia. (n.d.). Circulant matrix. Retrieved March 6, 2025, from
+       https://en.wikipedia.org/wiki/Circulant_matrix
+    2. Wood, A. T. A., & Chan, G. (1994). Simulation of Stationary Gaussian Processes in
+       :math:`\left[0, 1\right]^d`. *Journal of Computational and Graphical Statistics*,
+       3(4), 409--432. https://doi.org/10.1080/10618600.1994.10474655
+    """
+
+    arg_constraints = {
+        "loc": constraints.real_vector,
+        "covariance_row": constraints.positive_definite_circulant_vector,
+        "covariance_rfft": constraints.independent(constraints.positive, 1),
+    }
+    support = constraints.real_vector
+
+    def __init__(
+        self,
+        loc: ArrayLike,
+        covariance_row: Optional[ArrayLike] = None,
+        covariance_rfft: Optional[ArrayLike] = None,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        # We demand a one-dimensional input, because we cannot determine the event shape
+        # if only the `covariance_rfft` is given.
+        assert jnp.ndim(loc) > 0, "Location parameter must have at least one dimension."
+        n = jnp.shape(loc)[-1]
+        n_rfft = n // 2 + 1
+        assert_one_of(covariance_row=covariance_row, covariance_rfft=covariance_rfft)
+
+        if covariance_rfft is None:
+            # Evaluate `covariance_rfft` if not provided and validate.
+            assert covariance_row is not None
+            assert jnp.shape(covariance_row)[-1] == n
+            loc, covariance_row = promote_shapes(loc, covariance_row)
+            covariance_rfft = jnp.fft.rfft(covariance_row).real
+            self.covariance_row = covariance_row
+        else:
+            # The `covariance_rfft` and `loc` are not promotable because the trailing
+            # dimension does not match. We manually retrieve the shapes and then
+            # promote.
+            loc_shape, covariance_rfft_shape = promote_shapes(
+                jnp.asarray(loc)[..., 0],
+                jnp.asarray(covariance_rfft)[..., 0],
+                return_shapes=True,
+            )
+            loc = _reshape(loc, loc_shape + (n,))
+            covariance_rfft = _reshape(
+                covariance_rfft, covariance_rfft_shape + (n_rfft,)
+            )
+
+        self.loc = loc
+        self.covariance_rfft = covariance_rfft
+
+        # Construct the base distribution.
+        n_imag = n - n_rfft
+        assert self.covariance_rfft.shape[-1] == n_rfft
+        var_rfft = (n * covariance_rfft / 2).at[..., 0].mul(2)
+        if n % 2 == 0:
+            var_rfft = var_rfft.at[..., -1].mul(2)
+        var_rfft = jnp.concatenate([var_rfft, var_rfft[..., 1 : 1 + n_imag]], axis=-1)
+        assert var_rfft.shape[-1] == n
+        base_distribution = Normal(scale=jnp.sqrt(var_rfft)).to_event(1)
+
+        super().__init__(
+            base_distribution,
+            [
+                PackRealFastFourierCoefficientsTransform((n,)),
+                RealFastFourierTransform((n,)).inv,
+                AffineTransform(loc, scale=1.0),
+            ],
+            validate_args=validate_args,
+        )
+
+    @property
+    def mean(self) -> Array:
+        return jnp.broadcast_to(self.loc, self.shape())
+
+    @lazy_property
+    def covariance_row(self) -> Array:
+        return jnp.fft.irfft(self.covariance_rfft, n=self.event_shape[-1])
+
+    @lazy_property
+    def covariance_matrix(self) -> Array:
+        covariance_row = jnp.asarray(self.covariance_row)
+        *leading_shape, n = covariance_row.shape
+        if leading_shape:
+            # `toeplitz` flattens the input, and we need to broadcast manually.
+            (n,) = self.event_shape
+            return vmap(toeplitz)(covariance_row.reshape((-1, n))).reshape(
+                (*leading_shape, n, n)
+            )
+        else:
+            return toeplitz(covariance_row)
+
+    @lazy_property
+    def variance(self) -> Array:
+        return jnp.broadcast_to(
+            jnp.asarray(self.covariance_row)[..., 0, None], self.shape()
+        )
+
+    @classmethod
+    def infer_shapes(
+        cls,
+        loc: tuple[int, ...] = (),
+        covariance_row: Optional[tuple[int, ...]] = None,
+        covariance_rfft: Optional[tuple[int, ...]] = None,
+    ):
+        assert_one_of(covariance_row=covariance_row, covariance_rfft=covariance_rfft)
+        for cov in [covariance_rfft, covariance_row]:
+            if cov is not None:
+                batch_shape = jnp.broadcast_shapes(loc[:-1], cov[:-1])
+                event_shape = loc[-1:]
+                return batch_shape, event_shape
+
+    def entropy(self) -> Array:
+        (n,) = self.event_shape
+        log_abs_det_jacobian = 2 * jnp.log(2) * ((n - 1) // 2) - jnp.log(n) * n
+        return self.base_dist.entropy() + log_abs_det_jacobian / 2
+
+
+class Dagum(Distribution):
+    r"""Dagum distribution (also known as the Mielke Beta-Kappa distribution).
+
+    A continuous distribution with support on the positive real line, commonly
+    used to model income and wealth. This implementation follows the notation of
+    the Wikipedia entry, using :math:`p` for ``concentration``, :math:`a` for
+    ``sharpness`` and :math:`b` for ``scale``. See
+    https://en.wikipedia.org/wiki/Dagum_distribution.
+
+    The Probability Density Function (PDF), in terms of ``concentration``
+    (:math:`p > 0`), ``sharpness`` (:math:`a > 0`) and ``scale``
+    (:math:`b > 0`), is
+
+    .. math::
+        f(x ; p, a, b) = \frac{a p}{x}
+        \left(\frac{(x/b)^{a p}}{\left((x/b)^{a} + 1\right)^{p + 1}}\right),
+        \quad x > 0
+
+    and the corresponding Cumulative Distribution Function (CDF) is
+
+    .. math::
+        F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
+
+    where :math:`p > 0` is the concentration (:attr:`concentration`),
+    :math:`a > 0` is the sharpness (:attr:`sharpness`) and :math:`b > 0` is the
+    scale (:attr:`scale`).
+
+    **References:**
+
+    1. Wikipedia. (n.d.). Dagum distribution. Retrieved March 31, 2025, from
+       https://en.wikipedia.org/wiki/Dagum_distribution
+    """
+
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "sharpness": constraints.positive,
+        "scale": constraints.positive,
+    }
+    support = constraints.positive
+    reparametrized_params = ["concentration", "sharpness", "scale"]
+
+    def __init__(
+        self,
+        concentration: ArrayLike,
+        sharpness: ArrayLike,
+        scale: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        r"""
+        :param concentration: Concentration parameter :math:`p > 0` (called
+            ``p`` in the Wikipedia entry).
+        :param sharpness: Sharpness parameter :math:`a > 0` (called ``a`` in the
+            Wikipedia entry).
+        :param scale: Scale parameter :math:`b > 0` (called ``b`` in the
+            Wikipedia entry).
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
+        """
+        self.concentration, self.sharpness, self.scale = promote_shapes(
+            concentration, sharpness, scale
+        )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration), jnp.shape(sharpness), jnp.shape(scale)
+        )
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; p, a, b) = \ln a + \ln p - \ln x
+            + a p \ln\left(\frac{x}{b}\right)
+            - (p + 1) \ln\!\left(\left(\frac{x}{b}\right)^{a} + 1\right)
+
+        :param value: Positive point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Dagum distribution.
+        """
+        a_ln_x_m_ln_b = xlogy(self.sharpness, value) - xlogy(self.sharpness, self.scale)
+        return (
+            jnp.log(self.sharpness)
+            + jnp.log(self.concentration)
+            - jnp.log(value)
+            + self.concentration * a_ln_x_m_ln_b
+            - (self.concentration + 1.0) * nn.softplus(a_ln_x_m_ln_b)
+        )
+
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Dagum distribution:
+
+        .. math::
+            F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
+
+        :param value: Positive point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a Dagum random variable is at most ``value``.
+        """
+        return jnp.exp(
+            -self.concentration
+            * nn.softplus(
+                xlogy(self.sharpness, self.scale) - xlogy(self.sharpness, value)
+            )
+        )
+
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; p, a, b) = b\,\left(q^{-1/p} - 1\right)^{-1/a}
+
+        :param q: Quantile level :math:`q \in (0, 1)`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
+        q_root_p = jnp.power(q, -jnp.reciprocal(self.concentration))
+        return self.scale * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.sharpness))
+
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> jnp.ndarray:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Positive samples from the Dagum distribution.
+        """
+        assert is_prng_key(key)
+        assert key is not None
+        return self.icdf(random.uniform(key, shape=self.shape(sample_shape)))
+
+    @property
+    def mean(self) -> Array:
+        r"""Mean of the Dagum distribution, finite only when :math:`a > 1`:
+
+        .. math::
+            \mathbb{E}[X] = b\,p\,\mathrm{B}\!\left(1 - \frac{1}{a},\;
+            p + \frac{1}{a}\right), \quad a > 1
+
+        where :math:`\mathrm{B}` is the Beta function; the mean is
+        :math:`+\infty` when :math:`a \le 1`.
+        """
+        safe_a = jnp.where(self.sharpness > 1.0, self.sharpness, 2.0)
+        return jnp.where(
+            self.sharpness > 1.0,
+            (self.scale * self.concentration)
+            * jnp.exp(betaln(1.0 - 1.0 / safe_a, self.concentration + 1.0 / safe_a)),
+            jnp.inf,
+        )
+
+    @property
+    def variance(self) -> Array:
+        r"""Variance of the Dagum distribution, finite only when :math:`a > 2`:
+
+        .. math::
+            \mathrm{Var}[X] = b^{2}\,p\,\mathrm{B}\!\left(1 - \frac{2}{a},\;
+            p + \frac{2}{a}\right) - \left(\mathbb{E}[X]\right)^{2},
+            \quad a > 2
+
+        where :math:`\mathrm{B}` is the Beta function; the variance is
+        :math:`+\infty` when :math:`a \le 2`.
+        """
+        safe_a = jnp.where(self.sharpness > 2.0, self.sharpness, 3.0)
+        return jnp.where(
+            self.sharpness > 2.0,
+            (jnp.square(self.scale) * self.concentration)
+            * jnp.exp(betaln(1.0 - 2.0 / safe_a, self.concentration + 2.0 / safe_a))
+            - jnp.square(self.mean),
+            jnp.inf,
+        )
+
+
+class HurdleGamma(HurdleProbs):
+    r"""A hurdle Gamma distribution: a two-part model in which a structural zero
+    occurs with probability :math:`g` and, conditional on a positive outcome,
+    the magnitude is drawn from :math:`\mathrm{Gamma}(\alpha, \lambda)`. The
+    hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
+
+    Because :math:`P(X = 0) = 0` under a Gamma density, no truncation factor is
+    needed and the PDF is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        f(x) = (1 - g) \,
+        \frac{\lambda^{\alpha} x^{\alpha - 1} e^{-\lambda x}}{\Gamma(\alpha)}
+        \;\text{for } x > 0.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike concentration: shape parameter :math:`\alpha > 0` of the Gamma.
+    :param ArrayLike rate: rate parameter :math:`\lambda > 0` of the Gamma.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {
+        "gate": constraints.unit_interval,
+        "concentration": constraints.positive,
+        "rate": constraints.positive,
+    }
+    support = constraints.nonnegative
+    pytree_data_fields = ("concentration", "rate")
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        concentration: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.concentration, self.rate = promote_shapes(gate, concentration, rate)
+        super().__init__(Gamma(concentration, rate), gate, validate_args=validate_args)
+
+
+class HurdleLogNormal(HurdleProbs):
+    r"""A hurdle Log-Normal distribution: a two-part model in which a structural
+    zero occurs with probability :math:`g` and, conditional on a positive
+    outcome, the magnitude is drawn from :math:`\mathrm{LogNormal}(\mu, \sigma)`.
+    The hurdle and the magnitude (given a positive value) are conditionally
+    independent; see :class:`HurdleProbs` for the full mechanism and
+    assumptions.
+
+    Because :math:`P(X = 0) = 0` under a Log-Normal density, no truncation factor is
+    needed and the PDF is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        f(x) = (1 - g) \, \frac{1}{x \sigma \sqrt{2 \pi}}
+        \exp\!\left( -\frac{(\ln x - \mu)^2}{2 \sigma^2} \right)
+        \;\text{for } x > 0.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike loc: location parameter :math:`\mu \in \mathbb{R}`
+        (mean of :math:`\ln X` given :math:`X > 0`).
+    :param ArrayLike scale: scale parameter :math:`\sigma > 0`
+        (std-dev of :math:`\ln X` given :math:`X > 0`).
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {
+        "gate": constraints.unit_interval,
+        "loc": constraints.real,
+        "scale": constraints.positive,
+    }
+    support = constraints.nonnegative
+    pytree_data_fields = ("loc", "scale")
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        loc: ArrayLike = 0.0,
+        scale: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.loc, self.scale = promote_shapes(gate, loc, scale)
+        super().__init__(LogNormal(loc, scale), gate, validate_args=validate_args)

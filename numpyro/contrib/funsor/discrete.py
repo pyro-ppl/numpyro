@@ -56,14 +56,14 @@ def _sample_posterior(
             model_trace = trace(seed(model, rng_key)).get_trace(*args, **kwargs)
         first_available_dim = -_guess_max_plate_nesting(model_trace) - 1
 
-    with funsor.adjoint.AdjointTape() as tape:
+    with funsor.interpretations.lazy:
         with block(), enum(first_available_dim=first_available_dim):
             log_prob, model_tr, log_measures = _enum_log_density(
-                model, args, kwargs, {}, sum_op, prod_op
+                model, args, kwargs, {}, sum_op, prod_op, apply_optimizer=False
             )
 
     with approx:
-        approx_factors = tape.adjoint(sum_op, prod_op, log_prob)
+        approx_factors = funsor.adjoint.adjoint(sum_op, prod_op, log_prob)
 
     # construct a result trace to replay against the model
     sample_tr = model_tr.copy()
@@ -142,7 +142,7 @@ def infer_discrete(fn=None, first_available_dim=None, temperature=1, rng_key=Non
         This should be a negative integer.
     :param int temperature: Either 1 (sample via forward-filter backward-sample)
         or 0 (optimize via Viterbi-like MAP inference). Defaults to 1 (sample).
-    :param jax.random.PRNGKey rng_key: a random number generator key, to be used in
+    :param jax.random.key rng_key: a random number generator key, to be used in
         cases ``temperature=1`` or ``first_available_dim is None``.
     """
     if temperature == 1 or first_available_dim is None:

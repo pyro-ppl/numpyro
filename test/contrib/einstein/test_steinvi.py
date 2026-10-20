@@ -15,6 +15,8 @@ from jax import numpy as jnp, random
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.einstein import (
+    ASVGD,
+    SVGD,
     GraphicalKernel,
     IMQKernel,
     LinearKernel,
@@ -90,16 +92,16 @@ def uniform_normal():
         with numpyro.plate("data", data.shape[0]):
             numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
-    data = true_coef + random.normal(random.PRNGKey(0), (10,))
+    data = true_coef + random.normal(random.key(0), (10,))
     return true_coef, (data,), model
 
 
 def regression():
     N, dim = 10, 3
-    data = random.normal(random.PRNGKey(0), (N, dim))
+    data = random.normal(random.key(0), (N, dim))
     true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
-    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
     def model(features, labels):
         coefs = numpyro.sample(
@@ -116,15 +118,26 @@ def regression():
 
 @pytest.mark.parametrize("kernel", KERNELS)
 @pytest.mark.parametrize("problem", (uniform_normal, regression))
-def test_kernel_smoke(kernel, problem):
+@pytest.mark.parametrize("method", ("ASVGD", "SVGD", "SteinVI"))
+def test_run_smoke(kernel, problem, method):
     true_coefs, data, model = problem()
-    stein = SteinVI(
-        model,
-        AutoNormal(model),
-        Adam(1e-1),
-        kernel,
-    )
-    stein.run(random.PRNGKey(0), 1, *data)
+    if method == "ASVGD":
+        stein = ASVGD(
+            model,
+            Adam(1e-1),
+            kernel,
+            num_stein_particles=1,
+            num_cycles=1,
+            transition_speed=1,
+        )
+    if method == "SVGD":
+        stein = SVGD(model, Adam(1e-1), kernel, num_stein_particles=1)
+    if method == "SteinVI":
+        stein = SteinVI(
+            model, AutoNormal(model), Adam(1e-1), kernel, num_stein_particles=1
+        )
+
+    stein.run(random.key(0), 1, *data)
 
 
 ########################################
@@ -239,12 +252,12 @@ def test_init_auto_guide(auto_class, init_loc_fn, num_particles):
     latent_dim = 3
 
     def model(obs):
-        a = numpyro.sample("a", Normal(0, 1).expand((latent_dim,)).to_event(1))
+        a = numpyro.sample("a", Normal(0.2, 1).expand((latent_dim,)).to_event(1))
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
-    obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
+    obs = Bernoulli(0.5).sample(random.key(0), (10, latent_dim))
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     guide_key, stein_key = random.split(rng_key)
 
     guide = auto_class(model, init_loc_fn=init_loc_fn())
@@ -274,7 +287,12 @@ def test_init_auto_guide(auto_class, init_loc_fn, num_particles):
             assert init_value.shape == expected_shape
             if "auto_loc" in name or name == "b":
                 assert np.all(init_value != np.zeros(expected_shape))
-                assert np.unique(init_value).shape == init_value.reshape(-1).shape
+                # Check that all values are unique except when `init_to_mean` is used
+                # because all initial values will be equal to the mean.
+                assert (
+                    np.unique(init_value).shape == init_value.reshape(-1).shape
+                    or init_loc_fn is init_to_mean
+                )
             elif "scale" in name:
                 assert_allclose(init_value[init_value != 0.0], 0.1, rtol=1e-6)
 
@@ -293,9 +311,9 @@ def test_init_custom_guide(num_particles):
         a = numpyro.sample("a", Normal(0, 1).expand((latent_dim,)).to_event(1))
         return numpyro.sample("obs", Bernoulli(logits=a), obs=obs)
 
-    obs = Bernoulli(0.5).sample(random.PRNGKey(0), (10, latent_dim))
+    obs = Bernoulli(0.5).sample(random.key(0), (10, latent_dim))
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     guide_key, stein_key = random.split(rng_key)
 
     steinvi = SteinVI(
@@ -324,7 +342,7 @@ def test_param_size(length, depth, t):
             return v
         return nest(t([v]), d - 1)
 
-    seed = random.PRNGKey(nrandom.randint(0, 10_000))
+    seed = random.key(nrandom.randint(0, 10_000))
     sizes = Poisson(5).sample(seed, (length, nrandom.randint(0, 10))) + 1
     total_size = sum(map(lambda size: size.prod(), sizes))
     uparam = t(nest(np.empty(tuple(size)), nrandom.randint(0, depth)) for size in sizes)
@@ -335,7 +353,7 @@ def test_param_size(length, depth, t):
 @pytest.mark.parametrize("num_particles", [1, 2, 7, 10])
 @pytest.mark.parametrize("num_params", [0, 1, 2, 10, 20])
 def test_calc_particle_info(num_params, num_particles):
-    seed = random.PRNGKey(nrandom.randint(0, 10_000))
+    seed = random.key(nrandom.randint(0, 10_000))
     sizes = Poisson(5).sample(seed, (100, nrandom.randint(0, 10))) + 1
 
     uparam = tuple(np.empty(tuple(size)) for size in sizes)
@@ -358,7 +376,7 @@ def test_calc_particle_info(num_params, num_particles):
 def test_calc_particle_info_nested():
     num_params = 3
     num_particles = 10
-    seed = random.PRNGKey(42)
+    seed = random.key(42)
     sizes = Poisson(5).sample(seed, (100, nrandom.randint(1, 10))) + 1
     uparam = tuple(np.empty(tuple(size)) for size in sizes)
     uparams = {

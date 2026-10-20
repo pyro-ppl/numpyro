@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import glob
+import logging
 import os
 import shutil
 import sys
 
 import nbsphinx
-import sphinx_rtd_theme
+from sphinx.util import logging as sphinx_logging
 
 # import pkg_resources
 
@@ -35,6 +36,8 @@ from numpyro.infer.hmc import hmc  # noqa: E402
 
 hmc(None, None)
 
+autodoc_mock_imports = ["jaxns"]
+
 # -- Project information -----------------------------------------------------
 
 project = "NumPyro"
@@ -45,7 +48,7 @@ version = ""
 
 if "READTHEDOCS" not in os.environ:
     # if developing locally, use numpyro.__version__ as version
-    from numpyro import __version__  # noqaE402
+    from numpyro import __version__  # noqa: E402
 
     version = __version__
 
@@ -67,6 +70,7 @@ release = version
 # ones.
 extensions = [
     "nbsphinx",
+    "sphinxcontrib.jquery",
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",
     "sphinx.ext.imgconverter",
@@ -93,7 +97,7 @@ autodoc_inherit_docstrings = True
 templates_path = ["_templates"]
 
 # The suffix(es) of source filenames.
-# You can specify multiple suffix as a list of string:
+# You can specify multiple suffixes as a list of strings:
 #
 # source_suffix = ['.rst', '.md']
 # NOTE: `.rst` is the default suffix of sphinx, and nbsphinx will
@@ -226,7 +230,6 @@ html_favicon = "_static/img/favicon/favicon.ico"
 # a list of builtin themes.
 #
 html_theme = "sphinx_rtd_theme"
-html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -315,7 +318,38 @@ texinfo_documents = [
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
-    "numpy": ("http://docs.scipy.org/doc/numpy/", None),
-    "jax": ("https://jax.readthedocs.io/en/latest/", None),
-    "pyro": ("http://docs.pyro.ai/en/stable/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
+    "jax": ("https://docs.jax.dev/en/latest/", None),
+    "pyro": ("https://docs.pyro.ai/en/stable/", None),
 }
+
+
+class _IntersphinxFetchFailureFilter(logging.Filter):
+    """Log an unreachable intersphinx inventory as info instead of a warning.
+
+    Sphinx emits this warning without a ``type``, so ``suppress_warnings`` cannot
+    silence it, and ``-W`` would turn a transient outage of an external docs server
+    into a failed build. References into the missing inventory render as plain text.
+    """
+
+    def filter(self, record):
+        if record.levelno == logging.WARNING and str(record.msg).startswith(
+            "failed to reach any of the inventories"
+        ):
+            record.levelno = logging.INFO
+            record.levelname = "INFO"
+        return True
+
+
+sphinx_logging.getLogger("sphinx.ext.intersphinx").logger.addFilter(
+    _IntersphinxFetchFailureFilter()
+)
+
+
+# -- Suppress warnings in Sphinx 7.3.5
+
+suppress_warnings = ["config.cache"]
+
+# Show both class docstring and __init__ docstring in the documentation.
+# source: https://stackoverflow.com/questions/5599254/how-to-use-sphinxs-autodoc-to-document-a-classs-init-self-method
+autoclass_content = "both"

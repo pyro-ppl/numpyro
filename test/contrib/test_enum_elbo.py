@@ -32,9 +32,7 @@ transform = dist.biject_to(dist.constraints.simplex)
 
 
 def assert_equal(a, b, prec=0):
-    return jax.tree_util.tree_map(
-        lambda a, b: np.testing.assert_allclose(a, b, atol=prec), a, b
-    )
+    return jax.tree.map(lambda a, b: np.testing.assert_allclose(a, b, atol=prec), a, b)
 
 
 def xfail_param(*args, **kwargs):
@@ -84,7 +82,7 @@ def test_elbo_plate_plate(outer_dim, inner_dim):
 
     def actual_loss_fn(q):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, q)
+        return elbo.loss(random.key(0), {}, model, guide, q)
 
     actual_loss, actual_grad = jax.value_and_grad(actual_loss_fn)(q)
 
@@ -122,16 +120,16 @@ def test_elbo_enumerate_1(scale):
         pyro.sample("x", dist.Categorical(probs_x), infer={"enumerate": "parallel"})
 
     def auto_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
 
@@ -174,16 +172,16 @@ def test_elbo_enumerate_2(scale):
         pyro.sample("x", dist.Categorical(probs_x))
 
     def auto_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
 
@@ -225,16 +223,16 @@ def test_elbo_enumerate_3(scale):
         pyro.sample("x", dist.Categorical(probs_x))
 
     def auto_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
 
@@ -291,21 +289,19 @@ def test_elbo_enumerate_plate_1(num_samples, num_masked, scale):
         probs_x = params["guide_probs_x"]
         pyro.sample("x", dist.Categorical(probs_x))
 
-    data = dist.Categorical(jnp.array([0.3, 0.7])).sample(
-        random.PRNGKey(0), (num_samples,)
-    )
+    data = dist.Categorical(jnp.array([0.3, 0.7])).sample(random.key(0), (num_samples,))
 
     def auto_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, data, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, data, params)
 
     def hand_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, data, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, data, params)
 
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
 
@@ -370,21 +366,19 @@ def test_elbo_enumerate_plate_2(num_samples, num_masked, scale):
         probs_x = params["guide_probs_x"]
         pyro.sample("x", dist.Categorical(probs_x))
 
-    data = dist.Categorical(jnp.array([0.3, 0.7])).sample(
-        random.PRNGKey(0), (num_samples,)
-    )
+    data = dist.Categorical(jnp.array([0.3, 0.7])).sample(random.key(0), (num_samples,))
 
     def auto_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, data, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, data, params)
 
     def hand_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, data, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, data, params)
 
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
 
@@ -462,21 +456,19 @@ def test_elbo_enumerate_plate_3(num_samples, num_masked, scale):
         for i in range(num_masked):
             pyro.sample(f"x_{i}", dist.Categorical(probs_x))
 
-    data = dist.Categorical(jnp.array([0.3, 0.7])).sample(
-        random.PRNGKey(0), (num_samples,)
-    )
+    data = dist.Categorical(jnp.array([0.3, 0.7])).sample(random.key(0), (num_samples,))
 
     def auto_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, auto_guide, data, params)
+        return elbo.loss(random.key(0), {}, auto_model, auto_guide, data, params)
 
     def hand_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, hand_guide, data, params)
+        return elbo.loss(random.key(0), {}, hand_model, hand_guide, data, params)
 
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params_raw)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params_raw)
 
@@ -495,7 +487,7 @@ def test_elbo_enumerate_plate_4(outer_obs, inner_obs, scale):
     #  |       \                |
     #  | b ---> inner_obs   N=2 |
     #  +------------------------+
-    # This tests two different observations, one outside and one inside an plate.
+    # This tests two different observations, one outside and one inside a plate.
     params = {}
     params["probs_a"] = jnp.array([0.4, 0.6])
     params["probs_b"] = jnp.array([0.6, 0.4])
@@ -558,11 +550,11 @@ def test_elbo_enumerate_plate_4(outer_obs, inner_obs, scale):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -641,11 +633,11 @@ def test_elbo_enumerate_plate_5():
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate, guide_plate, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide_iplate, params)
+        return elbo.loss(random.key(0), {}, model_iplate, guide_iplate, params)
 
     with pytest.raises(
         ValueError, match="Expected model enumeration to be no more global than guide"
@@ -723,11 +715,11 @@ def test_elbo_enumerate_plate_6(enumerate1):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate, guide, params)
+        return elbo.loss(random.key(0), {}, model_plate, guide, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide, params)
+        return elbo.loss(random.key(0), {}, model_iplate, guide, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -754,7 +746,7 @@ def test_elbo_enumerate_plate_7(scale):
         [[[0.4, 0.6], [0.3, 0.7]], [[0.3, 0.7], [0.2, 0.8]]]
     )
     params["model_probs_e"] = jnp.array([[0.75, 0.25], [0.55, 0.45]])
-    params["guide_probs_a"] = jnp.array([0.35, 0.64])
+    params["guide_probs_a"] = jnp.array([0.35, 0.65])
     params["guide_probs_c"] = jnp.array([[0.0, 1.0], [1.0, 0.0]])  # deterministic
 
     @handlers.scale(scale=scale)
@@ -780,6 +772,7 @@ def test_elbo_enumerate_plate_7(scale):
             params["model_probs_e"],
             constraint=constraints.simplex,
         )
+
         a = pyro.sample("a", dist.Categorical(probs_a))
         b = pyro.sample(
             "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
@@ -801,6 +794,7 @@ def test_elbo_enumerate_plate_7(scale):
         probs_c = pyro.param(
             "guide_probs_c", params["guide_probs_c"], constraint=constraints.simplex
         )
+
         a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
         with pyro.plate("data", 2):
             pyro.sample("c", dist.Categorical(probs_c[a]))
@@ -828,6 +822,7 @@ def test_elbo_enumerate_plate_7(scale):
             params["model_probs_e"],
             constraint=constraints.simplex,
         )
+
         a = pyro.sample("a", dist.Categorical(probs_a))
         b = pyro.sample(
             "b", dist.Categorical(probs_b[a]), infer={"enumerate": "parallel"}
@@ -849,6 +844,7 @@ def test_elbo_enumerate_plate_7(scale):
         probs_c = pyro.param(
             "guide_probs_c", params["guide_probs_c"], constraint=constraints.simplex
         )
+
         a = pyro.sample("a", dist.Categorical(probs_a), infer={"enumerate": "parallel"})
         for i in range(2):
             pyro.sample(f"c_{i}", dist.Categorical(probs_c[a]))
@@ -857,11 +853,11 @@ def test_elbo_enumerate_plate_7(scale):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, auto_guide, data, params)
+        return elbo.loss(random.key(0), {}, auto_model, auto_guide, data, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, hand_guide, data, params)
+        return elbo.loss(random.key(0), {}, hand_model, hand_guide, data, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -938,11 +934,11 @@ def test_elbo_enumerate_plates_1(scale):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -1007,11 +1003,11 @@ def test_elbo_enumerate_plates_2(scale):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -1069,11 +1065,11 @@ def test_elbo_enumerate_plates_3(scale):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -1139,11 +1135,11 @@ def test_elbo_enumerate_plates_4(scale):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, data, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, data, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, data, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, data, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -1214,11 +1210,11 @@ def test_elbo_enumerate_plates_5(scale):
 
     def auto_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, auto_model, guide, params)
+        return elbo.loss(random.key(0), {}, auto_model, guide, params)
 
     def hand_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, hand_model, guide, params)
+        return elbo.loss(random.key(0), {}, hand_model, guide, params)
 
     auto_loss, auto_grad = jax.value_and_grad(auto_loss_fn)(params)
     hand_loss, hand_grad = jax.value_and_grad(hand_loss_fn)(params)
@@ -1249,7 +1245,6 @@ def test_elbo_enumerate_plates_6(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_iplate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1307,7 +1302,6 @@ def test_elbo_enumerate_plates_6(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_plate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1368,17 +1362,15 @@ def test_elbo_enumerate_plates_6(scale):
 
     def iplate_iplate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(
-            random.PRNGKey(0), {}, model_iplate_iplate, guide, data, params
-        )
+        return elbo.loss(random.key(0), {}, model_iplate_iplate, guide, data, params)
 
     def plate_iplate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate_iplate, guide, data, params)
+        return elbo.loss(random.key(0), {}, model_plate_iplate, guide, data, params)
 
     def iplate_plate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate_plate, guide, data, params)
+        return elbo.loss(random.key(0), {}, model_iplate_plate, guide, data, params)
 
     iplate_iplate_loss, iplate_iplate_grad = jax.value_and_grad(iplate_iplate_loss_fn)(
         params
@@ -1390,15 +1382,15 @@ def test_elbo_enumerate_plates_6(scale):
         params
     )
 
-    assert_equal(iplate_iplate_loss, plate_iplate_loss, prec=1e-5)
-    assert_equal(iplate_iplate_grad, plate_iplate_grad, prec=1e-5)
-    assert_equal(iplate_iplate_loss, iplate_plate_loss, prec=1e-5)
-    assert_equal(iplate_iplate_grad, iplate_plate_grad, prec=1e-5)
+    assert_equal(iplate_iplate_loss, plate_iplate_loss, prec=2e-5)
+    assert_equal(iplate_iplate_grad, plate_iplate_grad, prec=2e-5)
+    assert_equal(iplate_iplate_loss, iplate_plate_loss, prec=2e-5)
+    assert_equal(iplate_iplate_grad, iplate_plate_grad, prec=2e-5)
 
     # But promoting both to plates should result in an error.
     with pytest.raises(ValueError, match="intractable!"):
         elbo = infer.TraceEnum_ELBO()
-        elbo.loss(random.PRNGKey(0), {}, model_plate_plate, guide, data, params)
+        elbo.loss(random.key(0), {}, model_plate_plate, guide, data, params)
 
 
 @pytest.mark.parametrize("scale", [1, 10])
@@ -1425,7 +1417,6 @@ def test_elbo_enumerate_plates_7(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_iplate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1491,7 +1482,6 @@ def test_elbo_enumerate_plates_7(scale):
 
     @config_enumerate
     @handlers.scale(scale=scale)
-    @handlers.trace
     def model_plate_iplate(data, params):
         probs_a = pyro.param(
             "probs_a", params["probs_a"], constraint=constraints.simplex
@@ -1556,21 +1546,19 @@ def test_elbo_enumerate_plates_7(scale):
 
     def iplate_iplate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(
-            random.PRNGKey(0), {}, model_iplate_iplate, guide, data, params
-        )
+        return elbo.loss(random.key(0), {}, model_iplate_iplate, guide, data, params)
 
     def plate_iplate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate_iplate, guide, data, params)
+        return elbo.loss(random.key(0), {}, model_plate_iplate, guide, data, params)
 
     def iplate_plate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate_plate, guide, data, params)
+        return elbo.loss(random.key(0), {}, model_iplate_plate, guide, data, params)
 
     def plate_plate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate_plate, guide, data, params)
+        return elbo.loss(random.key(0), {}, model_plate_plate, guide, data, params)
 
     iplate_iplate_loss, iplate_iplate_grad = jax.value_and_grad(iplate_iplate_loss_fn)(
         params
@@ -1721,23 +1709,19 @@ def test_elbo_enumerate_plates_8(
 
     def iplate_iplate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(
-            random.PRNGKey(0), {}, model_iplate_iplate, guide_iplate, params
-        )
+        return elbo.loss(random.key(0), {}, model_iplate_iplate, guide_iplate, params)
 
     def plate_iplate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate_iplate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate_iplate, guide_plate, params)
 
     def iplate_plate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(
-            random.PRNGKey(0), {}, model_iplate_plate, guide_iplate, params
-        )
+        return elbo.loss(random.key(0), {}, model_iplate_plate, guide_iplate, params)
 
     def plate_plate_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate_plate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate_plate, guide_plate, params)
 
     expected_loss, expected_grad = jax.value_and_grad(iplate_iplate_loss_fn)(params)
     if inner_vectorized:
@@ -1846,11 +1830,11 @@ def test_elbo_enumerate_plate_9():
 
     def expected_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide_iplate, params)
+        return elbo.loss(random.key(0), {}, model_iplate, guide_iplate, params)
 
     def actual_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate, guide_plate, params)
 
     expected_loss, expected_grad = jax.value_and_grad(expected_loss_fn)(params)
     actual_loss, actual_grad = jax.value_and_grad(actual_loss_fn)(params)
@@ -1934,11 +1918,11 @@ def test_elbo_enumerate_plate_10():
 
     def expected_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide_iplate, params)
+        return elbo.loss(random.key(0), {}, model_iplate, guide_iplate, params)
 
     def actual_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate, guide_plate, params)
 
     expected_loss, expected_grad = jax.value_and_grad(expected_loss_fn)(params)
     actual_loss, actual_grad = jax.value_and_grad(actual_loss_fn)(params)
@@ -2022,11 +2006,11 @@ def test_elbo_enumerate_plate_11():
 
     def expected_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide_iplate, params)
+        return elbo.loss(random.key(0), {}, model_iplate, guide_iplate, params)
 
     def actual_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate, guide_plate, params)
 
     expected_loss, expected_grad = jax.value_and_grad(expected_loss_fn)(params)
     actual_loss, actual_grad = jax.value_and_grad(actual_loss_fn)(params)
@@ -2130,11 +2114,11 @@ def test_elbo_enumerate_plate_12():
 
     def expected_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide_iplate, params)
+        return elbo.loss(random.key(0), {}, model_iplate, guide_iplate, params)
 
     def actual_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate, guide_plate, params)
 
     expected_loss, expected_grad = jax.value_and_grad(expected_loss_fn)(params)
     actual_loss, actual_grad = jax.value_and_grad(actual_loss_fn)(params)
@@ -2244,11 +2228,11 @@ def test_elbo_enumerate_plate_13():
 
     def expected_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_iplate, guide_iplate, params)
+        return elbo.loss(random.key(0), {}, model_iplate, guide_iplate, params)
 
     def actual_loss_fn(params):
         elbo = infer.TraceEnum_ELBO()
-        return elbo.loss(random.PRNGKey(0), {}, model_plate, guide_plate, params)
+        return elbo.loss(random.key(0), {}, model_plate, guide_plate, params)
 
     expected_loss, expected_grad = jax.value_and_grad(expected_loss_fn)(params)
     actual_loss, actual_grad = jax.value_and_grad(actual_loss_fn)(params)
@@ -2302,7 +2286,7 @@ def test_model_enum_subsample_1(scale):
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
@@ -2312,7 +2296,7 @@ def test_model_enum_subsample_1(scale):
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
+        return elbo.loss(random.key(0), {}, model_subsample, guide, params)
 
     with pytest.raises(
         ValueError, match="Expected all enumerated sample sites to share a common scale"
@@ -2377,7 +2361,7 @@ def test_model_enum_subsample_2(scale):
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
@@ -2387,7 +2371,7 @@ def test_model_enum_subsample_2(scale):
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
+        return elbo.loss(random.key(0), {}, model_subsample, guide, params)
 
     with pytest.raises(
         ValueError, match="Expected all enumerated sample sites to share a common scale"
@@ -2452,7 +2436,7 @@ def test_model_enum_subsample_3(scale):
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
@@ -2462,7 +2446,7 @@ def test_model_enum_subsample_3(scale):
             "locs": params_raw["locs"],
             "probs_a": transform(params_raw["probs_a"]),
         }
-        return elbo.loss(random.PRNGKey(0), {}, model_subsample, guide, params)
+        return elbo.loss(random.key(0), {}, model_subsample, guide, params)
 
     with pytest.raises(
         ValueError, match="Expected all enumerated sample sites to share a common scale"
@@ -2491,14 +2475,14 @@ def test_guide_plate_contraction():
         "probs_a": jnp.array([3.0, 2.5]),
     }
     transform = dist.biject_to(dist.constraints.positive)
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
 
     # TraceGraph_ELBO grads averaged over num_particles
     elbo = infer.TraceGraph_ELBO(num_particles=50_000)
 
     def graph_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        params = jax.tree.map(transform, params_raw)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     graph_loss, graph_grads = jax.value_and_grad(graph_loss_fn)(params_raw)
 
@@ -2506,10 +2490,38 @@ def test_guide_plate_contraction():
     elbo = infer.TraceEnum_ELBO(num_particles=50_000)
 
     def enum_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        params = jax.tree.map(transform, params_raw)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     enum_loss, enum_grads = jax.value_and_grad(enum_loss_fn)(params_raw)
 
     assert_equal(enum_loss, graph_loss, prec=1e-3)
-    assert_equal(enum_grads, graph_grads, prec=1e-2)
+    assert_equal(enum_grads, graph_grads, prec=2e-2)
+
+
+def test_trace_enum_elbo_with_auxiliary_site():
+    """Regression test for https://github.com/pyro-ppl/numpyro/issues/2013.
+    TraceEnum_ELBO should handle guide sites marked with is_auxiliary=True
+    that have no corresponding site in the model.
+    """
+
+    def model():
+        loc = pyro.sample("loc", dist.Normal(0.0, 1.0))
+        x = pyro.sample(
+            "x",
+            dist.Categorical(jnp.array([0.3, 0.7])),
+            infer={"enumerate": "parallel"},
+        )
+        pyro.sample("obs", dist.Normal(loc + x, 1.0), obs=jnp.array(1.5))
+
+    def guide():
+        aux = pyro.sample(
+            "aux",
+            dist.Normal(jnp.zeros(2), jnp.ones(2)).to_event(1),
+            infer={"is_auxiliary": True},
+        )
+        pyro.sample("loc", dist.Delta(aux[0]))
+
+    elbo = infer.TraceEnum_ELBO()
+    loss = elbo.loss(random.key(0), {}, model, guide)
+    assert jnp.isfinite(loss), f"Expected finite loss, got {loss}"

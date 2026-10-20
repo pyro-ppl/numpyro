@@ -1,0 +1,47 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: ruff check
+        args: ["--fix", "--output-format=full"]
+        files: "(.py$)|(.*.ipynb$)"
+        language: system
+
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff format
+        language: system
+        files: "(.py$)|(.*.ipynb$)"
+
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.75
+    hooks:
+      - id: ty
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: debug-statements
+      - id: check-yaml
+      - id: check-added-large-files
+        exclude: notebooks/
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.2
+    hooks:
+      - id: codespell
+        stages: [pre-commit, commit-msg]
+        args: [--ignore-words-list, "Teh,aas,ans,dout", --check-filenames, --skip, "*.ipynb"]
+
+  # Format yaml files
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
+        args: [-formatter, retain_line_breaks=true]
+
+  - repo: https://github.com/tombi-toml/tombi-pre-commit
+    rev: v0.11.5
+    hooks:
+      - id: tombi-format

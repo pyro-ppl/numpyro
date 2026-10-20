@@ -3,25 +3,28 @@
 
 from functools import singledispatch
 
-from jax import random
+import jax
+from jax import random, tree
 import jax.numpy as jnp
 
 try:
+    import jaxns  # noqa: F401
     from jaxns import (
-        ExactNestedSampler as OrigNestedSampler,
         Model,
-        NestedSamplerResults,
         Prior,
-        PriorModelGen,
         TerminationCondition,
         plot_cornerplot,
         plot_diagnostics,
         resample,
         summary,
     )
-except ImportError as e:
+    from jaxns.public import DefaultNestedSampler
+    from jaxns.utils import NestedSamplerResults
+
+except (ImportError, AttributeError) as e:
     raise ImportError(
-        "To use this module, please install `jaxns` package. It can be"
+        f"{e} \n "
+        f"To use this module, please install `jaxns>2.5` package. It can be"
         " installed with `pip install jaxns` with python>=3.8"
     ) from e
 
@@ -85,9 +88,9 @@ def _(d):
 
     def transform_fn(q):
         # NB: icdf is not available yet for Gamma distribution
-        # so this will raise an NotImplementedError for now.
+        # so this will raise a NotImplementedError for now.
         # We will need scipy.special.gammaincinv, which is not available yet in JAX
-        # see issue: https://github.com/google/jax/issues/5350
+        # see issue: https://github.com/jax-ml/jax/issues/5350
         # TODO: consider wrap jaxns GammaPrior transform implementation
         gammas = uniform_reparam_transform(gamma_dist)(q)
         return gammas / gammas.sum(-1, keepdims=True)
@@ -122,7 +125,7 @@ class NestedSampler:
     (EXPERIMENTAL) A wrapper for `jaxns <https://github.com/Joshuaalbert/jaxns>`_ ,
     a nested sampling package based on JAX.
 
-    See reference [1] for details on the meaning of each parameter.
+    See reference [`1 <nestedsampler-ref-1_>`__] for details on the meaning of each parameter.
     Please consider citing this reference if you use the nested sampler in your research.
 
     .. note:: To enumerate over a discrete latent variable, you can add the keyword
@@ -133,7 +136,9 @@ class NestedSampler:
 
     **References**
 
-    1. *JAXNS: a high-performance nested sampling package based on JAX*,
+    1. .. _nestedsampler-ref-1:
+
+       *JAXNS: a high-performance nested sampling package based on JAX*,
        Joshua G. Albert (https://arxiv.org/abs/2012.15286)
 
     :param callable model: a call with NumPyro primitives
@@ -142,9 +147,7 @@ class NestedSampler:
     :param dict termination_kwargs: keyword arguments to terminate the sampler. Please
         refer to the upstream :meth:`jaxns.NestedSampler.__call__` method.
 
-    **Example**
-
-    .. doctest::
+    Example::
 
         >>> from jax import random
         >>> import jax.numpy as jnp
@@ -153,8 +156,8 @@ class NestedSampler:
         >>> from numpyro.contrib.nested_sampling import NestedSampler
 
         >>> true_coefs = jnp.array([1., 2., 3.])
-        >>> data = random.normal(random.PRNGKey(0), (2000, 3))
-        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(1))
+        >>> data = random.normal(random.key(0), (2000, 3))
+        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.key(1))
         >>>
         >>> def model(data, labels):
         ...     coefs = numpyro.sample('coefs', dist.Normal(0, 1).expand([3]))
@@ -163,8 +166,8 @@ class NestedSampler:
         ...                           obs=labels)
         >>>
         >>> ns = NestedSampler(model)
-        >>> ns.run(random.PRNGKey(2), data, labels)
-        >>> samples = ns.get_samples(random.PRNGKey(3), num_samples=1000)
+        >>> ns.run(random.key(2), data, labels)
+        >>> samples = ns.get_samples(random.key(3), num_samples=1000)
         >>> assert jnp.mean(jnp.abs(samples['intercept'])) < 0.05
         >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
         [0.93661342 1.95034876 2.86123884]
@@ -192,7 +195,7 @@ class NestedSampler:
         """
         Run the nested samplers and collect weighted samples.
 
-        :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
+        :param Array rng_key: Random number generator key to be used for the sampling.
         :param args: The arguments needed by the `model`.
         :param kwargs: The keyword arguments needed by the `model`.
         """
@@ -243,7 +246,7 @@ class NestedSampler:
         loglik_fn = local_dict["loglik_fn"]
 
         # use NestedSampler with identity prior chain
-        def prior_model() -> PriorModelGen:
+        def prior_model():
             params = []
             for name in param_names:
                 shape = prototype_trace[name]["fn"].shape()
@@ -258,10 +261,10 @@ class NestedSampler:
 
         default_constructor_kwargs = dict(
             num_live_points=model.U_ndims * 25,
-            num_parallel_samplers=1,
+            devices=jax.devices(),
             max_samples=1e4,
         )
-        default_termination_kwargs = dict(live_evidence_frac=1e-4)
+        default_termination_kwargs = dict(dlogZ=1e-4)
         # Fill-in missing values with defaults. This allows user to inspect what was actually used by inspecting
         # these dictionaries
         list(
@@ -277,16 +280,17 @@ class NestedSampler:
             )
         )
 
-        exact_ns = OrigNestedSampler(
+        default_ns = DefaultNestedSampler(
             model=model,
             **self.constructor_kwargs,
         )
 
-        termination_reason, state = exact_ns(
-            rng_sampling,
-            term_cond=TerminationCondition(**self.termination_kwargs),
+        termination_reason, state = default_ns(
+            rng_sampling, term_cond=TerminationCondition(**self.termination_kwargs)
         )
-        results = exact_ns.to_results(state, termination_reason)
+        results = default_ns.to_results(
+            termination_reason=termination_reason, state=state
+        )
 
         # transform base samples back to original domains
         # Here we only transform the first valid num_samples samples
@@ -301,12 +305,13 @@ class NestedSampler:
         # replace base samples in jaxns results by transformed samples
         self._results = results._replace(samples=samples)
 
-    def get_samples(self, rng_key, num_samples):
+    def get_samples(self, rng_key, num_samples, *, group_by_chain=False):
         """
         Draws samples from the weighted samples collected from the run.
 
-        :param random.PRNGKey rng_key: Random number generator key to be used to draw samples.
+        :param Array rng_key: Random number generator key to be used to draw samples.
         :param int num_samples: The number of samples.
+        :param bool group_by_chain: If True, a leading chain dimension of 1 is added to the output arrays.
         :return: a dict of posterior samples
         """
         if self._results is None:
@@ -314,9 +319,11 @@ class NestedSampler:
                 "NestedSampler.run(...) method should be called first to obtain results."
             )
         weighted_samples, sample_weights = self.get_weighted_samples()
-        return resample(
+        samples = resample(
             rng_key, weighted_samples, sample_weights, S=num_samples, replace=True
         )
+        chain_dim_sel = None if group_by_chain else Ellipsis
+        return tree.map(lambda x: x[chain_dim_sel], samples)
 
     def get_weighted_samples(self):
         """

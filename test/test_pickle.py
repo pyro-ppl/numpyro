@@ -7,9 +7,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import random
 import jax.numpy as jnp
-from jax.tree_util import tree_all, tree_map
 
 import numpyro
 from numpyro.contrib.funsor import config_kl
@@ -20,6 +20,7 @@ from numpyro.distributions.constraints import (
     circular,
     corr_cholesky,
     corr_matrix,
+    extended_real,
     greater_than,
     interval,
     l1_ball,
@@ -35,6 +36,7 @@ from numpyro.distributions.constraints import (
     real_vector,
     scaled_unit_lower_cholesky,
     simplex,
+    softmax_logits,
     softplus_lower_cholesky,
     softplus_positive,
     sphere,
@@ -65,7 +67,7 @@ def bernoulli_model():
 
 
 def logistic_regression():
-    data = jnp.arange(10)
+    data = random.choice(random.PRNGKey(0), jnp.array([0, 1]), (10,))
     x = numpyro.sample("x", dist.Normal(0, 1))
     with numpyro.plate("N", 10, subsample_size=2):
         batch = numpyro.subsample(data, 0)
@@ -90,7 +92,9 @@ def test_pickle_hmc(kernel):
     mcmc = MCMC(kernel(normal_model), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 @pytest.mark.parametrize("kernel", [BarkerMH, HMC, NUTS, SA])
@@ -108,7 +112,9 @@ def test_pickle_hmc_enumeration(kernel):
     mcmc = MCMC(kernel(gmm), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0), data, K)
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 @pytest.mark.parametrize("kernel", [DiscreteHMCGibbs, MixedHMC])
@@ -116,14 +122,18 @@ def test_pickle_discrete_hmc(kernel):
     mcmc = MCMC(kernel(HMC(bernoulli_model)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 def test_pickle_hmcecs():
     mcmc = MCMC(HMCECS(NUTS(logistic_regression)), num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(0))
     pickled_mcmc = pickle.loads(pickle.dumps(mcmc))
-    tree_all(tree_map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples()))
+    jax.tree.all(
+        jax.tree.map(assert_allclose, mcmc.get_samples(), pickled_mcmc.get_samples())
+    )
 
 
 def poisson_regression(x, N):
@@ -133,6 +143,10 @@ def poisson_regression(x, N):
         numpyro.sample("x", dist.Poisson(rate), obs=x)
 
 
+@pytest.mark.xfail(
+    reason="Issue reported at https://github.com/jax-ml/jax/issues/35065."
+    "TypeError: cannot pickle 'PRNGKeyArray' object"
+)
 @pytest.mark.parametrize("guide_class", [AutoDelta, AutoDiagonalNormal, AutoNormal])
 def test_pickle_autoguide(guide_class):
     x = np.random.poisson(1.0, size=(100,))
@@ -165,6 +179,7 @@ def test_pickle_singleton_constraint():
         circular,
         corr_cholesky,
         corr_matrix,
+        extended_real,
         l1_ball,
         lower_cholesky,
         nonnegative_integer,
@@ -178,6 +193,7 @@ def test_pickle_singleton_constraint():
         real_vector,
         scaled_unit_lower_cholesky,
         simplex,
+        softmax_logits,
         softplus_lower_cholesky,
         softplus_positive,
         sphere,
@@ -236,4 +252,20 @@ def test_beta_bernoulli():
     svi_result = svi.run(random.PRNGKey(0), 3, data)
     pickled_params = svi_result.params
 
-    tree_all(tree_map(assert_allclose, params, pickled_params))
+    jax.tree.all(jax.tree.map(assert_allclose, params, pickled_params))
+
+
+def test_pickle_legacy_PRNGKey():
+    key = random.PRNGKey(0)
+    pickled_key = pickle.loads(pickle.dumps(key))
+    assert jnp.array_equal(key, pickled_key)
+
+
+@pytest.mark.xfail(
+    reason="Issue reported at https://github.com/jax-ml/jax/issues/35065."
+    "TypeError: cannot pickle 'PRNGKeyArray' object"
+)
+def test_pickle_PRNG_key():
+    key = random.key(0)
+    pickled_key = pickle.loads(pickle.dumps(key))
+    assert jnp.array_equal(key, pickled_key)

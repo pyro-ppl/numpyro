@@ -3,9 +3,9 @@
 
 import copy
 from functools import singledispatch
-from typing import Union
+from typing import Any, Union
 
-from jax import tree_map
+import jax
 import jax.numpy as jnp
 
 from numpyro.distributions import constraints
@@ -63,8 +63,11 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.truncated import (
     LeftTruncatedDistribution,
+    LeftTruncatedGamma,
     RightTruncatedDistribution,
+    RightTruncatedGamma,
     TwoSidedTruncatedDistribution,
+    TwoSidedTruncatedGamma,
 )
 
 
@@ -77,23 +80,23 @@ def vmap_over(d: Union[Distribution, Transform, Constraint], **kwargs):
 def _vmap_over_affine_transform(
     dist: AffineTransform, loc=None, scale=None, domain=None
 ):
-    dist_axes = copy.copy(dist)
+    dist_axes: Any = copy.copy(dist)
     dist_axes.loc = loc
     dist_axes.scale = scale
-    dist_axes.domain = domain
+    dist_axes._domain = domain
     return dist_axes
 
 
 @vmap_over.register
 def _vmap_over_greater_than(dist: constraints._GreaterThan, lower_bound=None):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.lower_bound = lower_bound
     return axes
 
 
 @vmap_over.register
 def _vmap_over_less_than(dist: constraints._LessThan, upper_bound=None):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.upper_bound = upper_bound
     return axes
 
@@ -102,7 +105,7 @@ def _vmap_over_less_than(dist: constraints._LessThan, upper_bound=None):
 def _vmap_over_interval(
     dist: constraints._Interval, lower_bound=None, upper_bound=None
 ):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.lower_bound = lower_bound
     axes.upper_bound = upper_bound
     return axes
@@ -112,7 +115,7 @@ def _vmap_over_interval(
 def _vmap_over_integer_interval(
     dist: constraints._IntegerInterval, lower_bound=None, upper_bound=None
 ):
-    dist_axes = copy.copy(dist)
+    dist_axes: Any = copy.copy(dist)
     dist_axes.lower_bound = lower_bound
     dist_axes.upper_bound = upper_bound
     return dist_axes
@@ -125,7 +128,7 @@ def _vmap_over_corr_cholesky_transform(dist: CorrCholeskyTransform):
 
 @vmap_over.register
 def _vmap_over_power_transform(dist: PowerTransform, exponent=None):
-    axes = copy.copy(dist)
+    axes: Any = copy.copy(dist)
     axes.exponent = exponent
     return axes
 
@@ -252,7 +255,6 @@ def _vmap_over_inverse_gamma(dist: InverseGamma, concentration=None, rate=None):
 @vmap_over.register
 def _vmap_over_uniform(dist: Uniform, low=None, high=None):
     dist_axes = _default_vmap_over(dist, low=low, high=high)
-    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
     return dist_axes
 
 
@@ -261,17 +263,8 @@ def _vmap_over_kumaraswamy(dist: Kumaraswamy, concentration0=None, concentration
     dist_axes = _default_vmap_over(
         dist, concentration0=concentration0, concentration1=concentration1
     )
-    if isinstance(dist.base_dist, Uniform):
-        dist_axes.base_dist = vmap_over(dist.base_dist, low=None, high=None)
-    else:
-        assert isinstance(dist.base_dist, ExpandedDistribution)
-        dist_axes.base_dist = vmap_over(dist.base_dist, base_dist=None)
-
-    dist_axes.transforms = [
-        vmap_over(dist.transforms[0], exponent=concentration0),
-        vmap_over(dist.transforms[1], loc=None, scale=None),
-        vmap_over(dist.transforms[2], exponent=concentration1),
-    ]
+    dist_axes.concentration0 = concentration0
+    dist_axes.concentration1 = concentration1
     return dist_axes
 
 
@@ -309,7 +302,6 @@ def _vmap_over_lognormal(dist: LogNormal, loc=None, scale=None):
 def _vmap_over_loguniform(dist: LogUniform, low=None, high=None):
     dist_axes = _default_vmap_over(dist, low=low, high=high)
     dist_axes.base_dist = vmap_over(dist.base_dist, low=low, high=high)
-    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
     return dist_axes
 
 
@@ -409,6 +401,32 @@ def _vmap_over_right_truncated_distribution(
 
 
 @vmap_over.register
+def _vmap_over_left_truncated_gamma(dist: LeftTruncatedGamma, low=None):
+    dist_axes = _default_vmap_over(dist, low=low)
+    dist_axes.base_dist = None
+    dist_axes._support = vmap_over(dist._support, lower_bound=low)
+    return dist_axes
+
+
+@vmap_over.register
+def _vmap_over_right_truncated_gamma(dist: RightTruncatedGamma, high=None):
+    dist_axes = _default_vmap_over(dist, high=high)
+    dist_axes.base_dist = None
+    dist_axes._support = vmap_over(dist._support, lower_bound=None, upper_bound=high)
+    return dist_axes
+
+
+@vmap_over.register
+def _vmap_over_two_sided_truncated_gamma(
+    dist: TwoSidedTruncatedGamma, low=None, high=None
+):
+    dist_axes = _default_vmap_over(dist, low=low, high=high)
+    dist_axes.base_dist = None
+    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
+    return dist_axes
+
+
+@vmap_over.register
 def _vmap_over_beta_binomial(
     dist: BetaBinomial, concentration1=None, concentration0=None, total_count=None
 ):
@@ -486,7 +504,6 @@ def _vmap_over_ordered_logistic(dist: OrderedLogistic, predictor=None, cutpoints
 @vmap_over.register
 def _vmap_over_discrete_uniform(dist: DiscreteUniform, low=None, high=None):
     dist_axes = _default_vmap_over(dist, low=low, high=high)
-    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
     return dist_axes
 
 
@@ -513,13 +530,17 @@ def promote_batch_shape(d: Distribution):
 
 @promote_batch_shape.register
 def _default_promote_batch_shape(d: Distribution):
-    attr_name = list(d.arg_constraints.keys())[0]
-    attr_event_dim = d.arg_constraints[attr_name].event_dim
-    attr = getattr(d, attr_name)
-    resolved_batch_shape = attr.shape[
-        : max(0, attr.ndim - d.event_dim - attr_event_dim)
-    ]
-    new_self = copy.deepcopy(d)
+    attr_batch_shapes = [d.batch_shape]
+    for attr_name, constraint in d.arg_constraints.items():
+        try:
+            attr_event_dim = constraint.event_dim
+        except NotImplementedError:
+            continue
+        attr = getattr(d, attr_name)
+        attr_batch_ndim = max(0, jnp.ndim(attr) - attr_event_dim)
+        attr_batch_shapes.append(jnp.shape(attr)[:attr_batch_ndim])
+    resolved_batch_shape = jnp.broadcast_shapes(*attr_batch_shapes)
+    new_self = copy.copy(d)
     new_self._batch_shape = resolved_batch_shape
     return new_self
 
@@ -530,7 +551,10 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
         : len(d.batch_shape) - len(d.base_dist.batch_shape)
     ]
 
-    new_self = copy.deepcopy(d)
+    # shallow copies are enough here: the only in-place updates below are to the
+    # `_batch_shape` attributes of these two fresh copies, not to shared data
+    new_self = copy.copy(d)
+    new_self.base_dist = copy.copy(d.base_dist)
 
     # new dimensions coming from a vmap or numpyro scan/enum operation
     promoted_base_dist = promote_batch_shape(new_self.base_dist)
@@ -556,7 +580,7 @@ def _promote_batch_shape_expanded(d: ExpandedDistribution):
         len(new_shapes_elems),
         len(new_shapes_elems) + len(orig_delta_batch_shape),
     )
-    new_base_dist = tree_map(
+    new_base_dist = jax.tree.map(
         lambda x: jnp.expand_dims(x, axis=new_axes_locs), new_self.base_dist
     )
 
@@ -577,7 +601,7 @@ def _promote_batch_shape_masked(d: MaskedDistribution):
 def _promote_batch_shape_independent(d: Independent):
     new_self = copy.copy(d)
     new_base_dist = promote_batch_shape(d.base_dist)
-    new_self._batch_shape = new_base_dist.batch_shape[: d.event_dim]
+    new_self._batch_shape = new_base_dist.batch_shape[: -d.event_dim]
     new_self.base_dist = new_base_dist
     return new_self
 

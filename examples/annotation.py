@@ -9,7 +9,7 @@ In this example, we run MCMC for various crowdsourced annotation models in [1].
 
 All models have discrete latent variables. Under the hood, we enumerate over
 (marginalize out) those discrete latent sites in inference. Those models have different
-complexity so they are great refererences for those who are new to Pyro/NumPyro
+complexity so they are great references for those who are new to Pyro/NumPyro
 enumeration mechanism. We recommend readers compare the implementations with the
 corresponding plate diagrams in [1] to see how concise a Pyro/NumPyro program is.
 
@@ -284,12 +284,12 @@ def main(args):
         num_chains=args.num_chains,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
     )
-    mcmc.run(random.PRNGKey(0), *data)
+    mcmc.run(random.key(0), *data)
     mcmc.print_summary()
 
     posterior_samples = mcmc.get_samples()
     predictive = Predictive(model, posterior_samples, infer_discrete=True)
-    discrete_samples = predictive(random.PRNGKey(1), *data)
+    discrete_samples = predictive(random.key(1), *data)
 
     item_class = vmap(lambda x: jnp.bincount(x, length=4), in_axes=1)(
         discrete_samples["c"].squeeze(-1)
@@ -309,7 +309,7 @@ def main(args):
 #     is stored in `discrete_samples`. To merge those discrete samples into the `mcmc`
 #     instance, we can use the following pattern::
 #
-#         chain_discrete_samples = jax.tree_util.tree_map(
+#         chain_discrete_samples = jax.tree.map(
 #             lambda x: x.reshape((args.num_chains, args.num_samples) + x.shape[1:]),
 #             discrete_samples)
 #         mcmc.get_samples().update(discrete_samples)
@@ -320,7 +320,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.13.2")
+    assert numpyro.__version__.startswith("0.22.0")
     parser = argparse.ArgumentParser(description="Bayesian Models of Annotation")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)

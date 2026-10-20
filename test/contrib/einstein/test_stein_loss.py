@@ -4,12 +4,14 @@
 from numpy.testing import assert_allclose
 from pytest import fail
 
-from jax import numpy as jnp, random, value_and_grad
+from jax import numpy as jnp, random, value_and_grad, vmap
+from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro.contrib.einstein.stein_loss import SteinLoss
 from numpyro.contrib.einstein.stein_util import batch_ravel_pytree
 import numpyro.distributions as dist
+from numpyro.handlers import seed, substitute, trace
 from numpyro.infer import Trace_ELBO
 
 
@@ -22,7 +24,7 @@ def test_single_particle_loss():
 
     try:
         SteinLoss(elbo_num_particles=10, stein_num_particles=1).loss(
-            random.PRNGKey(0), {}, model, guide, {}, 2.0
+            random.key(0), {}, model, guide, {}, 2.0
         )
         fail()
     except ValueError:
@@ -38,13 +40,11 @@ def test_stein_elbo():
         numpyro.sample("x", dist.Normal(0, 1))
 
     def elbo_loss_fn(x, param):
-        return Trace_ELBO(num_particles=1).loss(
-            random.PRNGKey(0), param, model, guide, x
-        )
+        return Trace_ELBO(num_particles=1).loss(random.key(0), param, model, guide, x)
 
     def stein_loss_fn(x, particles):
         return SteinLoss(elbo_num_particles=1, stein_num_particles=1).loss(
-            random.PRNGKey(0), {}, model, guide, particles, x
+            random.key(0), {}, model, guide, particles, x
         )
 
     elbo_loss, elbo_grad = value_and_grad(elbo_loss_fn)(2.0, {"x": 1.0})
@@ -54,25 +54,24 @@ def test_stein_elbo():
 
 
 def test_stein_particle_loss():
-    def model(x):
-        numpyro.sample("x", dist.Normal(0, 1))
-        numpyro.sample("obs", dist.Normal(0, 1), obs=x)
+    def model(obs):
+        z = numpyro.sample("z", dist.Normal(0, 1))
+        numpyro.sample("obs", dist.Normal(z, 1), obs=obs)
 
     def guide(x):
-        numpyro.sample("x", dist.Normal(0, 1))
+        x = numpyro.param("x", 0.0)
+        numpyro.sample("z", dist.Normal(x, 1))
 
-    def stein_loss_fn(x, particles, chosen_particle, assign):
-        return SteinLoss(
-            elbo_num_particles=1, stein_num_particles=3
-        ).single_particle_loss(
-            random.PRNGKey(0),
+    def stein_loss_fn(chosen_particle, obs, particles, assign):
+        return SteinLoss(elbo_num_particles=1, stein_num_particles=3).particle_loss(
+            random.key(0),
             model,
             guide,
             chosen_particle,
             unravel_pytree,
             particles,
             assign,
-            (x,),
+            (obs,),
             {},
             {},
         )
@@ -81,17 +80,22 @@ def test_stein_particle_loss():
     num_particles = xs.shape[0]
     particles = {"x": xs}
 
-    flat_particles, unravel_pytree, _ = batch_ravel_pytree(particles, nbatch_dims=1)
-    losses, grads = [], []
-    for i in range(num_particles):
-        chosen_particle = unravel_pytree(flat_particles[i])
-        loss, grad = value_and_grad(stein_loss_fn)(
-            2.0, flat_particles, chosen_particle, i
-        )
-        losses.append(loss)
-        grads.append(grad)
+    # Replicate the splitting in SteinLoss
+    base_key = random.split(random.split(random.key(0), 1)[0], 2)[0]
+    zs = vmap(
+        lambda key: trace(substitute(seed(guide, key), {"x": -1})).get_trace(2.0)["z"][
+            "value"
+        ]
+    )(random.split(base_key, 3))
 
-    assert jnp.abs(losses[0] - losses[1]) > 0.1
-    assert jnp.abs(losses[1] - losses[2]) > 0.1
-    assert_allclose(grads[0], grads[1])
-    assert_allclose(grads[1], grads[2])
+    flat_particles, unravel_pytree, _ = batch_ravel_pytree(particles, nbatch_dims=1)
+
+    for i in range(num_particles):
+        chosen_particle = {"x": jnp.array([-1.0])}
+        act_loss = stein_loss_fn(chosen_particle, 2.0, flat_particles, i)
+
+        z = zs[i]
+        lp_m = dist.Normal().log_prob(z) + dist.Normal(z).log_prob(2.0)
+        lp_g = logsumexp(dist.Normal(xs).log_prob(z)) - jnp.log(3)
+        exp_loss = lp_m - lp_g
+        assert_allclose(act_loss, exp_loss)

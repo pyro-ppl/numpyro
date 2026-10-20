@@ -1,12 +1,13 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 import functools
 import re
 
 import funsor
+import funsor.optimizer
 import numpyro
 from numpyro.contrib.funsor.enum_messenger import (
     infer_config,
@@ -36,10 +37,10 @@ def plate_to_enum_plate():
 
     """
     try:
-        numpyro.plate.__new__ = lambda cls, *args, **kwargs: enum_plate(*args, **kwargs)
+        numpyro.plate.__new__ = lambda cls, *args, **kwargs: enum_plate(*args, **kwargs)  # ty: ignore[invalid-assignment]
         yield
     finally:
-        numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
+        numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)  # ty: ignore[invalid-assignment]
 
 
 def _config_enumerate_fn(site, default):
@@ -125,7 +126,9 @@ def config_kl(fn=None, sites=None):
 
 def _get_shift(name):
     """helper function used internally in sarkka_bilmes_product"""
-    return len(re.search(r"^(_PREV_)*", name).group(0)) // 6
+    match = re.search(r"^(_PREV_)*", name)
+    assert match is not None
+    return len(match.group(0)) // 6
 
 
 def _shift_name(name, t):
@@ -194,7 +197,9 @@ def compute_markov_factors(
     return markov_factors
 
 
-def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
+def _enum_log_density(
+    model, model_args, model_kwargs, params, sum_op, prod_op, apply_optimizer=True
+):
     """Helper function to compute elbo and extract its components from execution traces."""
     model = substitute(model, data=params)
     with plate_to_enum_plate():
@@ -220,6 +225,10 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
                 log_prob = scale * log_prob
 
             dim_to_name = site["infer"]["dim_to_name"]
+
+            if all(dim == 1 for dim in log_prob.shape) and dim_to_name == OrderedDict():
+                log_prob = log_prob.squeeze()
+
             log_prob_factor = funsor.to_funsor(
                 log_prob, output=funsor.Real, dim_to_name=dim_to_name
             )
@@ -282,6 +291,8 @@ def _enum_log_density(model, model_args, model_kwargs, params, sum_op, prod_op):
             eliminate=sum_vars | prod_vars,
             plates=prod_vars,
         )
+    if not apply_optimizer:
+        return lazy_result, model_trace, log_measures
     result = funsor.optimizer.apply_optimizer(lazy_result)
     if len(result.inputs) > 0:
         raise ValueError(

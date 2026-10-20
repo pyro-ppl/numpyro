@@ -43,21 +43,33 @@ module
 ------
 .. autofunction:: numpyro.primitives.module
 
+mutable
+-------
+.. autofunction:: numpyro.primitives.mutable
+
 flax_module
 -----------
 .. autofunction:: numpyro.contrib.module.flax_module
 
-haiku_module
-------------
-.. autofunction:: numpyro.contrib.module.haiku_module
+nnx_module
+----------
+.. autofunction:: numpyro.contrib.module.nnx_module
+
+eqx_module
+----------
+.. autofunction:: numpyro.contrib.module.eqx_module
 
 random_flax_module
 ------------------
 .. autofunction:: numpyro.contrib.module.random_flax_module
 
-random_haiku_module
--------------------
-.. autofunction:: numpyro.contrib.module.random_haiku_module
+random_nnx_module
+-----------------
+.. autofunction:: numpyro.contrib.module.random_nnx_module
+
+random_eqx_module
+-----------------
+.. autofunction:: numpyro.contrib.module.random_eqx_module
 
 scan
 ----

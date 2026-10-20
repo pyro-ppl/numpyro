@@ -9,9 +9,9 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import device_put, disable_jit, grad, jit, random
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
 from numpyro.infer.hmc_util import (
@@ -57,8 +57,9 @@ def test_dual_averaging(jitted):
 @pytest.mark.parametrize("regularize", [True, False])
 @pytest.mark.filterwarnings("ignore:numpy.linalg support is experimental:UserWarning")
 def test_welford_covariance(jitted, diagonal, regularize):
-    with optional(jitted, disable_jit()), optional(
-        jitted, control_flow_prims_disabled()
+    with (
+        optional(jitted, disable_jit()),
+        optional(jitted, control_flow_prims_disabled()),
     ):
         np.random.seed(0)
         loc = np.random.randn(3)
@@ -124,8 +125,8 @@ def register_model(init_args):
             num_steps=100,
             q_i={"x": 0.0},
             p_i={"x": 1.0},
-            q_f={"x": jnp.sin(1.0)},
-            p_f={"x": jnp.cos(1.0)},
+            q_f={"x": np.sin(1.0)},
+            p_f={"x": np.cos(1.0)},
             m_inv=np.array([1.0]),
             prec=1e-4,
         )
@@ -222,7 +223,7 @@ def test_velocity_verlet(jitted, example):
     assert_allclose(energy_initial, energy_final, atol=1e-5)
 
     logger.info("Test time reversibility:")
-    p_reverse = tree_map(lambda x: -x, p_f)
+    p_reverse = jax.tree.map(lambda x: -x, p_f)
     q_i, p_i = get_final_state(model, args.step_size, args.num_steps, q_f, p_reverse)
     for node in args.q_i:
         assert_allclose(q_i[node], args.q_i[node], atol=1e-4)
@@ -246,7 +247,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
         if jitted
         else find_reasonable_step_size
     )
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     step_size = fn(
         potential_fn,
         kinetic_fn,
@@ -312,7 +313,7 @@ def test_warmup_adapter(jitted):
     wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
     wa_update = jit(wa_update) if jitted else wa_update
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     z = jnp.ones(3)
     wa_state = wa_init(
         (z, None, None, None),
@@ -413,7 +414,7 @@ def test_build_tree(step_size):
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     vv_state = vv_init(0.0, 1.0)
     inverse_mass_matrix = np.array([1.0])
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
 
     @jit
     def fn(vv_state):
@@ -453,9 +454,7 @@ def test_gaussian_subposterior(method, diagonal):
     cov = jnp.ones((D, D)) * 0.9 + jnp.identity(D) * 0.1
     subcov = n_subs * cov  # subposterior's covariance
     subposteriors = list(
-        dist.MultivariateNormal(mean, subcov).sample(
-            random.PRNGKey(1), (n_subs, n_samples)
-        )
+        dist.MultivariateNormal(mean, subcov).sample(random.key(1), (n_subs, n_samples))
     )
 
     draws = method(subposteriors, n_draws, diagonal=diagonal)
@@ -469,8 +468,13 @@ def test_gaussian_subposterior(method, diagonal):
 
 @pytest.mark.parametrize("method", [consensus, parametric_draws])
 def test_subposterior_structure(method):
+    # use non-degenerate draws so the per-subposterior covariance is invertible
     subposteriors = [
-        {"x": jnp.ones((100, 3)), "y": jnp.zeros((100,))} for i in range(10)
+        {
+            "x": random.normal(random.key(i), (100, 3)),
+            "y": random.normal(random.key(10 + i), (100,)),
+        }
+        for i in range(10)
     ]
     draws = method(subposteriors, num_draws=9)
     assert draws["x"].shape == (9, 3)

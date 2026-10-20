@@ -16,7 +16,6 @@ normal prior on the regression coefficients. We report the 95% highest posterior
 density interval for the effect of making a call.
 """
 
-
 import argparse
 import os
 
@@ -145,7 +144,7 @@ def run_inference(
 
 
 def main(args):
-    rng_key, _ = random.split(random.PRNGKey(3))
+    rng_key, _ = random.split(random.key(3))
     design_matrix, response = make_dataset(rng_key)
     run_inference(
         design_matrix,
@@ -159,7 +158,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.13.2")
+    assert numpyro.__version__.startswith("0.22.0")
     parser = argparse.ArgumentParser(description="Testing whether  ")
     parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)

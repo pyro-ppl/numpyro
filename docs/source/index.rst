@@ -28,13 +28,22 @@ NumPyro documentation
    tutorials/bayesian_regression
    tutorials/bayesian_hierarchical_linear_regression
    examples/baseball
+   tutorials/effect_handlers
    examples/vae
    examples/funnel
    examples/stochastic_volatility
    examples/prodlda
+   tutorials/variationally_inferred_parameterization
    tutorials/model_rendering
    tutorials/bad_posterior_geometry
    tutorials/truncated_distributions
+   tutorials/censoring
+   tutorials/hsgp_example
+   tutorials/other_samplers
+   tutorials/circulant_gp
+   tutorials/nnx_example
+   tutorials/gpjax_example
+   tutorials/consensus_mc
 
 .. nbgallery::
    :maxdepth: 1
@@ -66,7 +75,9 @@ NumPyro documentation
    examples/ucbadmit
    examples/hmm
    examples/hsgp
+   tutorials/hsgp_nd_example
    examples/ode
+   tutorials/lotka_volterra_multiple
    examples/neutra
    examples/thompson_sampling
    tutorials/bayesian_hierarchical_stacking
@@ -77,6 +88,9 @@ NumPyro documentation
    examples/zero_inflated_poisson
    examples/cvae
    tutorials/tbip
+   examples/var2
+   tutorials/hierarchical_forecasting
+   tutorials/bayesian_cuped
 
 .. nbgallery::
    :maxdepth: 1

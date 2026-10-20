@@ -25,7 +25,8 @@ and has more features supported.
 
 **References:**
 
-    1. *Stochastic Volatility Model*, https://docs.pymc.io/notebooks/stochastic_volatility.html
+    1. *Stochastic Volatility Model*,
+       https://www.pymc.io/projects/examples/en/latest/time_series/stochastic_volatility.html
     2. *The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo*,
        https://arxiv.org/pdf/1111.4246.pdf
     3. Pyro forum discussion, https://forum.pyro.ai/t/problems-transforming-a-pymc3-model-to-pyro-mcmc/208/14
@@ -89,7 +90,7 @@ def print_results(posterior, dates):
 def main(args):
     _, fetch = load_dataset(SP500, shuffle=False)
     dates, returns = fetch()
-    init_rng_key, sample_rng_key = random.split(random.PRNGKey(args.rng_seed))
+    init_rng_key, sample_rng_key = random.split(random.key(args.rng_seed))
     model_info = initialize_model(init_rng_key, model, model_args=(returns,))
     init_kernel, sample_kernel = hmc(model_info.potential_fn, algo="NUTS")
     hmc_state = init_kernel(
@@ -115,14 +116,14 @@ def main(args):
 
     ax.plot(dates, jnp.exp(hmc_states["s"].T), "r", alpha=0.01)
     legend = ax.legend(["returns", "volatility"], loc="upper right")
-    legend.legendHandles[1].set_alpha(0.6)
+    legend.legend_handles[1].set_alpha(0.6)
     ax.set(xlabel="time", ylabel="returns", title="Volatility of S&P500 over time")
 
     plt.savefig("stochastic_volatility_plot.pdf")
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.13.2")
+    assert numpyro.__version__.startswith("0.22.0")
     parser = argparse.ArgumentParser(description="Stochastic Volatility Model")
     parser.add_argument("-n", "--num-samples", nargs="?", default=600, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=600, type=int)

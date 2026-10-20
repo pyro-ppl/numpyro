@@ -22,7 +22,7 @@ from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 @pytest.mark.parametrize("hidden_dims", [[8], [6, 7]])
 @pytest.mark.parametrize("skip_connections", [True, False])
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
-    rng_key, rng_key_perm = random.split(random.PRNGKey(0))
+    rng_key, rng_key_perm = random.split(random.key(0))
     perm = random.permutation(rng_key_perm, np.arange(input_dim))
     arn_init, arn = AutoregressiveNN(
         input_dim,
@@ -123,7 +123,7 @@ def test_masked_dense(input_dim):
     )
     init_random_params, masked_dense = serial(MaskedDense(mask[0]))
 
-    rng_key = random.PRNGKey(0)
+    rng_key = random.key(0)
     batch_size = 4
     input_shape = (batch_size, input_dim)
     _, init_params = init_random_params(rng_key, input_shape)
@@ -138,12 +138,12 @@ def test_masked_dense(input_dim):
 def test_block_neural_arn(input_dim, hidden_factors, residual, batch_shape):
     arn_init, arn = BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual)
 
-    rng = random.PRNGKey(0)
+    rng = random.key(0)
     input_shape = batch_shape + (input_dim,)
     out_shape, init_params = arn_init(rng, input_shape)
     assert out_shape == input_shape
 
-    x = random.normal(random.PRNGKey(1), input_shape)
+    x = random.normal(random.key(1), input_shape)
     output, logdet = arn(init_params, x)
     assert output.shape == input_shape
     assert logdet.shape == input_shape

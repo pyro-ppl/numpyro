@@ -12,7 +12,9 @@ from numpyro.contrib.control_flow import cond, scan
 import numpyro.distributions as dist
 from numpyro.handlers import mask, seed, substitute, trace
 from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO
+from numpyro.infer.autoguide import AutoNormal
 from numpyro.infer.util import log_density, potential_energy
+from numpyro.optim import Adam
 
 
 def test_scan():
@@ -37,7 +39,7 @@ def test_scan():
     num_samples = 100
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=100, num_samples=num_samples)
-    mcmc.run(random.PRNGKey(0), T=T)
+    mcmc.run(random.key(0), T=T)
     assert set(mcmc.get_samples()) == {"x", "y", "y2", "x_0", "y_0"}
     mcmc.print_summary()
 
@@ -52,7 +54,7 @@ def test_scan():
         return_sites=["x", "y", "y2"],
         parallel=True,
     )
-    result = predictive(random.PRNGKey(1), T=T + future)
+    result = predictive(random.key(1), T=T + future)
     expected_shape = (num_samples, T + future)
     assert result["x"].shape == expected_shape
     assert result["y"].shape == expected_shape
@@ -163,7 +165,7 @@ def test_cond():
         cond(cluster > 0, true_fun, false_fun, None)
 
     svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
-    svi_result = svi.run(random.PRNGKey(0), num_steps=2500)
+    svi_result = svi.run(random.key(0), num_steps=2500)
     params = svi_result.params
 
     predictive = Predictive(
@@ -173,7 +175,7 @@ def test_cond():
         num_samples=1000,
         return_sites=["cluster", "x", "z"],
     )
-    result = predictive(random.PRNGKey(0))
+    result = predictive(random.key(0))
 
     assert result["cluster"].shape == (1000,)
     assert result["x"].shape == (1000,)
@@ -186,7 +188,7 @@ def test_cond():
         num_chains=4,
         chain_method="sequential",
     )
-    mcmc.run(random.PRNGKey(0))
+    mcmc.run(random.key(0))
 
     x = mcmc.get_samples()["x"]
     assert x.shape == (10_000,)
@@ -213,7 +215,7 @@ def test_scan_promote():
 
 
 def test_scan_plate_mask():
-    def model(y=None, T=10):
+    def model(y=None, T=12):
         def transition(carry, y_curr):
             x_prev, t = carry
             with numpyro.plate("N", 10, dim=-1):
@@ -237,7 +239,52 @@ def test_scan_plate_mask():
         return (x, y)
 
     with numpyro.handlers.seed(rng_seed=0):
-        model_density, model_trace = log_density(model, (None, 10), {}, {})
+        model_density, model_trace = log_density(model, (None, 12), {}, {})
         assert model_density
-        assert model_trace["x"]["fn"].batch_shape == (10,)
+        assert model_trace["x"]["fn"].batch_shape == (12, 10)
         assert model_trace["x"]["fn"].event_shape == (3,)
+
+
+def test_scan_svi():
+    T = 3
+    N = 5
+
+    def gaussian_hmm(y=None, T=T, N=N):
+        def transition(x_prev, y_curr):
+            with numpyro.plate("data", N):
+                x_curr = numpyro.sample("x", dist.Normal(x_prev, 1.5))
+                y_curr = numpyro.sample("y", dist.Normal(x_curr, 0.1), obs=y_curr)
+            return x_curr, (x_curr, y_curr)
+
+        with numpyro.plate("data", N):
+            x0 = numpyro.sample("x_0", dist.Normal(jnp.zeros(N), 5.0))
+        _, (x, y) = scan(transition, x0, y, length=T)
+        return (x, y)
+
+    with numpyro.handlers.seed(rng_seed=0):
+        x, y = gaussian_hmm()
+    with numpyro.handlers.seed(rng_seed=0):
+        tr = numpyro.handlers.trace(gaussian_hmm).get_trace(y=y, T=T, N=N)
+
+    guide = AutoNormal(gaussian_hmm)
+    svi = SVI(gaussian_hmm, guide, Adam(0.1), Trace_ELBO(), y=y, T=T, N=N)
+    results = svi.run(random.key(0), 10**3)
+
+    xhat = results.params["x_auto_loc"]
+    assert_allclose(xhat, tr["x"]["value"], rtol=0.1, atol=0.2)
+
+
+def test_scan_mvn():
+    def model():
+        def transition(c, a):
+            with numpyro.plate("foo", 5):
+                c2 = numpyro.sample(
+                    "val", dist.MultivariateNormal(c + a, scale_tril=jnp.eye(2))
+                )
+            return c2, c2
+
+        scan(transition, jnp.zeros((5, 2)), jnp.ones((4, 5, 2)))
+
+    with numpyro.handlers.seed(rng_seed=0), numpyro.handlers.trace() as tr:
+        model()
+    assert tr["val"]["fn"].batch_shape == (4, 5)

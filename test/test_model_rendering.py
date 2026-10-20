@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import numpy as np
 import pytest
 
@@ -8,7 +10,11 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer.inspect import generate_graph_specification, get_model_relations
+from numpyro.infer.inspect import (
+    generate_graph_specification,
+    get_model_relations,
+    render_model,
+)
 
 
 def simple(data):
@@ -129,3 +135,76 @@ def test_model_transformation(test_model, model_kwargs, expected_graph_spec):
     graph_spec = generate_graph_specification(relations)
 
     assert graph_spec == expected_graph_spec
+
+
+def test_render_model_filename():
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    render_model(model, filename="graph.png")
+    assert os.path.exists("graph.png")
+    os.remove("graph.png")
+
+
+def test_param_with_lambda_function():
+    """
+    Test that get_model_relations works when params are initialized with lambda functions.
+    Regression test for issue #2064.
+    """
+
+    def guide():
+        numpyro.param("p", lambda _: 1.0)
+
+    # This should not raise a TypeError about lambda functions not being valid JAX types
+    relations = get_model_relations(guide)
+
+    # Verify the param is captured correctly
+    assert "p" in relations["param_constraint"]
+    assert relations["param_constraint"]["p"] == ""
+    assert relations["sample_sample"] == {}
+    assert relations["sample_param"] == {}
+    assert relations["sample_dist"] == {}
+    assert relations["observed"] == []
+
+
+def test_param_with_lambda_and_sample():
+    """
+    Test that get_model_relations works with both params (lambda) and sample sites.
+    """
+
+    def model():
+        p = numpyro.param("p", lambda _: jnp.array([0.5, 0.5]))
+        numpyro.sample("x", dist.Categorical(p))
+
+    relations = get_model_relations(model)
+
+    # Verify both param and sample are captured
+    assert "p" in relations["param_constraint"]
+    assert "x" in relations["sample_dist"]
+    assert relations["sample_dist"]["x"] == "CategoricalProbs"
+    assert "p" in relations["sample_param"]["x"]
+
+
+def test_get_model_relations_masked_observations():
+    """
+    Regression test for https://github.com/pyro-ppl/numpyro/issues/2254.
+
+    On JAX >= 0.11, boolean masks passed through Distribution.mask() appear
+    as closed-over constants in the jaxpr, which used to crash provenance
+    tracking with "AssertionError: length mismatch" in track_deps_jaxpr.
+    """
+
+    def model(obs, mask):
+        alpha = numpyro.sample("alpha", dist.Normal(0.0, 1.0))
+        sigma = numpyro.sample("sigma", dist.LogNormal(0.0, 1.0))
+        with numpyro.plate("data", obs.shape[0]):
+            numpyro.sample("obs", dist.Normal(alpha, sigma).mask(mask), obs=obs)
+
+    obs = jnp.array([1.0, 2.0, jnp.nan, 4.0])
+    mask = jnp.array([True, True, False, True])
+
+    relations = get_model_relations(model, model_args=(obs, mask))
+
+    assert relations["observed"] == ["obs"]
+    assert relations["sample_dist"]["obs"] == "Normal"
+    assert set(relations["sample_sample"]["obs"]) == {"alpha", "sigma"}

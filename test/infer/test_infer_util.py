@@ -27,8 +27,10 @@ from numpyro.infer.initialization import (
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import (
     Predictive,
+    compute_log_probs,
     constrain_fn,
     initialize_model,
+    log_density,
     log_likelihood,
     potential_energy,
     transform_fn,
@@ -37,10 +39,19 @@ from numpyro.infer.util import (
 import numpyro.optim as optim
 
 
+@pytest.fixture(params=["old", "new"])
+def rng_key(request):
+    rng_type = request.param
+    if rng_type == "old":
+        return random.key(0)
+    else:
+        return random.key(0)
+
+
 def beta_bernoulli():
     N = 800
     true_probs = jnp.array([0.2, 0.7])
-    data = dist.Bernoulli(true_probs).sample(random.PRNGKey(0), (N,))
+    data = dist.Bernoulli(true_probs).sample(random.key(0), (N,))
 
     def model(data=None):
         with numpyro.plate("dim", 2):
@@ -53,18 +64,58 @@ def beta_bernoulli():
     return model, data, true_probs
 
 
+def linear_regression():
+    N = 800
+    X = dist.Normal(0, 1).sample(random.key(0), (N,))
+    y = 1.5 + X * 0.7
+
+    def model(X, y=None):
+        alpha = numpyro.sample("alpha", dist.Normal(0.0, 5))
+        beta = numpyro.sample("beta", dist.Normal(0.0, 1.0))
+        sigma = numpyro.sample("sigma", dist.Exponential(1.0))
+        with numpyro.plate("plate", len(X)):
+            mu = numpyro.deterministic("mu", alpha + X * beta)
+            numpyro.sample("obs", dist.Normal(mu, sigma), obs=y)
+
+    return model, X, y
+
+
+def categorical_probs():
+    nbatch0, nbatch1 = 2, 1
+    probs = jnp.ones((nbatch0, nbatch1, 3)) / 3
+
+    def model(probs):
+        probs = numpyro.deterministic("probs", probs)
+
+        plate = numpyro.plate("plate", size=probs.shape[-1], dim=-1)
+
+        with plate:
+            numpyro.sample(
+                "counts_categorical",
+                dist.Categorical(probs=probs),
+                infer={"enumerate": "parallel"},
+            )
+
+    return model, probs
+
+
 @pytest.mark.parametrize("parallel", [True, False])
-def test_predictive(parallel):
+def test_predictive(parallel, rng_key):
     model, data, true_probs = beta_bernoulli()
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
-    mcmc.run(random.PRNGKey(0), data)
+
+    rng_key = rng_key
+    rng_key, rng_subkey = random.split(rng_key)
+    mcmc.run(rng_subkey, data)
     samples = mcmc.get_samples()
     predictive = Predictive(model, samples, parallel=parallel)
-    predictive_samples = predictive(random.PRNGKey(1))
+    rng_key, rng_subkey = random.split(rng_key)
+    predictive_samples = predictive(rng_subkey)
     assert predictive_samples.keys() == {"beta_sq", "obs"}
 
     predictive.return_sites = ["beta", "beta_sq", "obs"]
-    predictive_samples = predictive(random.PRNGKey(1))
+    rng_key, rng_subkey = random.split(rng_key)
+    predictive_samples = predictive(rng_subkey)
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
     assert predictive_samples["beta_sq"].shape == (100,) + true_probs.shape
@@ -72,6 +123,103 @@ def test_predictive(parallel):
     # check sample mean
     obs = predictive_samples["obs"].reshape((-1,) + true_probs.shape).astype(np.float32)
     assert_allclose(obs.mean(0), true_probs, rtol=0.1)
+
+
+@pytest.mark.parametrize("parallel", [True, False])
+def test_predictive_with_deterministic(parallel):
+    """Tests that the default behavior when predicting from models with
+    deterministic sites doesn't lead to static deterministic sites in the predictive.
+    """
+    n_preds = 400
+    model, X, y = linear_regression()
+    mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
+    mcmc.run(random.key(0), X=X, y=y)
+    samples = mcmc.get_samples()
+    predictive = Predictive(model, samples, parallel=parallel)
+    # change the input (X) shape to make sure the deterministic shape changes
+    predictive_samples = predictive(random.key(1), X=X[:n_preds])
+    assert predictive_samples.keys() == {"mu", "obs"}
+
+    predictive.return_sites = ["beta", "mu", "obs"]
+    # change the input (X) shape to make sure the deterministic shape changes
+    predictive_samples = predictive(random.key(1), X=X[:n_preds])
+    # check shapes
+    assert predictive_samples["mu"].shape == (100,) + X[:n_preds].shape
+    assert predictive_samples["obs"].shape == (100,) + X[:n_preds].shape
+
+
+@pytest.mark.parametrize(
+    argnames="parallel", argvalues=[True, False], ids=["parallel", "sequential"]
+)
+def test_discrete_predictive_with_deterministic(parallel):
+    """Tests that the predictive samples include deterministic sites for discrete models."""
+    model, probs = categorical_probs()
+
+    predictive = Predictive(
+        model=model,
+        posterior_samples=dict(probs=probs),
+        infer_discrete=True,
+        batch_ndims=2,
+        parallel=parallel,
+        condition_deterministic=True,
+    )
+
+    predictive_samples = predictive(random.key(1), probs=probs)
+    assert predictive_samples.keys() == {"counts_categorical"}
+    assert predictive_samples["counts_categorical"].shape == probs.shape
+
+
+def test_predictive_exclude_deterministic_deprecated():
+    """`exclude_deterministic` still works but warns; `condition_deterministic`
+    is the new name (see #2086)."""
+    model, probs = categorical_probs()
+
+    with pytest.warns(FutureWarning, match="exclude_deterministic"):
+        predictive = Predictive(
+            model=model,
+            posterior_samples=dict(probs=probs),
+            batch_ndims=2,
+            exclude_deterministic=False,
+        )
+    assert predictive.condition_deterministic is True
+
+    with pytest.warns(FutureWarning, match="exclude_deterministic"):
+        predictive = Predictive(
+            model=model,
+            posterior_samples=dict(probs=probs),
+            batch_ndims=2,
+            exclude_deterministic=True,
+        )
+    assert predictive.condition_deterministic is False
+
+    # attribute access keeps working, with a warning
+    with pytest.warns(FutureWarning, match="exclude_deterministic"):
+        assert predictive.exclude_deterministic is True
+    with pytest.warns(FutureWarning, match="exclude_deterministic"):
+        predictive.exclude_deterministic = False
+    assert predictive.condition_deterministic is True
+
+    # passing both raises
+    with pytest.raises(ValueError, match="Only one of"):
+        Predictive(
+            model=model,
+            posterior_samples=dict(probs=probs),
+            batch_ndims=2,
+            condition_deterministic=True,
+            exclude_deterministic=False,
+        )
+
+
+def test_predictive_condition_deterministic_default():
+    """By default deterministic sites are re-computed, not conditioned on."""
+    model, probs = categorical_probs()
+
+    predictive = Predictive(
+        model=model,
+        posterior_samples=dict(probs=probs),
+        batch_ndims=2,
+    )
+    assert predictive.condition_deterministic is False
 
 
 def test_predictive_with_guide():
@@ -89,10 +237,10 @@ def test_predictive_with_guide():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(1), 5000, data)
+    svi_result = svi.run(random.key(1), 5000, data)
     params = svi_result.params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(
-        random.PRNGKey(2), data=None
+        random.key(2), data=None
     )
     assert predictive["beta_sq"].shape == (1000,)
     obs_pred = predictive["obs"].astype(np.float32)
@@ -118,15 +266,41 @@ def test_predictive_with_particles():
         numpyro.sample("latent", dist.Normal(latent_loc, 1.0).to_event(1))
 
     params = {"latent_loc": jnp.zeros((num_particles, fdim))}
-    x = dist.Normal(jnp.full(3, 0.2), 1.0).sample(random.PRNGKey(0), (num_data,))
+    x = dist.Normal(jnp.full(3, 0.2), 1.0).sample(random.key(0), (num_data,))
     predictions = Predictive(
         model,
         guide=guide,
         params=params,
         num_samples=num_samples,
         batch_ndims=1,
-    )(random.PRNGKey(0), x)
+    )(random.key(0), x)
     assert predictions["y"].shape == (num_samples, num_particles, num_data)
+
+
+@pytest.mark.parametrize("parallel", [True, False])
+def test_predictive_with_batched_model_params(parallel):
+    def model():
+        z = numpyro.sample("z", dist.Normal(0.0, 1.0))
+        offset = numpyro.param("offset", 0.0)
+        numpyro.deterministic("prediction", z + offset)
+
+    def guide():
+        loc = numpyro.param("loc", 0.0)
+        numpyro.sample("z", dist.Delta(loc))
+
+    params = {"loc": jnp.array([1.0, 2.0]), "offset": jnp.array([10.0, 20.0])}
+    predictions = Predictive(
+        model,
+        guide=guide,
+        params=params,
+        num_samples=3,
+        batch_ndims=1,
+        parallel=parallel,
+        return_sites=["prediction"],
+    )(random.key(0))
+
+    expected = np.broadcast_to(np.array([11.0, 22.0]), (3, 2))
+    assert_allclose(predictions["prediction"], expected)
 
 
 def test_predictive_with_improper():
@@ -143,12 +317,12 @@ def test_predictive_with_improper():
             )
         numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
-    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    data = true_coef + random.normal(random.key(0), (1000,))
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
-    mcmc.run(random.PRNGKey(0), data)
+    mcmc.run(random.key(0), data)
     samples = mcmc.get_samples()
-    obs_pred = Predictive(model, samples)(random.PRNGKey(1), data=None)["obs"]
+    obs_pred = Predictive(model, samples)(random.key(1), data=None)["obs"]
     assert_allclose(jnp.mean(obs_pred), true_coef, atol=0.05)
 
 
@@ -156,7 +330,7 @@ def test_predictive_with_improper():
 def test_prior_predictive(batch_ndims):
     model, data, true_probs = beta_bernoulli()
     predictive = Predictive(model, num_samples=100, batch_ndims=batch_ndims)
-    predictive_samples = predictive(random.PRNGKey(1))
+    predictive_samples = predictive(random.key(1))
     assert predictive_samples.keys() == {"beta", "beta_sq", "obs"}
 
     # check shapes
@@ -168,13 +342,11 @@ def test_prior_predictive(batch_ndims):
 @pytest.mark.parametrize("batch_shape", [(), (100,), (2, 50)])
 def test_log_likelihood(batch_shape):
     model, data, _ = beta_bernoulli()
-    samples = Predictive(model, return_sites=["beta"], num_samples=200)(
-        random.PRNGKey(1)
-    )
+    samples = Predictive(model, return_sites=["beta"], num_samples=200)(random.key(1))
     batch_size = int(np.prod(batch_shape))
     samples = {"beta": samples["beta"][:batch_size].reshape(batch_shape + (1, -1))}
 
-    preds = Predictive(model, samples, batch_ndims=len(batch_shape))(random.PRNGKey(2))
+    preds = Predictive(model, samples, batch_ndims=len(batch_shape))(random.key(2))
     loglik = log_likelihood(model, samples, data, batch_ndims=len(batch_shape))
     assert preds.keys() == {"beta_sq", "obs"}
     assert loglik.keys() == {"obs"}
@@ -186,6 +358,23 @@ def test_log_likelihood(batch_shape):
     )
 
 
+def test_compute_log_probs():
+    model, data, _ = beta_bernoulli()
+    samples = Predictive(model, return_sites=["beta"], num_samples=1)(random.key(7))
+    samples = {key: value[0] for key, value in samples.items()}
+
+    logden, _ = log_density(model, (data,), {}, samples)
+    assert logden.shape == ()
+
+    logdens, _ = compute_log_probs(model, (data,), {}, samples)
+    assert set(logdens) == {"beta", "obs"}
+    assert all(x.shape == () for x in logdens.values())
+
+    logdens, _ = compute_log_probs(model, (data,), {}, samples, False)
+    assert logdens["beta"].shape == (2,)
+    assert logdens["obs"].shape == (800, 2)
+
+
 def test_model_with_transformed_distribution():
     x_prior = dist.HalfNormal(2)
     y_prior = dist.LogNormal(scale=3.0)  # transformed distribution
@@ -195,7 +384,7 @@ def test_model_with_transformed_distribution():
         numpyro.sample("y", y_prior)
 
     params = {"x": jnp.array(-5.0), "y": jnp.array(7.0)}
-    model = handlers.seed(model, random.PRNGKey(0))
+    model = handlers.seed(model, random.key(0))
     inv_transforms = {"x": biject_to(x_prior.support), "y": biject_to(y_prior.support)}
     expected_samples = partial(transform_fn, inv_transforms)(params)
     expected_potential_energy = (
@@ -208,7 +397,7 @@ def test_model_with_transformed_distribution():
     reparam_model = handlers.reparam(model, {"y": TransformReparam()})
     base_params = {"x": params["x"], "y_base": params["y"]}
     actual_samples = constrain_fn(
-        handlers.seed(reparam_model, random.PRNGKey(0)),
+        handlers.seed(reparam_model, random.key(0)),
         (),
         {},
         base_params,
@@ -232,7 +421,7 @@ def test_constrain_unconstrain():
         numpyro.param("z", init_value=2.0, constraint=z_constraint)
 
     params = {"x": jnp.array(-5.0), "y": jnp.array(7.0), "z": jnp.array(3.0)}
-    model = handlers.seed(model, random.PRNGKey(0))
+    model = handlers.seed(model, random.key(0))
     inv_transforms = {
         "x": biject_to(x_prior.support),
         "y": biject_to(y_prior.support),
@@ -275,8 +464,65 @@ def test_model_with_mask_false():
 
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500, num_chains=1)
-    mcmc.run(random.PRNGKey(1))
+    mcmc.run(random.key(1))
     assert_allclose(mcmc.get_samples()["x"].mean(), 0.0, atol=0.15)
+
+
+@pytest.mark.parametrize(
+    "init_strategy",
+    [
+        init_to_feasible(),
+        init_to_median(num_samples=2),
+        init_to_sample(),
+        init_to_uniform(radius=3),
+        init_to_value(values={"tau": 0.7}),
+        init_to_feasible,
+        init_to_mean,
+        init_to_median,
+        init_to_sample,
+        init_to_uniform,
+        init_to_value,
+    ],
+)
+def test_init_to_valid(init_strategy):
+    with handlers.trace() as trace, handlers.seed(rng_seed=3):
+        numpyro.sample("x", dist.ZeroSumNormal(1, (3,)))
+    site = trace["x"]
+    site["value"] = None
+    init = init_strategy(site)
+    assert site["fn"].support(init)
+
+
+@pytest.mark.parametrize(
+    "dist_cls, params",
+    [
+        (dist.Cauchy, (0.0, 1.0)),
+        (dist.HalfCauchy, (5.0,)),
+        (dist.StudentT, (0.5,)),
+        (dist.Pareto, (1.0, np.array([0.5, 2.0]))),
+    ],
+)
+def test_init_to_mean_without_finite_mean(dist_cls, params):
+    fn = dist_cls(*params)
+    with handlers.trace() as trace, handlers.seed(rng_seed=0):
+        numpyro.sample("x", fn)
+    site = trace["x"]
+    site["value"] = None
+    init = init_to_mean(site)
+    assert jnp.isfinite(init).all()
+    assert fn.support(init).all()
+
+
+def test_init_to_mean_eight_schools():
+    def model():
+        mu = numpyro.sample("mu", dist.Normal(0.0, 5.0))
+        tau = numpyro.sample("tau", dist.HalfCauchy(5.0))
+        with numpyro.plate("J", 8):
+            numpyro.sample("theta", dist.Normal(mu, tau))
+
+    # Two keys run the initialization under lax.map, where the mean is traced.
+    for rng_key in [random.key(0), random.split(random.key(0))]:
+        initialize_model(rng_key, model, init_strategy=init_to_mean)
 
 
 @pytest.mark.parametrize(
@@ -312,7 +558,7 @@ def test_initialize_model_change_point(init_strategy):
         31, 30, 13, 27, 0, 39, 37, 5, 14, 13, 22])
     # fmt: on
 
-    rng_keys = random.split(random.PRNGKey(1), 2)
+    rng_keys = random.split(random.key(1), 2)
     init_params, _, _, _ = initialize_model(
         rng_keys, model, init_strategy=init_strategy, model_args=(count_data,)
     )
@@ -326,7 +572,7 @@ def test_initialize_model_change_point(init_strategy):
             rng_keys[i], model, init_strategy=init_strategy, model_args=(count_data,)
         )
         for name, p in init_params[0].items():
-            # XXX: the result is equal if we disable fast-math-mode
+            # Note: the result is equal if we disable fast-math-mode
             assert_allclose(p[i], init_params_i[0][name], atol=1e-6)
 
 
@@ -347,9 +593,9 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
         return p_latent
 
     true_probs = jnp.array([0.1, 0.6, 0.3])
-    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
+    data = dist.Categorical(true_probs).sample(random.key(1), (2000,))
 
-    rng_keys = random.split(random.PRNGKey(1), 2)
+    rng_keys = random.split(random.key(1), 2)
     init_params, _, _, _ = initialize_model(
         rng_keys, model, init_strategy=init_strategy, model_args=(data,)
     )
@@ -358,7 +604,7 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
             rng_keys[i], model, init_strategy=init_strategy, model_args=(data,)
         )
         for name, p in init_params[0].items():
-            # XXX: the result is equal if we disable fast-math-mode
+            # Note: the result is equal if we disable fast-math-mode
             assert_allclose(p[i], init_params_i[0][name], atol=1e-6)
 
 
@@ -375,7 +621,7 @@ def test_improper_expand(event_shape):
             incidence = numpyro.sample("incidence", d)
             assert d.log_prob(incidence).shape == (3,)
 
-    model_info = initialize_model(random.PRNGKey(0), model)
+    model_info = initialize_model(random.key(0), model)
     assert model_info.param_info.z["incidence"].shape == (3,) + event_shape
 
 
@@ -415,8 +661,90 @@ def test_get_mask_optimization():
     assert "guide-sometimes" not in called
 
     called = set()
-    Predictive(model, guide=guide, num_samples=2, parallel=True)(random.PRNGKey(2))
+    Predictive(model, guide=guide, num_samples=2, parallel=True)(random.key(2))
     assert "model-always" in called
     assert "guide-always" in called
     assert "model-sometimes" not in called
     assert "guide-sometimes" not in called
+
+
+def test_predictive_mask_with_infer_discrete_true():
+    called = set()
+
+    def model():
+        probs = numpyro.sample("probs", dist.Dirichlet(jnp.ones(3)))
+        numpyro.sample(
+            "z",
+            dist.Categorical(probs=probs),
+            infer={"enumerate": "parallel"},
+        )
+        if numpyro.get_mask() is not False:
+            called.add("mask-true")
+            numpyro.sample("f", dist.Normal(0.0, 1.0), obs=0.0)
+
+    num_samples = 2
+    posterior_samples = {
+        "probs": jnp.tile(jnp.array([1.0 / 3, 1.0 / 3, 1.0 / 3]), (num_samples, 1))
+    }
+    Predictive(
+        model,
+        posterior_samples=posterior_samples,
+        infer_discrete=True,
+        batch_ndims=1,
+    )(random.key(0))
+    assert "mask-true" in called
+
+
+def test_predictive_mask_with_infer_discrete_false():
+    called = set()
+
+    def model():
+        probs = numpyro.sample("probs", dist.Dirichlet(jnp.ones(3)))
+        numpyro.sample("z", dist.Categorical(probs=probs))
+        if numpyro.get_mask() is not False:
+            called.add("mask-true")
+            numpyro.sample("f", dist.Normal(0.0, 1.0))
+
+    Predictive(model, num_samples=2, infer_discrete=False)(random.key(0))
+    assert "mask-true" not in called
+
+
+def test_log_likelihood_flax_nn():
+    import numpy as np
+
+    import flax.linen as nn
+    from jax import random
+
+    from numpyro.contrib.module import random_flax_module
+
+    # Simulate
+    rng = np.random.default_rng(99)
+    N = 1000
+
+    X = rng.normal(0, 1, size=(N, 1))
+    mu = 1 + X @ np.array([0.5])
+    y = rng.normal(mu, 0.5)
+
+    # Simple linear layer
+    class Linear(nn.Module):
+        @nn.compact
+        def __call__(self, x):
+            return nn.Dense(1, use_bias=True, name="Dense")(x)
+
+    def model(X, y=None):
+        sigma = numpyro.sample("sigma", dist.HalfNormal(0.1))
+        priors = {"Dense.bias": dist.Normal(0, 2.5), "Dense.kernel": dist.Normal(0, 1)}
+        mlp = random_flax_module(
+            "mlp", Linear(), prior=priors, input_shape=(X.shape[1],)
+        )
+        with numpyro.plate("data", X.shape[0]):
+            mu = numpyro.deterministic("mu", mlp(X).squeeze(-1))
+            y = numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+
+    # Fit model
+    kernel = NUTS(model, target_accept_prob=0.95)
+    mcmc = MCMC(kernel, num_warmup=100, num_samples=100, num_chains=1)
+    mcmc.run(random.key(0), X=X, y=y)
+
+    # run log likelihood
+    numpyro.infer.util.log_likelihood(model, mcmc.get_samples(), X=X, y=y)

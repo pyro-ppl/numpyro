@@ -18,6 +18,7 @@ The model DMM based on reference [1][2] and the Pyro DMM example: https://pyro.a
 .. image:: ../_static/img/examples/stein_dmm.png
     :align: center
 """
+
 import argparse
 
 import numpy as np
@@ -95,7 +96,7 @@ def combiner(x, params):
 
 
 def gru(xs, lengths, init_hidden, params):
-    """RNN with GRU. Based on https://github.com/google/jax/pull/2298"""
+    """RNN with GRU. Based on https://github.com/jax-ml/jax/pull/2298"""
 
     def apply_fun_single(state, inputs):
         i, x = inputs
@@ -291,7 +292,7 @@ def vis_tune(i, tunes, lengths, name="stein_dmm.pdf"):
 
 
 def main(args):
-    inf_key, pred_key = random.split(random.PRNGKey(seed=args.rng_seed), 2)
+    inf_key, pred_key = random.split(random.key(seed=args.rng_seed), 2)
 
     steinvi = SteinVI(
         model,

@@ -1,8 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from types import ModuleType
+from typing import Callable
 
-def patch_dependency(target, root_module):
+
+def patch_dependency(target: str, root_module: ModuleType) -> Callable:
     parts = target.split(".")
     assert parts[0] == root_module.__name__
     module = root_module
@@ -12,7 +15,7 @@ def patch_dependency(target, root_module):
     old_fn = getattr(module, name)
     old_fn = getattr(old_fn, "_pyro_unpatched", old_fn)  # ensure patching is idempotent
 
-    def decorator(new_fn):
+    def decorator(new_fn):  # noqa: ANN001, ANN202
         new_fn.__name__ = name
         new_fn._pyro_unpatched = old_fn
         setattr(module, name, new_fn)

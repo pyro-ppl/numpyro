@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
@@ -9,17 +11,26 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-
-try:
-    from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
-except ImportError:
-    pytestmark = pytest.mark.skip(reason="jaxns is not installed")
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:jax.tree_.+ is deprecated:FutureWarning"
-)
+_jaxns_available = True
+try:
+    if os.environ.get("JAX_ENABLE_X64"):
+        from numpyro.contrib.nested_sampling import NestedSampler, UniformReparam
+
+except ImportError:
+    _jaxns_available = False
+
+
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:jax.tree_.+ is deprecated:FutureWarning"),
+    pytest.mark.filterwarnings("ignore:JAX x64"),
+    pytest.mark.skipif(
+        not os.environ.get("JAX_ENABLE_X64") or not _jaxns_available,
+        reason="test suite for jaxns requires double precision",
+    ),
+]
 
 
 # Test helper to extract a few central moments from samples.
@@ -86,9 +97,9 @@ def test_dense_mass(rho):
         )
 
     ns = NestedSampler(model, constructor_kwargs={"num_live_points": 200})
-    ns.run(random.PRNGKey(0))
+    ns.run(random.key(0))
 
-    samples = ns.get_samples(random.PRNGKey(1), 1000)["x"]
+    samples = ns.get_samples(random.key(1), 1000)["x"]
     assert_allclose(jnp.mean(samples[:, 0]), jnp.array(0.0), atol=0.5)
     assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.1)
     assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.20)

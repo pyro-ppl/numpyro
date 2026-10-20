@@ -32,7 +32,7 @@ def _get_codomain(bijector):
         loc, scale, concentration = bijector.loc, bijector.scale, bijector.concentration
         if not_jax_tracer(concentration) and np.all(np.less(concentration, 0)):
             return constraints.interval(loc, loc + scale / jnp.abs(concentration))
-        # XXX: here we suppose concentration > 0
+        # Note: here we suppose concentration > 0
         # which is not true in general, but should cover enough usage cases
         else:
             return constraints.greater_than(loc)
@@ -278,15 +278,15 @@ class TFPDistribution(NumPyroDistribution, metaclass=_TFPDistributionMeta):
 
     @property
     def is_discrete(self):
-        # XXX: this should cover most cases
+        # Note: this should cover most cases
         return self.support is None
 
     def tree_flatten(self):
-        return jax.tree_util.tree_flatten(self.tfp_dist)
+        return jax.tree.flatten(self.tfp_dist)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        fn = jax.tree_util.tree_unflatten(aux_data, params)
+        fn = jax.tree.unflatten(aux_data, params)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             return TFPDistribution[fn.__class__](**fn.parameters)
@@ -314,9 +314,7 @@ for _name, _Dist in tfd.__dict__.items():
     _PyroDist.__doc__ = """
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/{}>`_
     with :class:`~numpyro.contrib.tfp.distributions.TFPDistribution`.
-    """.format(
-        _Dist.__module__, _Dist.__name__, _Dist.__name__
-    )
+    """.format(_Dist.__module__, _Dist.__name__, _Dist.__name__)
 
     __all__.append(_name)
 
@@ -328,9 +326,7 @@ __doc__ = "\n\n".join(
     {0}
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.distributions.{0}
-    """.format(
-            _name
-        )
+    """.format(_name)
         for _name in __all__[:_len_all]
     ]
 )

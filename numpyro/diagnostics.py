@@ -7,11 +7,30 @@ This provides a small set of utilities in NumPyro that are used to diagnose post
 
 from collections import OrderedDict
 from itertools import product
+from typing import Union, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
+import jax
 from jax import device_get
-from jax.tree_util import tree_flatten, tree_map
+
+try:
+    import scipy.fft
+
+    def _rfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return scipy.fft.rfft(x, n=n, axis=axis, workers=-1)
+
+    def _irfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return scipy.fft.irfft(x, n=n, axis=axis, workers=-1)
+except ImportError:  # pragma: no cover
+    # scipy is not a direct dependency of numpyro (only a transitive one via jax)
+    def _rfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return np.fft.rfft(x, n=n, axis=axis)
+
+    def _irfft(x: NDArray, n: int, axis: int) -> NDArray:
+        return np.fft.irfft(x, n=n, axis=axis)
+
 
 __all__ = [
     "autocorrelation",
@@ -24,7 +43,7 @@ __all__ = [
 ]
 
 
-def _compute_chain_variance_stats(x):
+def _compute_chain_variance_stats(x: NDArray) -> tuple[NDArray, NDArray]:
     # compute within-chain variance and variance estimator
     # input has shape C x N x sample_shape
     C, N = x.shape[:2]
@@ -40,7 +59,7 @@ def _compute_chain_variance_stats(x):
     return var_within, var_estimator
 
 
-def gelman_rubin(x):
+def gelman_rubin(x: NDArray) -> NDArray:
     """
     Computes R-hat over chains of samples ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -59,7 +78,7 @@ def gelman_rubin(x):
     return rhat
 
 
-def split_gelman_rubin(x):
+def split_gelman_rubin(x: NDArray) -> NDArray:
     """
     Computes split R-hat over chains of samples ``x``, where the first dimension
     of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -78,7 +97,7 @@ def split_gelman_rubin(x):
     return split_rhat
 
 
-def _fft_next_fast_len(target):
+def _fft_next_fast_len(target: int) -> int:
     # find the smallest number >= N such that the only divisors are 2, 3, 5
     # works just like scipy.fftpack.next_fast_len
     if target <= 2:
@@ -96,13 +115,31 @@ def _fft_next_fast_len(target):
         target += 1
 
 
-def autocorrelation(x, axis=0):
+def autocorrelation(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
+    :param bias: whether to use a biased estimator.
     :return: autocorrelation of ``x``.
+    :rtype: numpy.ndarray
+    """
+    autocov = autocovariance(x, axis=axis, bias=bias)
+    # normalize by the lag-0 autocovariance (which is the same for the biased
+    # and unbiased estimators)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return autocov / np.take(autocov, [0], axis=axis)
+
+
+def autocovariance(x: NDArray, axis: int = 0, bias: bool = True) -> NDArray:
+    """
+    Computes the autocovariance of samples at dimension ``axis``.
+
+    :param numpy.ndarray x: the input array.
+    :param int axis: the dimension to calculate autocovariance.
+    :param bias: whether to use a biased estimator.
+    :return: autocovariance of ``x``.
     :rtype: numpy.ndarray
     """
     # Ref: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
@@ -117,35 +154,31 @@ def autocorrelation(x, axis=0):
 
     # centering x
     centered_signal = x - x.mean(axis=-1, keepdims=True)
+    # np.fft promotes to double precision; keep doing so explicitly because
+    # scipy.fft computes in the input precision
+    centered_signal = centered_signal.astype(np.float64, copy=False)
 
     # Fourier transform
-    freqvec = np.fft.rfft(centered_signal, n=M2, axis=-1)
+    freqvec = _rfft(centered_signal, n=M2, axis=-1)
     # take square of magnitude of freqvec (or freqvec x freqvec*)
     freqvec_gram = freqvec * np.conjugate(freqvec)
     # inverse Fourier transform
-    autocorr = np.fft.irfft(freqvec_gram, n=M2, axis=-1)
+    autocov = _irfft(freqvec_gram, n=M2, axis=-1)
 
-    # truncate and normalize the result, then transpose back to original shape
-    autocorr = autocorr[..., :N]
-    autocorr = autocorr / np.arange(N, 0.0, -1)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        autocorr = autocorr / autocorr[..., :1]
-    return np.swapaxes(autocorr, axis, -1)
+    # truncate the result and normalize by the number of terms in each lag sum,
+    # then transpose back to original shape
 
-
-def autocovariance(x, axis=0):
-    """
-    Computes the autocovariance of samples at dimension ``axis``.
-
-    :param numpy.ndarray x: the input array.
-    :param int axis: the dimension to calculate autocovariance.
-    :return: autocovariance of ``x``.
-    :rtype: numpy.ndarray
-    """
-    return autocorrelation(x, axis) * x.var(axis=axis, keepdims=True)
+    # the unbiased estimator is known to have "wild" tails, due to few samples at longer lags.
+    # see Geyer (1992) and Priestley (1981) for a discussion. also note that it is only strictly
+    # unbiased when the mean is known, whereas we it estimate from samples here.
+    if bias:
+        autocov = autocov[..., :N] / N
+    else:
+        autocov = autocov[..., :N] / np.arange(N, 0.0, -1)
+    return np.swapaxes(autocov, axis, -1)
 
 
-def effective_sample_size(x):
+def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
     """
     Computes effective sample size of input ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
@@ -158,6 +191,7 @@ def effective_sample_size(x):
        Stan Development Team
 
     :param numpy.ndarray x: the input array.
+    :param bias: whether to use a biased estimator of the autocovariance.
     :return: effective sample size of ``x``.
     :rtype: numpy.ndarray
     """
@@ -166,7 +200,7 @@ def effective_sample_size(x):
     assert x.shape[1] >= 2
 
     # find autocovariance for each chain at lag k
-    gamma_k_c = autocovariance(x, axis=1)
+    gamma_k_c = autocovariance(x, axis=1, bias=bias)
 
     # find autocorrelation at lag k (from Stan reference)
     var_within, var_estimator = _compute_chain_variance_stats(x)
@@ -182,7 +216,7 @@ def effective_sample_size(x):
     Rho_k = np.concatenate(
         [
             Rho_init,
-            np.minimum.accumulate(np.clip(Rho_k[1:, ...], a_min=0, a_max=None), axis=0),
+            np.minimum.accumulate(np.clip(Rho_k[1:, ...], 0, None), axis=0),
         ],
         axis=0,
     )
@@ -192,7 +226,7 @@ def effective_sample_size(x):
     return n_eff
 
 
-def hpdi(x, prob=0.90, axis=0):
+def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
     interval with probability mass ``prob``.
@@ -200,13 +234,23 @@ def hpdi(x, prob=0.90, axis=0):
     :param numpy.ndarray x: the input array.
     :param float prob: the probability mass of samples within the interval.
     :param int axis: the dimension to calculate hpdi.
-    :return: quantiles of ``x`` at ``(1 - prob) / 2`` and
-        ``(1 + prob) / 2``.
+    :return: Array containing the lower and upper bounds of the HPDI along
+        the specified axis. The output has the same shape as ``x`` except
+        that the size along ``axis`` is 2 (lower bound first, upper bound second).
     :rtype: numpy.ndarray
     """
     x = np.swapaxes(x, axis, 0)
     sorted_x = np.sort(x, axis=0)
-    mass = x.shape[0]
+    hpd_left, hpd_right = _hpdi_of_sorted(sorted_x, prob)
+    hpd_left = np.swapaxes(hpd_left, axis, 0)
+    hpd_right = np.swapaxes(hpd_right, axis, 0)
+    return np.concatenate([hpd_left, hpd_right], axis=axis)
+
+
+def _hpdi_of_sorted(sorted_x: NDArray, prob: float) -> tuple[NDArray, NDArray]:
+    # compute the hpdi bounds of samples already sorted along axis 0; both
+    # bounds are returned with a leading axis of size 1
+    mass = sorted_x.shape[0]
     index_length = int(prob * mass)
     intervals_left = sorted_x[: (mass - index_length)]
     intervals_right = sorted_x[index_length:]
@@ -214,13 +258,13 @@ def hpdi(x, prob=0.90, axis=0):
     index_start = intervals_length.argmin(axis=0)
     index_end = index_start + index_length
     hpd_left = np.take_along_axis(sorted_x, index_start[None, ...], axis=0)
-    hpd_left = np.swapaxes(hpd_left, axis, 0)
     hpd_right = np.take_along_axis(sorted_x, index_end[None, ...], axis=0)
-    hpd_right = np.swapaxes(hpd_right, axis, 0)
-    return np.concatenate([hpd_left, hpd_right], axis=axis)
+    return hpd_left, hpd_right
 
 
-def summary(samples, prob=0.90, group_by_chain=True):
+def summary(
+    samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True
+) -> dict:
     """
     Returns a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,
@@ -238,20 +282,29 @@ def summary(samples, prob=0.90, group_by_chain=True):
         chain dimension).
     """
     if not group_by_chain:
-        samples = tree_map(lambda x: x[None, ...], samples)
+        samples = jax.tree.map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
         samples = {
-            "Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])
+            "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
+    samples = cast(dict[str, np.ndarray], samples)
 
     summary_dict = {}
     for name, value in samples.items():
+        if len(value) == 0:
+            continue
         value = device_get(value)
         value_flat = np.reshape(value, (-1,) + value.shape[2:])
         mean = value_flat.mean(axis=0)
         std = value_flat.std(axis=0, ddof=1)
-        median = np.median(value_flat, axis=0)
-        hpd = hpdi(value_flat, prob=prob)
+        # sort once and reuse the result for both the median and the hpdi
+        sorted_flat = np.sort(value_flat, axis=0)
+        n = sorted_flat.shape[0]
+        median = (sorted_flat[(n - 1) // 2] + sorted_flat[n // 2]) / 2
+        # like np.median, return nan wherever any draw is nan (sorting puts
+        # nans last, so it suffices to check the last draw)
+        median = np.where(np.isnan(sorted_flat[-1]), median.dtype.type(np.nan), median)
+        hpd = np.concatenate(_hpdi_of_sorted(sorted_flat, prob), axis=0)
         n_eff = effective_sample_size(value)
         r_hat = split_gelman_rubin(value)
         hpd_lower = "{:.1f}%".format(50 * (1 - prob))
@@ -270,7 +323,9 @@ def summary(samples, prob=0.90, group_by_chain=True):
     return summary_dict
 
 
-def print_summary(samples, prob=0.90, group_by_chain=True):
+def print_summary(
+    samples: Union[dict, NDArray], prob: float = 0.90, group_by_chain: bool = True
+) -> None:
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,
@@ -288,12 +343,15 @@ def print_summary(samples, prob=0.90, group_by_chain=True):
         chain dimension).
     """
     if not group_by_chain:
-        samples = tree_map(lambda x: x[None, ...], samples)
+        samples = jax.tree.map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
         samples = {
-            "Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])
+            "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
+    samples = cast(dict[str, np.ndarray], samples)
     summary_dict = summary(samples, prob, group_by_chain=True)
+    if not summary_dict:
+        return
 
     row_names = {
         k: k + "[" + ",".join(map(lambda x: str(x - 1), v.shape[2:])) + "]"

@@ -25,18 +25,24 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+
+from typing import Optional, Union
+
 import numpy as np
 
 import jax
-from jax import lax
+from jax import Array, lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
+from jax.typing import ArrayLike
 
+from numpyro._typing import NumLike
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
+    assert_one_of,
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
@@ -49,58 +55,133 @@ from numpyro.distributions.util import (
 from numpyro.util import is_prng_key, not_jax_tracer
 
 
-def _to_probs_bernoulli(logits):
+def _to_probs_bernoulli(logits: ArrayLike) -> Array:
     return expit(logits)
 
 
-def _to_logits_bernoulli(probs):
+def _to_logits_bernoulli(probs: ArrayLike) -> Array:
     ps_clamped = clamp_probs(probs)
     return jnp.log(ps_clamped) - jnp.log1p(-ps_clamped)
 
 
-def _to_probs_multinom(logits):
+def _to_probs_multinom(logits: ArrayLike) -> Array:
     return softmax(logits, axis=-1)
 
 
-def _to_logits_multinom(probs):
-    minval = jnp.finfo(jnp.result_type(probs)).min
-    return jnp.clip(jnp.log(probs), a_min=minval)
+def _to_logits_multinom(probs: ArrayLike) -> Array:
+    probs = jnp.asarray(probs)
+    safe_probs = jnp.where(probs > 0, probs, 1.0)
+    return jnp.where(probs > 0, jnp.log(safe_probs), -jnp.inf)
 
 
 class BernoulliProbs(Distribution):
+    r"""A Bernoulli discrete random variable parameterizing the probability of a binary
+    outcome.
+
+    The Probability Mass Function (PMF) of the Bernoulli distribution is defined as:
+
+    .. math::
+        P(X = k | p) = p^k (1 - p)^{1-k}, \quad k \in \{0, 1\}
+
+    Where, :math:`p` represents the success probability parameter (:attr:`probs`),
+    :math:`k` represents the observed binary outcome (:attr:`value`).
+    The support domain is :math:`k \in \{0, 1\}`.
+    """
+
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.boolean
+    r"""The support of the Bernoulli distribution is the set of binary outcomes :math:`\{0, 1\}`."""
+
     has_enumerate_support = True
 
-    def __init__(self, probs, *, validate_args=None):
+    def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param probs: Success probability in the interval :math:`[0, 1]`.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.probs = probs
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Bernoulli distribution.
+
+        This method invokes :func:`~jax.random.bernoulli` directly, which generates
+        binary samples from the Bernoulli parametrization. Samples are mapped across
+        the specified batch dimensions and sample dimensions via shape broadcasting.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Binary-valued samples (0 or 1) drawn from the Bernoulli distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         samples = random.bernoulli(
             key, self.probs, shape=sample_shape + self.batch_shape
         )
         return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at specified binary
+        configurations.
+
+        .. math::
+            \ln P(X=k | p) = k\ln(p) + (1-k)\ln(1-p)
+
+        The log probability mass function is evaluated using numerically-stable log-space operations.
+        Rather than computing :math:`\ln(p)` and :math:`\ln(1-p)` directly from clamped
+        probabilities, this implementation employs the primitives :func:`~jax.scipy.special.xlogy`
+        and :func:`~jax.scipy.special.xlog1py`, which handle edge cases gracefully:
+
+        - When :math:`p = 0` or :math:`p = 1`, the log-probability computation is protected
+          from logarithmic singularities via masking.
+        - The clamped probability values prevent numerical underflow in extreme configurations.
+
+        :param value: Binary observation(s) to score (:math:`k \in \{0, 1\}`).
+        :return: Log probability scores evaluated under the Bernoulli PMF.
+        """
         ps_clamped = clamp_probs(self.probs)
+        value = jnp.array(value, jnp.result_type(float))
         return xlogy(value, ps_clamped) + xlog1py(1 - value, -ps_clamped)
 
     @lazy_property
-    def logits(self):
+    def logits(self) -> Array:
+        r"""The log-odds (logits) parameter of the Bernoulli distribution is given by
+        the logit transformation of the success probability:
+
+        .. math::
+            \alpha = \text{logit}(p) = \ln\left(\frac{p}{1-p}\right)
+        """
         return _to_logits_bernoulli(self.probs)
 
     @property
-    def mean(self):
-        return self.probs
+    def mean(self) -> Array:
+        r"""The mean of the Bernoulli distribution is given by the success probability
+        parameter:
+
+        .. math::
+            E[X] = p
+
+        :return: The mean of the Bernoulli distribution, which is equal to the success
+            probability :attr:`probs`.
+        """
+        return jnp.asarray(self.probs)
 
     @property
-    def variance(self):
-        return self.probs * (1 - self.probs)
+    def variance(self) -> Array:
+        r"""The variance of the Bernoulli distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = p (1 - p)
+
+        :return: The variance of the Bernoulli distribution, which is the product of
+            the success probability and its complement.
+        """
+        return jnp.asarray(self.probs * (1 - self.probs))
 
     def cdf(self, value):
         return ((1 - self.probs) * jnp.heaviside(value, 1)
@@ -109,85 +190,256 @@ class BernoulliProbs(Distribution):
     def icdf(self, q):
         return jnp.heaviside(q - (1 - self.probs), 1)
 
-    def enumerate_support(self, expand=True):
+    def enumerate_support(self, expand: bool = True) -> Array:
         values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self) -> Array:
+        r"""The entropy of the Bernoulli distribution is given by:
+
+        .. math::
+            H[X] = -p \ln p - (1-p) \ln (1-p)
+        """
+        probs = jnp.asarray(self.probs)
+        return -xlogy(probs, probs) - xlog1py(1 - probs, -probs)
+
 
 class BernoulliLogits(Distribution):
-    arg_constraints = {"logits": constraints.real}
+    r"""A Bernoulli discrete random variable parameterized by log-odds (logits).
+
+    The Probability Mass Function (PMF) of the Bernoulli distribution is:
+
+    .. math::
+        P(X = k | \alpha) = \sigma(\alpha)^k (1 - \sigma(\alpha))^{1-k},
+        \quad k \in \{0, 1\}
+
+    Where :math:`\alpha = \text{logits}` is the log-odds parameter and
+    :math:`\sigma(\alpha) = 1/(1 + \exp{(-\alpha)})` is the sigmoid function.
+    """
+
+    arg_constraints = {"logits": constraints.extended_real}
+
     support = constraints.boolean
+    r"""The support of the Bernoulli distribution is the set of binary outcomes :math:`\{0, 1\}`."""
+
     has_enumerate_support = True
 
-    def __init__(self, logits=None, *, validate_args=None):
+    def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param logits: Log-odds parameter :math:`\alpha \in [-\infty, \infty]`;
+            :math:`\mp\infty` denote :math:`p = 0` and :math:`p = 1`.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.logits = logits
         super(BernoulliLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Bernoulli distribution.
+
+        The method first converts :attr:`logits` to probabilities via the sigmoid
+        function (accessed via the lazy property :attr:`probs`), then invokes
+        :func:`~jax.random.bernoulli` for sampling.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Binary-valued samples (0 or 1) drawn from the Bernoulli distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         samples = random.bernoulli(
             key, self.probs, shape=sample_shape + self.batch_shape
         )
         return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at specified binary configurations.
+
+        The log probability mass function leverages the numerically-stable
+        :func:`~jax.nn.binary_cross_entropy_with_logits` primitive, which computes the
+        Bernoulli negative log-likelihood directly in log-odds space:
+
+        .. math::
+            \ln P(X = k | \alpha) = -\mathrm{BCEWithLogits}(\alpha, k)
+            = k \ln(\sigma(\alpha)) + (1-k) \ln(1 - \sigma(\alpha))
+
+        This formulation avoids explicit exponential evaluation for large
+        :math:`|\alpha|`, protecting against overflow (:math:`e^\alpha \to \infty` for
+        :math:`\alpha \gg 0`) and underflow (:math:`e^{-\alpha} \to 0` for
+        :math:`\alpha \ll -0`).
+
+        :param value: Binary observation(s) to score (:math:`k \in \{0, 1\}`).
+        :return: Log probability scores evaluated under the Bernoulli PMF.
+        """
         return -binary_cross_entropy_with_logits(self.logits, value)
 
     @lazy_property
-    def probs(self):
+    def probs(self) -> Array:
+        r"""The success probability parameter of the Bernoulli distribution is given by
+        the sigmoid of the log-odds parameter:
+
+        .. math::
+            p = \sigma(\alpha) = \frac{1}{1 + e^{-\alpha}}
+        """
         return _to_probs_bernoulli(self.logits)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""The mean of the Bernoulli distribution is given by the sigmoid of the
+        log-odds parameter:
+
+        .. math::
+            E[X] = \sigma(\alpha) = \frac{1}{1 + e^{-\alpha}}
+        """
         return self.probs
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""The variance of the Bernoulli distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = \sigma(\alpha) (1 - \sigma(\alpha))
+        """
         return self.probs * (1 - self.probs)
 
-    def enumerate_support(self, expand=True):
+    def enumerate_support(self, expand: bool = True) -> Array:
         values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self) -> Array:
+        r"""The entropy of the Bernoulli distribution is given by:
 
-def Bernoulli(probs=None, logits=None, *, validate_args=None):
+        .. math::
+            H[X] = -p \ln p - (1-p) \ln (1-p)
+
+        where :math:`p = \sigma(\alpha)` is the mean of the distribution.
+
+        It is evaluated as :math:`p\,\mathrm{softplus}(-\alpha) +
+        (1-p)\,\mathrm{softplus}(\alpha)`, dropping each term where its probability
+        is zero, which is exact for all :math:`\alpha` including :math:`\pm\infty`.
+        """
+        logits = jnp.asarray(self.logits)
+        # expit(-logits) is 1 - p without cancellation once the sigmoid saturates.
+        p, q = expit(logits), expit(-logits)
+        return p * jnp.where(p > 0, softplus(-logits), 0.0) + q * jnp.where(
+            q > 0, softplus(logits), 0.0
+        )
+
+
+def Bernoulli(
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
+    *,
+    validate_args: Optional[bool] = None,
+) -> Union[BernoulliProbs, BernoulliLogits]:
+    r"""Factory function to create a Bernoulli distribution instance from either
+    probability or log-odds parameterization.
+
+    :param probs: The success probability parameter in the unit interval :math:`[0, 1]`,
+        defaults to None
+    :param logits: The log-odds parameter, defaults to None
+    :param validate_args: Optional toggle to enforce domain constraints during
+        graph construction. Default is None.
+    :return: The created Bernoulli distribution instance.
+    """
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BernoulliProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return BernoulliLogits(logits, validate_args=validate_args)
     else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
+        raise NotImplementedError
 
 
 class BinomialProbs(Distribution):
+    r"""A Binomial discrete random variable parameterizing the count of successes in
+    repeated trials.
+
+    The Probability Mass Function (PMF) of the Binomial distribution is defined as:
+
+    .. math::
+        P(X = k | n, p) = \binom{n}{k} p^k (1 - p)^{n-k}, \quad k \in \{0, 1, \dots, n\}
+
+    Where, :math:`n` is the number of trials (:attr:`total_count`),
+    :math:`p` is the success probability per trial (:attr:`probs`),
+    :math:`k` is the observed count of successes (:attr:`value`).
+    """
+
     arg_constraints = {
         "probs": constraints.unit_interval,
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
 
-    def __init__(self, probs, total_count=1, *, validate_args=None):
+    def __init__(
+        self,
+        probs: ArrayLike,
+        total_count: ArrayLike = 1,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        r"""
+        :param probs: Success probability per trial in :math:`[0, 1]`.
+        :param total_count: Number of trials (non-negative integer).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.probs, self.total_count = promote_shapes(probs, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(probs), jnp.shape(total_count))
         super(BinomialProbs, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Binomial distribution.
+
+        This method uses the internal :func:`~numpyro.distributions.util.binomial`
+        utility function to generate count samples.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Non-negative integer samples representing success counts.
+        """
         assert is_prng_key(key)
+        assert key is not None
         return binomial(
             key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at specified count configurations.
+
+        The log probability mass function is fully evaluated in log-space to prevent
+        factorial overflow and underflow:
+
+        .. math::
+            \ln P(X = k | n, p) = \ln \binom{n}{k} + k \ln p + (n-k) \log(1-p)
+
+        The binomial coefficient in log-space is computed using the log-gamma function:
+
+        .. math::
+            \ln \binom{n}{k} = \ln\Gamma(n + 1) - \ln\Gamma(k + 1)
+            - \ln\Gamma(n - k + 1)
+
+        This approach using :func:`~jax.scipy.special.gammaln` avoids
+        computing factorials explicitly. The probability terms are evaluated using
+        :func:`~jax.scipy.special.xlogy` and :func:`~jax.scipy.special.xlog1py`
+        to handle boundary cases gracefully (:math:`p = 0`, :math:`p = 1`, etc.).
+
+        :param value: Count observation(s) in the range :math:`[0, n]`.
+        :return: Log probability scores evaluated under the Binomial PMF.
+        """
+        value = jnp.array(value, jnp.result_type(float))
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
@@ -201,30 +453,49 @@ class BinomialProbs(Distribution):
         )
 
     @lazy_property
-    def logits(self):
+    def logits(self) -> Array:
+        r"""The log-odds (logits) parameter of the Binomial distribution is given by
+        the logit transformation of the success probability:
+
+        .. math::
+            \alpha = \text{logit}(p) = \ln\left(\frac{p}{1-p}\right)
+        """
         return _to_logits_bernoulli(self.probs)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""The mean of the Binomial distribution is given by:
+
+        .. math::
+            E[X] = n p
+        """
         return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""The variance of the Binomial distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = n p (1 - p)
+        """
         return jnp.broadcast_to(
             self.total_count * self.probs * (1 - self.probs), self.batch_shape
         )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self):
+    def support(self) -> constraints.Constraint:
+        r"""The support of the Binomial distribution is the set of integer counts
+        from 0 to the total count.
+        """
         return constraints.integer_interval(0, self.total_count)
 
-    def enumerate_support(self, expand=True):
+    def enumerate_support(self, expand: bool = True) -> Array:
         if not_jax_tracer(self.total_count):
             total_count = np.amax(self.total_count)
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
             if np.amin(self.total_count) != total_count:
                 raise NotImplementedError(
-                    "Inhomogeneous total count not supported" " by `enumerate_support`."
+                    "Inhomogeneous total count not supported by `enumerate_support`."
                 )
         else:
             total_count = jnp.amax(self.total_count)
@@ -237,73 +508,193 @@ class BinomialProbs(Distribution):
 
 
 class BinomialLogits(Distribution):
+    r"""
+    A Binomial discrete random variable parameterized by log-odds (logits).
+
+    The Probability Mass Function (PMF) of the Binomial distribution is:
+
+    .. math::
+        P(X = k | n, \alpha) = \binom{n}{k} \sigma(\alpha)^k (1 - \sigma(\alpha))^{n-k}
+
+    Where :math:`\alpha = \text{logits}` and
+    :math:`\sigma(\alpha) = 1/(1 + \exp(-\alpha))`.
+    """
+
     arg_constraints = {
-        "logits": constraints.real,
+        "logits": constraints.extended_real,
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
     enumerate_support = BinomialProbs.enumerate_support
 
-    def __init__(self, logits, total_count=1, *, validate_args=None):
+    def __init__(
+        self,
+        logits: ArrayLike,
+        total_count: ArrayLike = 1,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        r"""
+        :param logits: Log-odds parameter in :math:`[-\infty, \infty]`;
+            :math:`\mp\infty` denote :math:`p = 0` and :math:`p = 1`.
+        :param total_count: Number of trials (non-negative integer).
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.logits, self.total_count = promote_shapes(logits, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Binomial distribution.
+
+        The method first converts :attr:`logits` to probabilities via the sigmoid function
+        (via the lazy property :attr:`probs`), then uses the internal :func:`binomial`
+        utility for sampling. This maintains numerical stability across extreme log-odds values.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Non-negative integer samples representing success counts.
+        """
         assert is_prng_key(key)
+        assert key is not None
         return binomial(
             key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape
         )
 
     @validate_sample
-    def log_prob(self, value):
-        log_factorial_n = gammaln(self.total_count + 1)
-        log_factorial_k = gammaln(value + 1)
-        log_factorial_nmk = gammaln(self.total_count - value + 1)
-        normalize_term = (
-            self.total_count * jnp.clip(self.logits, 0)
-            + xlog1py(self.total_count, jnp.exp(-jnp.abs(self.logits)))
-            - log_factorial_n
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at specified count
+        configurations.
+
+        The log probability mass function is computed in log-odds space with
+        :math:`\ln p = -\mathrm{softplus}(-\alpha)` and
+        :math:`\ln(1-p) = -\mathrm{softplus}(\alpha)`, which are exact at
+        :math:`\alpha = \pm\infty`:
+
+        .. math::
+            \ln P(X = k | n, \alpha) = \ln \binom{n}{k} + k \ln p + (n - k) \ln(1-p)
+
+        A term whose count is zero is dropped rather than evaluated as
+        :math:`0 \cdot \infty`.
+
+        The binomial coefficient in log-space is computed using the log-gamma function:
+
+        .. math::
+            \ln \binom{n}{k} = \ln\Gamma(n + 1) - \ln\Gamma(k + 1)
+            - \ln\Gamma(n - k + 1)
+
+        This approach using :func:`~jax.scipy.special.gammaln` avoids
+        computing factorials explicitly.
+
+        :param value: Count observation(s) in the range :math:`[0, n]`.
+        :return: Log probability scores evaluated under the Binomial PMF.
+        """
+        total_count = jnp.array(self.total_count, dtype=jnp.result_type(float))
+        log_binom = (
+            gammaln(total_count + 1)
+            - gammaln(value + 1)
+            - gammaln(total_count - value + 1)
         )
-        return (
-            value * self.logits - log_factorial_k - log_factorial_nmk - normalize_term
-        )
+        log_p = jnp.where(value == 0, 0.0, -softplus(-self.logits))
+        log_1mp = jnp.where(value == total_count, 0.0, -softplus(self.logits))
+        return log_binom + value * log_p + (total_count - value) * log_1mp
 
     @lazy_property
-    def probs(self):
+    def probs(self) -> Array:
+        r"""The success probability per trial of the Binomial distribution is given by
+        the sigmoid of the log-odds parameter:
+
+        .. math::
+            p = \sigma(\alpha) = \frac{1}{1 + e^{-\alpha}}
+        """
         return _to_probs_bernoulli(self.logits)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""The mean of the Binomial distribution is given by:
+
+        .. math::
+            E[X] = n \sigma(\alpha)
+        """
         return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""The variance of the Binomial distribution is given by:
+
+        .. math::
+            \mathrm{Var}[X] = n \sigma(\alpha) (1 - \sigma(\alpha))
+        """
         return jnp.broadcast_to(
             self.total_count * self.probs * (1 - self.probs), self.batch_shape
         )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self):
+    def support(self) -> constraints.Constraint:
+        r"""The support of the Binomial distribution is the set of integer counts from
+        0 to the total count."""
         return constraints.integer_interval(0, self.total_count)
 
 
-def Binomial(total_count=1, probs=None, logits=None, *, validate_args=None):
+def Binomial(
+    total_count: ArrayLike = 1,
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
+    *,
+    validate_args: Optional[bool] = None,
+) -> Union[BinomialProbs, BinomialLogits]:
+    r"""Factory function to create a Binomial distribution instance from either
+    probability or log-odds parameterization.
+
+    :param total_count: Number of trials (non-negative integer), defaults to 1
+    :param probs: The success probability parameter in the unit interval :math:`[0, 1]`,
+        defaults to None
+    :param logits: The log-odds parameter, defaults to None
+    :param validate_args: Optional toggle to enforce simplex constraint during
+        graph construction. Default is None
+    :return: A Binomial distribution instance corresponding to the specified
+        parameterization.
+    """
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return BinomialProbs(probs, total_count, validate_args=validate_args)
     elif logits is not None:
         return BinomialLogits(logits, total_count, validate_args=validate_args)
     else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
+        raise NotImplementedError
 
 
 class CategoricalProbs(Distribution):
+    r"""A Categorical discrete random variable over :math:`K` mutually exclusive
+    outcomes, parameterized by a probability vector on the simplex.
+
+    The Probability Mass Function (PMF) of the Categorical distribution is defined as:
+
+    .. math::
+        P(X = k \mid \mathbf{p}) = p_k, \quad k \in \{0, 1, \dots, K-1\}
+
+    where the probability vector :math:`\mathbf{p} = (p_0, p_1, \dots, p_{K-1})`
+    satisfies :math:`p_k \ge 0` and :math:`\sum_{k=0}^{K-1} p_k = 1`.
+
+    Where, :math:`\mathbf{p}` represents the category probability vector
+    (:attr:`probs`), :math:`K` is the number of categories (the size of the trailing
+    dimension of :attr:`probs`), and :math:`k` is the observed category index
+    (:attr:`value`). The support domain is :math:`k \in \{0, 1, \dots, K-1\}`.
+    """
+
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
 
-    def __init__(self, probs, *, validate_args=None):
+    def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param probs: Category probability vector on the simplex; the trailing
+            dimension indexes the :math:`K` categories and must sum to one.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         self.probs = probs
@@ -311,12 +702,38 @@ class CategoricalProbs(Distribution):
             batch_shape=jnp.shape(self.probs)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Categorical distribution.
+
+        This method delegates to :func:`~numpyro.distributions.util.categorical`, which
+        internally relies on :func:`~jax.random.categorical` over the log-probabilities
+        of :attr:`probs`.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples in :math:`\{0, 1, \dots, K-1\}` drawn from the
+            Categorical distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at specified category indices.
+
+        .. math::
+            \ln P(X = k \mid \mathbf{p}) = \ln p_k
+
+        The implementation gathers the log-probabilities from :attr:`logits` (which are
+        already normalized log-probabilities computed from :attr:`probs`) at the
+        positions indicated by ``value`` using :func:`~jax.numpy.take_along_axis`.
+
+        :param value: Category index/indices to score (:math:`k \in \{0, 1, \dots, K-1\}`).
+        :return: Log probability scores evaluated under the Categorical PMF.
+        """
         batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         value = jnp.expand_dims(value, axis=-1)
         value = jnp.broadcast_to(value, batch_shape + (1,))
@@ -325,35 +742,99 @@ class CategoricalProbs(Distribution):
         return jnp.take_along_axis(log_pmf, value, axis=-1)[..., 0]
 
     @lazy_property
-    def logits(self):
+    def logits(self) -> Array:
+        r"""The log-probability (logits) parameter of the Categorical distribution is
+        the (already-normalized) log of the category probabilities:
+
+        .. math::
+            \alpha_k = \ln p_k, \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_logits_multinom(self.probs)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""The mean of a Categorical distribution over arbitrary unordered categories
+        is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""The variance of a Categorical distribution over arbitrary unordered
+        categories is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self):
+    def support(self) -> constraints.Constraint:
+        r"""The support of the Categorical distribution is the set of integers
+        :math:`\{0, 1, \dots, K-1\}`, where :math:`K` is the number of categories
+        inferred from the trailing dimension of :attr:`probs`.
+        """
         return constraints.integer_interval(0, jnp.shape(self.probs)[-1] - 1)
 
-    def enumerate_support(self, expand=True):
-        values = jnp.arange(self.probs.shape[-1]).reshape(
+    def enumerate_support(self, expand: bool = True) -> Array:
+        r"""Enumerate all values in the support of the Categorical distribution.
+
+        :param expand: Whether to broadcast the enumerated values across the batch
+            shape. Default is True.
+        :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
+            optionally broadcast across the batch dimensions.
+        """
+        values = jnp.arange(jnp.shape(self.probs)[-1]).reshape(
             (-1,) + (1,) * len(self.batch_shape)
         )
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self) -> Array:
+        r"""The entropy of the Categorical distribution is given by:
+
+        .. math::
+            H[X] = -\sum_{k=0}^{K-1} p_k \ln p_k
+
+        :return: The entropy of the Categorical distribution.
+        """
+        probs = jnp.asarray(self.probs)
+        return -xlogy(probs, probs).sum(axis=-1)
+
 
 class CategoricalLogits(Distribution):
-    arg_constraints = {"logits": constraints.real_vector}
+    r"""A Categorical discrete random variable over :math:`K` mutually exclusive
+    outcomes, parameterized by unnormalized log-probabilities (logits).
+
+    The Probability Mass Function (PMF) of the Categorical distribution is defined,
+    via the softmax transformation of the logits, as:
+
+    .. math::
+        P(X = k \mid \boldsymbol{\alpha}) = \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1}
+        \exp(\alpha_j)}, \quad k \in \{0, 1, \dots, K-1\}
+
+    Where, :math:`\boldsymbol{\alpha} = (\alpha_0, \alpha_1, \dots, \alpha_{K-1})`
+    is the real-valued logits vector (:attr:`logits`), :math:`K` is the number of
+    categories (the size of the trailing dimension of :attr:`logits`), and :math:`k`
+    is the observed category index (:attr:`value`). The support domain is
+    :math:`k \in \{0, 1, \dots, K-1\}`.
+    """
+
+    arg_constraints = {"logits": constraints.softmax_logits}
     has_enumerate_support = True
 
-    def __init__(self, logits, *, validate_args=None):
+    def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
+        r"""
+        :param logits: Logits vector; the trailing dimension indexes the :math:`K`
+            categories. Logits are unnormalized and converted to probabilities via
+            the softmax function. A :math:`-\infty` entry is a zero-probability
+            category; :math:`+\infty` is rejected since the softmax is then undefined.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
+        # Lists must become arrays for the sampler; NumPy inputs stay NumPy.
+        logits = logits if isinstance(logits, jax.Array) else np.asarray(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
@@ -361,14 +842,43 @@ class CategoricalLogits(Distribution):
             batch_shape=jnp.shape(logits)[:-1], validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Categorical distribution.
+
+        This method invokes :func:`~jax.random.categorical` directly, which samples in
+        logit-space using the Gumbel-max trick and therefore avoids materializing the
+        softmax-normalized probabilities.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples in :math:`\{0, 1, \dots, K-1\}` drawn from the
+            Categorical distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         return random.categorical(
             key, self.logits, shape=sample_shape + self.batch_shape
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at specified category indices.
+
+        .. math::
+            \ln P(X = k \mid \boldsymbol{\alpha}) = \alpha_k - \ln\!\sum_{j=0}^{K-1}
+            \exp(\alpha_j)
+
+        The normalizing log-partition is computed via :func:`~jax.scipy.special.logsumexp`,
+        which uses the standard max-subtraction trick to guarantee numerical stability
+        in the presence of large or widely-spread logit magnitudes. After
+        normalization, the relevant log-probability is gathered with
+        :func:`~jax.numpy.take_along_axis`.
+
+        :param value: Category index/indices to score (:math:`k \in \{0, 1, \dots, K-1\}`).
+        :return: Log probability scores evaluated under the Categorical PMF.
+        """
         batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         value = jnp.expand_dims(value, -1)
         value = jnp.broadcast_to(value, batch_shape + (1,))
@@ -377,79 +887,265 @@ class CategoricalLogits(Distribution):
         return jnp.take_along_axis(log_pmf, value, -1)[..., 0]
 
     @lazy_property
-    def probs(self):
+    def probs(self) -> Array:
+        r"""The probability vector of the Categorical distribution is given by the
+        softmax of the logits:
+
+        .. math::
+            p_k = \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)},
+            \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_probs_multinom(self.logits)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""The mean of a Categorical distribution over arbitrary unordered categories
+        is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""The variance of a Categorical distribution over arbitrary unordered
+        categories is not well-defined. This property therefore returns ``NaN``.
+
+        :return: An array of NaNs with shape equal to :attr:`batch_shape`.
+        """
         return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self):
+    def support(self) -> constraints.Constraint:
+        r"""The support of the Categorical distribution is the set of integers
+        :math:`\{0, 1, \dots, K-1\}`, where :math:`K` is the number of categories
+        inferred from the trailing dimension of :attr:`logits`.
+        """
         return constraints.integer_interval(0, jnp.shape(self.logits)[-1] - 1)
 
-    def enumerate_support(self, expand=True):
-        values = jnp.arange(self.logits.shape[-1]).reshape(
+    def enumerate_support(self, expand: bool = True) -> Array:
+        r"""Enumerate all values in the support of the Categorical distribution.
+
+        :param expand: Whether to broadcast the enumerated values across the batch
+            shape. Default is True.
+        :return: An array of integer category indices :math:`\{0, 1, \dots, K-1\}`,
+            optionally broadcast across the batch dimensions.
+        """
+        values = jnp.arange(jnp.shape(self.logits)[-1]).reshape(
             (-1,) + (1,) * len(self.batch_shape)
         )
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self) -> Array:
+        r"""The entropy of the Categorical distribution is given by:
 
-def Categorical(probs=None, logits=None, *, validate_args=None):
+        .. math::
+            H[X] = -\sum_{k=0}^{K-1} p_k \ln p_k,
+            \qquad \ln p_k = \alpha_k - \ln\!\sum_{j=0}^{K-1} \exp(\alpha_j)
+
+        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`. The log-partition
+        term uses :func:`~jax.scipy.special.logsumexp` for stability, and a
+        zero-probability category contributes :math:`0 \ln 0 = 0`.
+
+        :return: The entropy of the Categorical distribution.
+        """
+        log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
+        probs = jnp.exp(log_pmf)
+        return -(probs * jnp.where(probs > 0, log_pmf, 0.0)).sum(axis=-1)
+
+
+def Categorical(probs=None, logits=None, *, validate_args: Optional[bool] = None):
+    r"""Create a Categorical distribution over :math:`K` discrete outcomes.
+
+    For a category probability vector :math:`\mathbf{p}`, the probability mass
+    function is
+
+    .. math::
+        P(X = k \mid \mathbf{p}) = p_k,
+        \quad k \in \{0, 1, \dots, K-1\},
+        \quad \sum_{k=0}^{K-1} p_k = 1.
+
+    Alternatively, unnormalized logits :math:`\boldsymbol{\alpha}` define the
+    probabilities through a softmax:
+
+    .. math::
+        P(X = k \mid \boldsymbol{\alpha}) =
+        \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)},
+        \quad k \in \{0, 1, \dots, K-1\}.
+
+    The trailing dimension of either parameter indexes the :math:`K` categories;
+    preceding dimensions are batch dimensions. Exactly one of probs and logits
+    must be supplied. The factory returns a :class:`CategoricalProbs` distribution
+    when probs is supplied and a :class:`CategoricalLogits` distribution when
+    logits is supplied.
+
+    :param probs: Category probability vectors on the simplex, with categories on
+        the trailing dimension.
+    :param logits: Real-valued unnormalized log probabilities, with categories on
+        the trailing dimension.
+    :param validate_args: If True, enforce parameter constraints during initialization.
+    :return: A Categorical distribution parameterized by probs or logits.
+    :raises ValueError: If both parameterizations or neither is supplied.
+    """
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return CategoricalProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return CategoricalLogits(logits, validate_args=validate_args)
-    else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
 
 
 class DiscreteUniform(Distribution):
-    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
-    has_enumerate_support = True
-    pytree_data_fields = ("low", "high", "_support")
+    r"""A discrete uniform random variable over the inclusive integer interval
+    :math:`\{a, a+1, \dots, b\}`, where :math:`a` (:attr:`low`) is the inclusive
+    lower bound and :math:`b` (:attr:`high`) is the inclusive upper bound of the
+    support.
 
-    def __init__(self, low=0, high=1, *, validate_args=None):
+    The Probability Mass Function (PMF) of the discrete uniform distribution is
+    defined as:
+
+    .. math::
+        P(X = k \mid a, b) = \frac{1}{b - a + 1},
+        \quad k \in \{a, a+1, \dots, b\}
+
+    Where :math:`k` is the observed integer value (:attr:`value`).
+    """
+
+    arg_constraints = {
+        "low": constraints.dependent(is_discrete=True, event_dim=0),
+        "high": constraints.dependent(is_discrete=True, event_dim=0),
+    }
+    has_enumerate_support = True
+    pytree_data_fields = ("low", "high")
+
+    def __init__(
+        self,
+        low: NumLike = 0,
+        high: NumLike = 1,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        r"""
+        :param low: Inclusive lower bound of the integer support. Default is 0.
+        :param high: Inclusive upper bound of the integer support. Must satisfy
+            ``high >= low``. Default is 1.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
-        self._support = constraints.integer_interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self):
-        return self._support
+    def support(self) -> constraints.Constraint:
+        r"""The support of the discrete uniform distribution is the set of integers
+        :math:`\{\text{low}, \text{low}+1, \dots, \text{high}\}`.
+        """
+        return constraints.integer_interval(self.low, self.high)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the discrete uniform distribution.
+
+        This method invokes :func:`~jax.random.randint` directly, which generates
+        uniformly distributed integers in the half-open interval ``[low, high + 1)``,
+        equivalent to the inclusive interval :math:`\{a, \dots, b\}`.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples drawn uniformly from
+            :math:`\{a, \dots, b\}`.
+        """
+        assert key is not None
         shape = sample_shape + self.batch_shape
         return random.randint(key, shape=shape, minval=self.low, maxval=self.high + 1)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at specified integer values.
+
+        .. math::
+            \ln P(X = k \mid a, b) = -\ln(b - a + 1)
+
+        The log-PMF is constant over the support, so the implementation simply
+        broadcasts the negative log of the support cardinality to the requested shape.
+
+        :param value: Integer observation(s) to score
+            (:math:`k \in \{a, \dots, b\}`).
+        :return: Log probability scores evaluated under the discrete uniform PMF.
+        """
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return -jnp.broadcast_to(jnp.log(self.high + 1 - self.low), shape)
 
-    def cdf(self, value):
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Evaluate the cumulative distribution function (CDF) of the discrete
+        uniform distribution.
+
+        .. math::
+            F(x) = \frac{\lfloor x \rfloor + 1 - a}{b - a + 1},
+            \quad \text{clipped to } [0, 1]
+
+        :param value: Point(s) at which to evaluate the CDF.
+        :return: The CDF evaluated at ``value``, clipped to the unit interval.
+        """
         cdf = (jnp.floor(value) + 1 - self.low) / (self.high - self.low + 1)
-        return jnp.clip(cdf, a_min=0.0, a_max=1.0)
+        return jnp.clip(cdf, 0.0, 1.0)
 
-    def icdf(self, value):
-        return self.low + value * (self.high - self.low + 1) - 1
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Evaluate the inverse cumulative distribution function (quantile function)
+        of the discrete uniform distribution.
+
+        .. math::
+            F^{-1}(u) = a + \lceil u\,(b - a + 1) \rceil - 1, \quad u \in (0, 1]
+
+        that is, the smallest :math:`k \in \{a, \dots, b\}` with
+        :math:`F(k) \ge u`. :math:`u = 0` maps to :math:`a`.
+
+        :param q: Quantile level(s) :math:`u \in [0, 1]`.
+        :return: The inverse CDF evaluated at ``q``.
+        """
+        value = self.low + jnp.ceil(q * (self.high - self.low + 1)) - 1
+        # q * (b - a + 1) can round up past an integer, e.g. 0.3 * 10
+        value = jnp.where(self.cdf(value - 1) >= q, value - 1, value)
+        return jnp.clip(value, self.low, self.high)
 
     @property
-    def mean(self):
-        return self.low + (self.high - self.low) / 2.0
+    def mean(self) -> Array:
+        r"""The mean of the discrete uniform distribution is the midpoint of the
+        support:
+
+        .. math::
+            E[X] = \frac{a + b}{2}
+
+        :return: The mean of the discrete uniform distribution.
+        """
+        return jnp.asarray(self.low + (self.high - self.low) / 2.0)
 
     @property
-    def variance(self):
-        return ((self.high - self.low + 1) ** 2 - 1) / 12.0
+    def variance(self) -> Array:
+        r"""The variance of the discrete uniform distribution is given by:
 
-    def enumerate_support(self, expand=True):
+        .. math::
+            \mathrm{Var}[X] = \frac{(b - a + 1)^2 - 1}{12}
+
+        :return: The variance of the discrete uniform distribution.
+        """
+        return jnp.asarray(((self.high - self.low + 1) ** 2 - 1) / 12.0)
+
+    def enumerate_support(self, expand: bool = True) -> Array:
+        r"""Enumerate all values in the support of the discrete uniform distribution.
+
+        Both :attr:`low` and :attr:`high` must be concrete (non-JAX-tracer) values and
+        homogeneous across the batch shape; otherwise a :class:`NotImplementedError`
+        is raised.
+
+        :param expand: Whether to broadcast the enumerated values across the batch
+            shape. Default is True.
+        :return: An array of integer values
+            :math:`\{a, a+1, \dots, b\}`, optionally
+            broadcast across the batch dimensions.
+        """
         if not not_jax_tracer(self.high) or not not_jax_tracer(self.low):
             raise NotImplementedError("Both `low` and `high` must not be a JAX Tracer.")
         if np.any(np.amax(self.low) != self.low):
@@ -462,26 +1158,71 @@ class DiscreteUniform(Distribution):
             raise NotImplementedError(
                 "Inhomogeneous `high` not supported by `enumerate_support`."
             )
-        values = (self.low + jnp.arange(np.amax(self.high - self.low) + 1)).reshape(
-            (-1,) + (1,) * len(self.batch_shape)
-        )
+        low = np.reshape(self.low, -1)[0]
+        high = np.reshape(self.high, -1)[0]
+        values = jnp.arange(low, high + 1).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
+    def entropy(self) -> Array:
+        r"""The entropy of the discrete uniform distribution is given by:
+
+        .. math::
+            H[X] = \ln(\text{high} - \text{low} + 1)
+
+        :return: The entropy of the discrete uniform distribution.
+        """
+        return jnp.log(self.high - self.low + 1)
+
 
 class OrderedLogistic(CategoricalProbs):
-    """
+    r"""
     A categorical distribution with ordered outcomes.
+
+    The ordered logistic (proportional odds) distribution models an ordinal
+    outcome :math:`Y` that takes one of :math:`K` ordered categories. A real-valued
+    predictor :math:`\eta` is compared with :math:`K - 1` strictly increasing
+    cutpoints :math:`c_0 < c_1 < \dots < c_{K-2}` through the logistic CDF, so that
+    the cumulative probabilities are
+
+    .. math::
+        P(Y \le k \mid \eta, \mathbf{c}) = \sigma(c_k - \eta),
+        \quad k \in \{0, 1, \dots, K-2\}
+
+    where :math:`\sigma(x) = 1 / (1 + e^{-x})` is the logistic sigmoid function,
+    i.e. :math:`\operatorname{logit} P(Y \le k) = c_k - \eta`. Differencing the
+    cumulative probabilities gives the Probability Mass Function (PMF)
+
+    .. math::
+        P(Y = k \mid \eta, \mathbf{c}) = \sigma(c_k - \eta) - \sigma(c_{k-1} - \eta),
+        \quad k \in \{0, 1, \dots, K-1\}
+
+    with the conventions :math:`c_{-1} = -\infty` and :math:`c_{K-1} = +\infty`, so
+    that the first and last categories have probabilities
+    :math:`P(Y = 0) = \sigma(c_0 - \eta)` and
+    :math:`P(Y = K-1) = 1 - \sigma(c_{K-2} - \eta)`. The support is
+    :math:`k \in \{0, 1, \dots, K-1\}`, and increasing :math:`\eta` shifts
+    probability mass towards the higher categories.
+
+    The category probabilities are computed by applying the inverse of
+    :class:`~numpyro.distributions.transforms.SimplexToOrderedTransform`, with
+    :math:`\eta` as its anchor point, to the cutpoints; they are stored in
+    :attr:`probs` as for any categorical distribution.
 
     **References:**
 
     1. *Stan Functions Reference, v2.20 section 12.6*,
        Stan Development Team
+    2. *Regression Models for Ordinal Data*,
+       P. McCullagh (1980), Journal of the Royal Statistical Society: Series B, 42(2)
 
-    :param numpy.ndarray predictor: prediction in real domain; typically this is output
-        of a linear model.
-    :param numpy.ndarray cutpoints: positions in real domain to separate categories.
+    :param numpy.ndarray predictor: prediction :math:`\eta` in real domain; typically
+        this is output of a linear model.
+    :param numpy.ndarray cutpoints: positions :math:`c_0 < \dots < c_{K-2}` in real
+        domain to separate categories; the trailing dimension has size :math:`K - 1`
+        and the leading dimensions are batch dimensions that are broadcast against
+        the shape of ``predictor``.
     """
 
     arg_constraints = {
@@ -489,24 +1230,54 @@ class OrderedLogistic(CategoricalProbs):
         "cutpoints": constraints.ordered_vector,
     }
 
-    def __init__(self, predictor, cutpoints, *, validate_args=None):
+    def __init__(
+        self,
+        predictor: ArrayLike,
+        cutpoints: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
         if jnp.ndim(predictor) == 0:
             (predictor,) = promote_shapes(predictor, shape=(1,))
         else:
+            assert isinstance(predictor, (np.ndarray, jax.Array))
             predictor = predictor[..., None]
         predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
         self.predictor = predictor[..., 0]
         probs = transforms.SimplexToOrderedTransform(self.predictor).inv(self.cutpoints)
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
-    @staticmethod
-    def infer_shapes(predictor, cutpoints):
+    @classmethod
+    def infer_shapes(
+        cls, predictor: tuple[int, ...], cutpoints: tuple[int, ...]
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
         event_shape = ()
         return batch_shape, event_shape
 
+    def entropy(self) -> Array:
+        raise NotImplementedError
+
 
 class MultinomialProbs(Distribution):
+    r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
+    outcomes, parameterized by a probability vector on the simplex and a total
+    count :math:`n` of i.i.d. trials.
+
+    The Probability Mass Function (PMF) of the Multinomial distribution is
+    defined as:
+
+    .. math::
+        P(X = \mathbf{x} \mid \mathbf{p}, n) =
+        \frac{n!}{\prod_{k=0}^{K-1} x_k!} \prod_{k=0}^{K-1} p_k^{x_k}
+
+    where the probability vector :math:`\mathbf{p} = (p_0, p_1, \dots, p_{K-1})`
+    (:attr:`probs`) satisfies :math:`p_k \ge 0` and :math:`\sum_{k=0}^{K-1} p_k = 1`,
+    :math:`n` is the number of trials (:attr:`total_count`), and the count vector
+    :math:`\mathbf{x} = (x_0, x_1, \dots, x_{K-1})` lies on the support
+    :math:`x_k \in \{0, 1, \dots, n\}` with :math:`\sum_{k=0}^{K-1} x_k = n`.
+    """
+
     arg_constraints = {
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
@@ -515,8 +1286,22 @@ class MultinomialProbs(Distribution):
     pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
-        self, probs, total_count=1, *, total_count_max=None, validate_args=None
+        self,
+        probs: ArrayLike,
+        total_count: ArrayLike = 1,
+        *,
+        total_count_max: Optional[int] = None,
+        validate_args: Optional[bool] = None,
     ):
+        r"""
+        :param probs: Category probability vector on the simplex; the trailing
+            dimension indexes the :math:`K` categories and must sum to one.
+        :param total_count: Number of trials :math:`n`. If this is a JAX array,
+            it is required to specify `total_count_max`.
+        :param total_count_max: The maximum number of trials,
+            i.e. `max(total_count)`, used to size the sampler's internal arrays.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -531,8 +1316,24 @@ class MultinomialProbs(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw count-vector samples from the Multinomial distribution.
+
+        This method delegates to :func:`~numpyro.distributions.util.multinomial`,
+        which draws :attr:`total_count` category indices with
+        :func:`~numpyro.distributions.util.categorical` (an inverse-CDF sampler
+        over :attr:`probs`) and accumulates them into counts.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer count vectors :math:`\mathbf{x}` with
+            :math:`\sum_{k=0}^{K-1} x_k =` :attr:`total_count`, drawn from the
+            Multinomial distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         return multinomial(
             key,
             self.probs,
@@ -542,47 +1343,123 @@ class MultinomialProbs(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at ``value``.
+
+        .. math::
+            \ln P(X = \mathbf{x} \mid \mathbf{p}, n) =
+            \ln\Gamma(n + 1)
+            + \sum_{k=0}^{K-1} \left[ x_k \ln p_k - \ln\Gamma(x_k + 1) \right]
+
+        where :math:`n` is :attr:`total_count`. The implementation uses
+        :func:`~jax.scipy.special.gammaln` for the factorial terms and
+        :func:`~jax.scipy.special.xlogy` so that zero counts contribute
+        correctly even when some :math:`p_k = 0`.
+
+        :param value: Count vector :math:`\mathbf{x}` whose last dimension has
+            size :math:`K` and sums to :attr:`total_count`.
+        :return: Log probability scores evaluated under the Multinomial PMF.
+        """
+        value = jnp.array(value, jnp.result_type(float))
         return gammaln(self.total_count + 1) + jnp.sum(
             xlogy(value, self.probs) - gammaln(value + 1), axis=-1
         )
 
     @lazy_property
-    def logits(self):
+    def logits(self) -> Array:
+        r"""The log-probability (logits) parameter of the Multinomial
+        distribution is the (already-normalized) log of the category
+        probabilities:
+
+        .. math::
+            \alpha_k = \ln p_k, \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_logits_multinom(self.probs)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Multinomial distribution.
+
+        .. math::
+            \mathbb{E}[X_k] = n\, p_k, \quad k \in \{0, 1, \dots, K-1\}
+        """
         return self.probs * jnp.expand_dims(self.total_count, -1)
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Multinomial distribution.
+
+        .. math::
+            \mathrm{Var}(X_k) = n\, p_k (1 - p_k),
+            \quad k \in \{0, 1, \dots, K-1\}
+        """
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
-    def support(self):
+    def support(self) -> constraints.Constraint:
+        r"""The support of the Multinomial distribution is the set of count
+        vectors :math:`\mathbf{x} \in \{0, 1, \dots, n\}^K` whose entries sum to
+        :attr:`total_count` :math:`n`.
+        """
         return constraints.multinomial(self.total_count)
 
-    @staticmethod
-    def infer_shapes(probs, total_count):
+    @classmethod
+    def infer_shapes(
+        cls, probs: tuple[int, ...], total_count: tuple[int, ...]
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(probs[:-1], total_count)
         event_shape = probs[-1:]
         return batch_shape, event_shape
 
 
 class MultinomialLogits(Distribution):
+    r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
+    outcomes, parameterized by unnormalized log-probabilities (logits) and a
+    total count :math:`n` of i.i.d. trials.
+
+    The Probability Mass Function (PMF) of the Multinomial distribution is
+    defined, via the softmax transformation of the logits, as:
+
+    .. math::
+        P(X = \mathbf{x} \mid \boldsymbol{\alpha}, n) =
+        \frac{n!}{\prod_{k=0}^{K-1} x_k!}
+        \prod_{k=0}^{K-1} \left(
+            \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)}
+        \right)^{x_k}
+
+    where :math:`\boldsymbol{\alpha} = (\alpha_0, \alpha_1, \dots, \alpha_{K-1})`
+    is the real-valued logits vector (:attr:`logits`), :math:`n` is the number
+    of trials (:attr:`total_count`), and the count vector
+    :math:`\mathbf{x} = (x_0, x_1, \dots, x_{K-1})` lies on the support
+    :math:`x_k \in \{0, 1, \dots, n\}` with :math:`\sum_{k=0}^{K-1} x_k = n`.
+    """
+
     arg_constraints = {
-        "logits": constraints.real_vector,
+        "logits": constraints.softmax_logits,
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("logits",)
     pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
-        self, logits, total_count=1, *, total_count_max=None, validate_args=None
+        self,
+        logits: ArrayLike,
+        total_count: ArrayLike = 1,
+        *,
+        total_count_max: Optional[int] = None,
+        validate_args: Optional[bool] = None,
     ):
+        r"""
+        :param logits: Logits vector; the trailing dimension indexes the :math:`K`
+            categories. Logits are unnormalized and converted to probabilities via
+            the softmax function. A :math:`-\infty` entry is a zero-probability
+            category; :math:`+\infty` is rejected since the softmax is then undefined.
+        :param total_count: Number of trials :math:`n`. If this is a JAX array,
+            it is required to specify `total_count_max`.
+        :param total_count_max: The maximum number of trials,
+            i.e. `max(total_count)`, used to size the sampler's internal arrays.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -599,8 +1476,25 @@ class MultinomialLogits(Distribution):
             validate_args=validate_args,
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw count-vector samples from the Multinomial distribution.
+
+        This method delegates to :func:`~numpyro.distributions.util.multinomial`,
+        which draws :attr:`total_count` category indices with
+        :func:`~numpyro.distributions.util.categorical` (an inverse-CDF sampler
+        over :attr:`probs`, the softmax of :attr:`logits`) and accumulates them
+        into counts.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer count vectors :math:`\mathbf{x}` with
+            :math:`\sum_{k=0}^{K-1} x_k =` :attr:`total_count`, drawn from the
+            Multinomial distribution.
+        """
         assert is_prng_key(key)
+        assert key is not None
         return multinomial(
             key,
             self.probs,
@@ -610,51 +1504,132 @@ class MultinomialLogits(Distribution):
         )
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability mass function at ``value``.
+
+        .. math::
+            \ln P(X = \mathbf{x} \mid \boldsymbol{\alpha}, n) =
+            \ln\Gamma(n + 1)
+            + \sum_{k=0}^{K-1} \left[ x_k \ln p_k - \ln\Gamma(x_k + 1) \right],
+            \qquad
+            \ln p_k = \alpha_k - \ln\!\sum_{j=0}^{K-1} \exp(\alpha_j)
+
+        where :math:`n` is :attr:`total_count`. The log-partition term uses
+        :func:`~jax.scipy.special.logsumexp` for stability, and a zero count
+        contributes nothing even for a category with :math:`\alpha_k = -\infty`.
+
+        :param value: Count vector :math:`\mathbf{x}` whose last dimension has
+            size :math:`K` and sums to :attr:`total_count`.
+        :return: Log probability scores evaluated under the Multinomial PMF.
+        """
         if self._validate_args:
             self._validate_sample(value)
-        normalize_term = self.total_count * logsumexp(self.logits, axis=-1) - gammaln(
+        log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
+        log_pmf = jnp.where(value == 0, 0.0, log_pmf)
+        return jnp.sum(value * log_pmf - gammaln(value + 1), axis=-1) + gammaln(
             self.total_count + 1
-        )
-        return (
-            jnp.sum(value * self.logits - gammaln(value + 1), axis=-1) - normalize_term
         )
 
     @lazy_property
-    def probs(self):
+    def probs(self) -> Array:
+        r"""The probability vector of the Multinomial distribution is given by
+        the softmax of the logits:
+
+        .. math::
+            p_k = \frac{\exp(\alpha_k)}{\sum_{j=0}^{K-1} \exp(\alpha_j)},
+            \quad k \in \{0, 1, \dots, K-1\}
+        """
         return _to_probs_multinom(self.logits)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
+        r"""Mean of the Multinomial distribution.
+
+        .. math::
+            \mathbb{E}[X_k] = n\, p_k, \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`.
+        """
         return jnp.expand_dims(self.total_count, -1) * self.probs
 
     @property
-    def variance(self):
+    def variance(self) -> Array:
+        r"""Variance of the Multinomial distribution.
+
+        .. math::
+            \mathrm{Var}(X_k) = n\, p_k (1 - p_k),
+            \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`p_k = \mathrm{softmax}(\boldsymbol{\alpha})_k`.
+        """
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
-    def support(self):
+    def support(self) -> constraints.Constraint:
+        r"""The support of the Multinomial distribution is the set of count
+        vectors :math:`\mathbf{x} \in \{0, 1, \dots, n\}^K` whose entries sum to
+        :attr:`total_count` :math:`n`.
+        """
         return constraints.multinomial(self.total_count)
 
-    @staticmethod
-    def infer_shapes(logits, total_count):
+    @classmethod
+    def infer_shapes(
+        cls, logits: tuple[int, ...], total_count: tuple[int, ...]
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = lax.broadcast_shapes(logits[:-1], total_count)
         event_shape = logits[-1:]
         return batch_shape, event_shape
 
 
 def Multinomial(
-    total_count=1, probs=None, logits=None, *, total_count_max=None, validate_args=None
-):
-    """Multinomial distribution.
+    total_count: ArrayLike = 1,
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
+    *,
+    total_count_max: Optional[int] = None,
+    validate_args: Optional[bool] = None,
+) -> Union[MultinomialProbs, MultinomialLogits]:
+    r"""Multinomial distribution.
 
-    :param total_count: number of trials. If this is a JAX array,
+    A Multinomial random vector :math:`\mathbf{X} \in \mathbb{N}^K` counts how many
+    of :math:`n` independent trials fall into each of :math:`K` mutually exclusive
+    categories with probabilities :math:`\mathbf{p} = (p_1, \dots, p_K)`,
+    :math:`\sum_k p_k = 1`. For :math:`\mathbf{x} \in \mathbb{N}^K` with
+    :math:`\sum_k x_k = n`, its probability mass function is
+
+    .. math::
+        P(\mathbf{X} = \mathbf{x} \mid n, \mathbf{p}) =
+        \frac{n!}{\prod_{k=1}^{K} x_k!} \prod_{k=1}^{K} p_k^{x_k}.
+
+    When ``logits`` :math:`\mathbf{z}` are given, the probabilities are
+    :math:`\mathbf{p} = \operatorname{softmax}(\mathbf{z})`. The moments are
+
+    .. math::
+        \mathbb{E}[X_k] = n p_k, \qquad
+        \operatorname{Var}[X_k] = n p_k (1 - p_k), \qquad
+        \operatorname{Cov}[X_j, X_k] = -n p_j p_k \quad (j \ne k),
+
+    and ``variance`` returns the diagonal :math:`n p_k (1 - p_k)` only.
+
+    Exactly one of ``probs`` or ``logits`` must be given; the function returns a
+    :class:`MultinomialProbs` or a :class:`MultinomialLogits` instance
+    respectively (note that the returned classes take ``probs``/``logits``
+    *before* ``total_count``).
+
+    :param total_count: number of trials :math:`n`. If this is a JAX array,
         it is required to specify `total_count_max`.
-    :param probs: event probabilities
-    :param logits: event log probabilities
+    :param probs: event probabilities :math:`\mathbf{p}`
+    :param logits: event log probabilities :math:`\mathbf{z}`
     :param int total_count_max: the maximum number of trials,
         i.e. `max(total_count)`
+
+    .. note::
+        ``total_count_max`` (an upper bound on ``total_count``) must be given when
+        ``total_count`` is a traced array, because the sampler draws a static
+        number ``total_count_max`` of categorical trials and masks the excess;
+        otherwise a ``ValueError`` is raised.
     """
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return MultinomialProbs(
             probs,
@@ -670,81 +1645,182 @@ def Multinomial(
             validate_args=validate_args,
         )
     else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
+        raise NotImplementedError
 
 
 class Poisson(Distribution):
     r"""
-    Creates a Poisson distribution parameterized by rate, the rate parameter.
+    Creates a Poisson distribution parameterized by ``rate``, the rate parameter.
 
-    Samples are nonnegative integers, with a pmf given by
+    The Poisson distribution models the number of events occurring in a fixed
+    interval given a constant average rate :math:`\lambda > 0`. Samples are
+    nonnegative integers :math:`k \in \{0, 1, 2, \dots\}`, with a probability
+    mass function (PMF) given by
 
     .. math::
-      \mathrm{rate}^k \frac{e^{-\mathrm{rate}}}{k!}
+      P(X = k \mid \lambda) = \frac{\lambda^k e^{-\lambda}}{k!}
 
-    :param numpy.ndarray rate: The rate parameter
+    where :math:`\lambda` is the ``rate`` parameter. A defining property of the
+    distribution is that its mean and variance are both equal to :math:`\lambda`.
+
+    :param numpy.ndarray rate: The rate parameter :math:`\lambda \ge 0`.
     :param bool is_sparse: Whether to assume value is mostly zero when computing
         :meth:`log_prob`, which can speed up computation when data is sparse.
     """
-    arg_constraints = {"rate": constraints.positive}
+
+    arg_constraints = {"rate": constraints.greater_than_eq(0.0)}
     support = constraints.nonnegative_integer
     pytree_aux_fields = ("is_sparse",)
 
-    def __init__(self, rate, *, is_sparse=False, validate_args=None):
+    def __init__(
+        self,
+        rate: ArrayLike,
+        *,
+        is_sparse: bool = False,
+        validate_args: Optional[bool] = None,
+    ):
         self.rate = rate
         self.is_sparse = is_sparse
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples from the Poisson distribution using
+        :func:`~jax.random.poisson`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Nonnegative integer samples of shape ``sample_shape + batch_shape``.
+        :rtype: Array
+        """
         assert is_prng_key(key)
+        assert key is not None
         return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        if (
-            self.is_sparse
-            and not isinstance(value, jax.core.Tracer)
-            and jnp.size(value) > 1
-        ):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculate the log of the probability mass function.
+
+        .. math::
+            \log P(X = k \mid \lambda) = k \log \lambda - \log(k!) - \lambda
+
+        where :math:`\log(k!)` is evaluated as :math:`\log \Gamma(k + 1)` for
+        numerical stability. When ``is_sparse`` is set, entries with
+        :math:`k = 0` reduce to :math:`-\lambda` and only the nonzero entries
+        incur the full computation.
+
+        :param value: Values at which to evaluate the log PMF.
+        :return: Log probability mass.
+        :rtype: Array
+        """
+        # Using an integer vs. floating-point `rate` leads to differing results.
+        # To ensure consistent behavior, `rate` is explicitly cast to a floating-point type.
+        # See: https://github.com/pyro-ppl/numpyro/issues/2181
+        ftype = jnp.result_type(float)
+        rate = jnp.astype(self.rate, ftype)
+
+        if self.is_sparse and not_jax_tracer(value) and jnp.size(value) > 1:
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
-            rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            rate = jnp.broadcast_to(rate, shape).reshape(-1)
             nonzero = np.broadcast_to(jax.device_get(value) > 0, shape).reshape(-1)
             value = jnp.broadcast_to(value, shape).reshape(-1)
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
             return (
-                jnp.asarray(-rate, dtype=jnp.result_type(float))
+                jnp.asarray(-rate, dtype=ftype)
                 .at[nonzero]
                 .add(
                     jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
                 )
                 .reshape(shape)
             )
-        return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
+        _value = jnp.astype(value, ftype)
+        return xlogy(_value, rate) - gammaln(_value + 1.0) - rate
 
     @property
-    def mean(self):
-        return self.rate
+    def mean(self) -> Array:
+        r"""Analytical mean of the Poisson distribution.
+
+        .. math:: E[X] = \lambda
+        """
+        return jnp.asarray(self.rate)
 
     @property
-    def variance(self):
-        return self.rate
+    def variance(self) -> Array:
+        r"""Analytical variance of the Poisson distribution.
 
-    def cdf(self, value):
-        k = jnp.floor(value) + 1
-        return gammaincc(k, self.rate)
+        .. math:: \operatorname{Var}(X) = \lambda
+        """
+        return jnp.asarray(self.rate)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative distribution function evaluated at ``value``.
+
+        For a nonnegative integer :math:`k = \lfloor x \rfloor`, the CDF equals
+        the regularized upper incomplete gamma function
+
+        .. math::
+            P(X \le x) = Q(\lfloor x \rfloor + 1, \lambda)
+            = \frac{\Gamma(\lfloor x \rfloor + 1, \lambda)}{\lfloor x \rfloor !}
+
+        :param value: Value to evaluate.
+        :return: Cumulative probability.
+        :rtype: Array
+        """
+        value = jnp.asarray(value)
+        k = jnp.where(jnp.isposinf(value), 1, jnp.maximum(jnp.floor(value) + 1, 1))
+        cdf = gammaincc(k, self.rate)
+        return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, cdf))
 
 
 class ZeroInflatedProbs(Distribution):
+    r"""
+    A generic zero-inflated distribution built from a discrete base distribution.
+
+    Let :math:`B` be a discrete base distribution with PMF :math:`b(k)` and gate
+    :math:`g` (the probability of a structural zero). The zero-inflated PMF is
+
+    .. math::
+
+        P(X = 0) = g + (1 - g)\, b(0), \qquad
+        P(X = k) = (1 - g)\, b(k) \;\text{for } k \neq 0.
+
+    Zeros can come either from the structural component (with probability
+    :math:`g`) or from the base distribution itself (with probability
+    :math:`(1 - g)\, b(0)`). The mean and variance are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \mathbb{E}[B], \qquad
+        \operatorname{Var}(X) = (1 - g)\left(\operatorname{Var}(B) + \mathbb{E}[B]^2\right)
+        - (1 - g)^2\, \mathbb{E}[B]^2.
+
+    .. note::
+        ``gate`` is the probability of a structural zero, matching the convention
+        used by :class:`ZeroInflatedPoisson`.
+
+    :param Distribution base_dist: a discrete base distribution with empty
+        ``event_shape``.
+    :param numpy.ndarray gate: probability of extra (structural) zeros, in
+        :math:`[0, 1]`.
+    """
+
     arg_constraints = {"gate": constraints.unit_interval}
     pytree_data_fields = ("base_dist", "gate")
 
-    def __init__(self, base_dist, gate, *, validate_args=None):
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
-        assert base_dist.support.is_discrete
+        support = base_dist.support
+        assert support is not None
+        assert support.is_discrete
         if base_dist.event_shape:
             raise ValueError(
                 "ZeroInflatedProbs expected empty base_dist.event_shape but got {}".format(
@@ -758,8 +1834,11 @@ class ZeroInflatedProbs(Distribution):
             batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         assert is_prng_key(key)
+        assert key is not None
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
         mask = random.bernoulli(key_bern, self.gate, shape)
@@ -767,20 +1846,22 @@ class ZeroInflatedProbs(Distribution):
         return jnp.where(mask, 0, samples)
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
         log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
         return jnp.where(value == 0, jnp.log(self.gate + jnp.exp(log_prob)), log_prob)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
-    def support(self):
-        return self.base_dist.support
+    def support(self) -> constraints.Constraint:
+        support = self.base_dist.support
+        assert support is not None
+        return support
 
     @lazy_property
-    def mean(self):
+    def mean(self) -> Array:
         return (1 - self.gate) * self.base_dist.mean
 
     @lazy_property
-    def variance(self):
+    def variance(self) -> Array:
         return (1 - self.gate) * (
             self.base_dist.mean**2 + self.base_dist.variance
         ) - self.mean**2
@@ -789,54 +1870,137 @@ class ZeroInflatedProbs(Distribution):
     def has_enumerate_support(self):
         return self.base_dist.has_enumerate_support
 
-    def enumerate_support(self, expand=True):
+    def enumerate_support(self, expand: bool = True) -> Array:
         return self.base_dist.enumerate_support(expand=expand)
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
-    arg_constraints = {"gate_logits": constraints.real}
+    r"""
+    A generic zero-inflated distribution parameterized by the gate logits.
 
-    def __init__(self, base_dist, gate_logits, *, validate_args=None):
+    This is the same distribution as :class:`ZeroInflatedProbs`, with the gate
+    :math:`g` given on the logit scale :math:`z` through the sigmoid,
+
+    .. math::
+
+        g = \sigma(z) = \frac{1}{1 + e^{-z}}.
+
+    The PMF is therefore :math:`P(X = 0) = g + (1 - g)\, b(0)` and
+    :math:`P(X = k) = (1 - g)\, b(k)` for :math:`k \neq 0`, with :math:`1 - g = \sigma(-z)`.
+
+    :param Distribution base_dist: a discrete base distribution with empty
+        ``event_shape``.
+    :param numpy.ndarray gate_logits: logits :math:`z` of the structural-zero
+        probability.
+    """
+
+    arg_constraints = {"gate_logits": constraints.extended_real}
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate_logits: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
         super().__init__(base_dist, gate, validate_args=validate_args)
 
     @validate_sample
-    def log_prob(self, value):
-        log_prob_minus_log_gate = -self.gate_logits + self.base_dist.log_prob(value)
+    def log_prob(self, value: ArrayLike) -> Array:
+        # Both branches in terms of the stable log-gates, which are exact at +-inf
+        # (-gate_logits + base_log_prob would be inf - inf there).
         log_gate = -softplus(-self.gate_logits)
-        log_prob = log_prob_minus_log_gate + log_gate
-        zero_log_prob = softplus(log_prob_minus_log_gate) + log_gate
-        return jnp.where(value == 0, zero_log_prob, log_prob)
+        log_prob = -softplus(self.gate_logits) + self.base_dist.log_prob(value)
+        return jnp.where(value == 0, jnp.logaddexp(log_gate, log_prob), log_prob)
 
 
 def ZeroInflatedDistribution(
-    base_dist, *, gate=None, gate_logits=None, validate_args=None
-):
-    """
+    base_dist: Distribution,
+    *,
+    gate: Optional[ArrayLike] = None,
+    gate_logits: Optional[ArrayLike] = None,
+    validate_args: Optional[bool] = None,
+) -> Union[ZeroInflatedProbs, ZeroInflatedLogits]:
+    r"""
     Generic Zero Inflated distribution.
+
+    Mixes a discrete base distribution with pmf :math:`B` (scalar event) with a
+    point mass at zero. With gate :math:`g \in [0, 1]`, the probability of a
+    structural zero,
+
+    .. math::
+        P(X = 0) = g + (1 - g)\, B(0), \qquad
+        P(X = k) = (1 - g)\, B(k) \quad (k \ne 0).
+
+    When ``gate_logits`` :math:`z` is given, :math:`g = \sigma(z)` with
+    :math:`\sigma` the logistic function. With :math:`\mu_B` and
+    :math:`\sigma_B^2` the mean and variance of the base distribution,
+
+    .. math::
+        \mathbb{E}[X] = (1 - g)\, \mu_B, \qquad
+        \operatorname{Var}[X] = (1 - g)\left(\mu_B^2 + \sigma_B^2\right)
+        - \mathbb{E}[X]^2.
+
+    Exactly one of ``gate`` or ``gate_logits`` must be given; the function
+    returns a :class:`ZeroInflatedProbs` or a :class:`ZeroInflatedLogits`
+    instance respectively. The base distribution must have a discrete support
+    and an empty ``event_shape``. :class:`ZeroInflatedPoisson` and
+    :func:`~numpyro.distributions.conjugate.ZeroInflatedNegativeBinomial2` are
+    ready-made specializations.
 
     :param Distribution base_dist: the base distribution.
     :param numpy.ndarray gate: probability of extra zeros given via a Bernoulli distribution.
     :param numpy.ndarray gate_logits: logits of extra zeros given via a Bernoulli distribution.
     """
-    if (gate is None) == (gate_logits is None):
-        raise ValueError(
-            "Either `gate` or `gate_logits` must be specified, but not both."
-        )
+    assert_one_of(gate=gate, gate_logits=gate_logits)
     if gate is not None:
         return ZeroInflatedProbs(base_dist, gate, validate_args=validate_args)
-    else:
-        return ZeroInflatedLogits(base_dist, gate_logits, validate_args=validate_args)
+    assert gate_logits is not None
+    return ZeroInflatedLogits(base_dist, gate_logits, validate_args=validate_args)
 
 
 class ZeroInflatedPoisson(ZeroInflatedProbs):
-    """
-    A Zero Inflated Poisson distribution.
+    r"""
+    A Zero-Inflated Poisson distribution.
 
-    :param numpy.ndarray gate: probability of extra zeros.
-    :param numpy.ndarray rate: rate of Poisson distribution.
+    A zero-inflated Poisson mixes a point mass at zero (the *structural* or
+    *excess* zeros) with a Poisson distribution, allowing the number of zeros to
+    exceed what a plain Poisson would produce. With gate :math:`g` (the
+    probability of a structural zero) and Poisson rate :math:`\lambda`, the
+    probability mass function is
+
+    .. math::
+
+        P(X = 0) = g + (1 - g)\, e^{-\lambda}, \qquad
+        P(X = k) = (1 - g)\, \frac{\lambda^{k} e^{-\lambda}}{k!}
+        \;\text{for } k \geq 1.
+
+    A zero therefore arises either from the structural component (with
+    probability :math:`g`) or as a sampling zero from the Poisson component
+    (with probability :math:`(1 - g)\, e^{-\lambda}`).
+
+    The mean and variance are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \lambda, \qquad
+        \operatorname{Var}(X) = (1 - g)\, \lambda\, (1 + g\, \lambda).
+
+    Whenever :math:`g > 0` the variance exceeds the mean, so the zero-inflated
+    Poisson captures the overdispersion that a plain Poisson - for which the
+    mean equals the variance - cannot.
+
+    .. note::
+        ``gate`` is the probability of a structural zero, matching the
+        convention used by :class:`ZeroInflatedDistribution`.
+
+    :param numpy.ndarray gate: probability of extra (structural) zeros, in
+        :math:`[0, 1]`.
+    :param numpy.ndarray rate: rate :math:`\lambda` of the Poisson component
+        (default 1).
     """
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
@@ -845,63 +2009,502 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
 
     # TODO: resolve inconsistent parameter order w.r.t. Pyro
     # and support `gate_logits` argument
-    def __init__(self, gate, rate=1.0, *, validate_args=None):
+    def __init__(
+        self,
+        gate: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        _, self.rate = promote_shapes(gate, rate)
+        super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
+
+
+class HurdleProbs(Distribution):
+    r"""Generic hurdle distribution parameterized by a probability :math:`g` (``gate``)
+    of the structural zero and an arbitrary base distribution.
+
+    **Hurdle mechanism.** A hurdle model is a two-part model. A Bernoulli "hurdle"
+    decides whether the outcome is zero (with probability :math:`g`, the *gate*) or
+    strictly positive (with probability :math:`1 - g`). Conditional on the outcome
+    being positive, the magnitude is drawn from the base distribution -
+    *zero-truncated* in the discrete case so the base distribution cannot itself
+    produce a zero. With :math:`B` denoting the base PMF/PDF:
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{B(k)}{1 - B(0)} \;\text{for } k \geq 1
+        \;\text{(discrete base)}
+
+    For a continuous base on :math:`\mathbb{R}_{>0}` the truncation factor
+    :math:`1 - B(0)` equals 1 and the formula simplifies to a point mass at 0 with
+    weight :math:`g` mixed with :math:`(1 - g) \, b(x)` on :math:`x > 0`.
+
+    **Assumptions.**
+
+    1. *All zeros are structural* - they originate exclusively from the hurdle
+       process. This contrasts with zero-inflated models, which mix structural
+       zeros with sampling zeros from the base distribution.
+    2. The hurdle decision (zero vs. positive) and the magnitude (given positive)
+       are *conditionally independent* given the parameters.
+    3. For a discrete base, :math:`P(\text{base} = 0) < 1` so the truncation
+       factor :math:`1 - B(0)` is well-defined. For a continuous base supported
+       on :math:`\mathbb{R}_{>0}`, :math:`P(\text{base} = 0) = 0` and no
+       truncation is needed.
+
+    .. note::
+        ``gate`` is the probability of a structural zero. This matches the convention
+        used by :class:`ZeroInflatedDistribution`, and corresponds to ``1 - psi`` in
+        PyMC's hurdle distributions.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate: probability of a structural zero, in :math:`[0, 1]`.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {"gate": constraints.unit_interval}
+    pytree_data_fields = ("base_dist", "gate")
+    pytree_aux_fields = ("_is_discrete",)
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate,) = promote_shapes(gate, shape=batch_shape)
+        if base_dist.event_shape:
+            raise ValueError(
+                "HurdleProbs expected empty base_dist.event_shape but got {}".format(
+                    base_dist.event_shape
+                )
+            )
+        self.base_dist = base_dist.expand(batch_shape)
+        support = base_dist.support
+        assert support is not None
+        self._is_discrete = support.is_discrete
+        super(HurdleProbs, self).__init__(batch_shape, validate_args=validate_args)
+
+    @constraints.dependent_property
+    def support(self) -> constraints.Constraint:
+        support = self.base_dist.support
+        assert support is not None
+        # The hurdle adds a point mass at 0, which a positive base support excludes.
+        if support is constraints.positive:
+            return constraints.nonnegative
+        return support
+
+    def _log_one_minus_p_zero(self) -> Array:
+        # log(1 - B(0)) for the discrete base, used to renormalize the truncated PMF.
+        log_p0 = jnp.asarray(
+            self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+        )
+        return jax.nn.log1mexp(-log_p0)
+
+    def _log_gate(self) -> Array:
+        return jnp.log(self.gate)
+
+    def _log_one_minus_gate(self) -> Array:
+        return jnp.log1p(-self.gate)
+
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert is_prng_key(key)
+        assert key is not None
+        key_bern, key_base = random.split(key)
+        shape = sample_shape + self.batch_shape
+        zero_mask = random.bernoulli(key_bern, self.gate, shape)
+        if self._is_discrete:
+            samples = self._sample_truncated(key_base, sample_shape)
+        else:
+            samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
+        return jnp.where(zero_mask, jnp.zeros_like(samples), samples)
+
+    def _sample_truncated(
+        self, key: jax.Array, sample_shape: tuple[int, ...]
+    ) -> ArrayLike:
+        # Rejection sampling from the zero-truncated base distribution: redraw any
+        # element that came back as 0 until all elements are strictly positive.
+        first = self.base_dist(rng_key=key, sample_shape=sample_shape)
+
+        def cond_fun(state: tuple) -> Array:
+            _, current = state
+            return jnp.any(current == 0)
+
+        def body_fun(state: tuple) -> tuple:
+            k, current = state
+            k, sub = random.split(k)
+            candidate = self.base_dist(rng_key=sub, sample_shape=sample_shape)
+            current = jnp.where(current == 0, candidate, current)
+            return (k, current)
+
+        _, samples = lax.while_loop(cond_fun, body_fun, (key, first))
+        return samples
+
+    @validate_sample
+    def log_prob(self, value: ArrayLike) -> Array:
+        log_gate = self._log_gate()
+        log_one_minus_gate = self._log_one_minus_gate()
+        # Replace zeros with ones before evaluating the base log_prob to avoid
+        # -inf / NaN gradients when the base PDF is undefined at 0 (e.g. Gamma).
+        safe_value = jnp.where(value == 0, jnp.ones_like(value), value)
+        log_prob_base = self.base_dist.log_prob(safe_value)
+        if self._is_discrete:
+            log_nonzero = (
+                log_one_minus_gate + log_prob_base - self._log_one_minus_p_zero()
+            )
+        else:
+            log_nonzero = log_one_minus_gate + log_prob_base
+        return jnp.where(value == 0, log_gate, log_nonzero)
+
+    @lazy_property
+    def mean(self) -> Array:
+        if self._is_discrete:
+            trunc = -jnp.expm1(
+                self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+            )
+            return (1 - self.gate) * self.base_dist.mean / trunc
+        return (1 - self.gate) * self.base_dist.mean
+
+    @lazy_property
+    def variance(self) -> Array:
+        if self._is_discrete:
+            trunc = -jnp.expm1(
+                self.base_dist.log_prob(jnp.zeros((), dtype=jnp.result_type(int)))
+            )
+            second_moment_trunc = (
+                self.base_dist.mean**2 + self.base_dist.variance
+            ) / trunc
+            return (1 - self.gate) * second_moment_trunc - self.mean**2
+        return (1 - self.gate) * (
+            self.base_dist.mean**2 + self.base_dist.variance
+        ) - self.mean**2
+
+
+class HurdleLogits(HurdleProbs):
+    r"""Hurdle distribution parameterized by ``gate_logits`` (the log-odds of the
+    structural zero) instead of a probability.
+
+    Like :class:`HurdleProbs`, this is a two-part model where a Bernoulli
+    "hurdle" - here parameterized in logit space - selects between an exact
+    zero and a positive draw from the (zero-truncated, for discrete bases) base
+    distribution. See :class:`HurdleProbs` for the full mechanism, assumptions,
+    and underlying PMF/PDF.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate_logits: log-odds of a structural zero,
+        :math:`\mathrm{logit}(g) = \log\frac{g}{1 - g}`.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+
+    arg_constraints = {"gate_logits": constraints.extended_real}
+    pytree_data_fields = ("base_dist", "gate_logits")
+
+    def __init__(
+        self,
+        base_dist: Distribution,
+        gate_logits: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
+        gate = _to_probs_bernoulli(gate_logits)
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
+        (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
+        super().__init__(base_dist, gate, validate_args=validate_args)
+
+    def _log_gate(self) -> Array:
+        return -softplus(-self.gate_logits)
+
+    def _log_one_minus_gate(self) -> Array:
+        return -softplus(self.gate_logits)
+
+
+def HurdleDistribution(
+    base_dist: Distribution,
+    *,
+    gate: Optional[ArrayLike] = None,
+    gate_logits: Optional[ArrayLike] = None,
+    validate_args: Optional[bool] = None,
+) -> Union[HurdleProbs, HurdleLogits]:
+    r"""Generic hurdle distribution.
+
+    A hurdle model is a two-part model: a Bernoulli "hurdle" selects between an
+    exact zero (with probability ``gate``) and a positive draw from the
+    (zero-truncated, for discrete bases) base distribution. Writing :math:`g` for
+    the gate and :math:`B` for the base PMF, a discrete base gives
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g)\, \frac{B(k)}{1 - B(0)} \;\text{for } k \geq 1,
+
+    while a continuous base with density :math:`b` on :math:`\mathbb{R}_{>0}` gives
+    a point mass :math:`P(X = 0) = g` mixed with :math:`p(x) = (1 - g)\, b(x)` for
+    :math:`x > 0`. When ``gate_logits`` :math:`= z` is supplied instead,
+    :math:`g = \sigma(z) = 1 / (1 + e^{-z})`. With base mean :math:`\mu_B` and
+    variance :math:`\sigma_B^2`, the moments for a discrete base are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \frac{\mu_B}{1 - B(0)}, \qquad
+        \operatorname{Var}[X] = (1 - g)\, \frac{\mu_B^2 + \sigma_B^2}{1 - B(0)}
+        - \mathbb{E}[X]^2,
+
+    and for a continuous base the same expressions without the :math:`1 - B(0)`
+    divisor.
+
+    Returns a :class:`HurdleProbs` if ``gate`` is supplied, or a
+    :class:`HurdleLogits` if ``gate_logits`` is supplied. Exactly one of the two
+    must be provided. See :class:`HurdleProbs` for the full mechanism and
+    assumptions.
+
+    :param Distribution base_dist: the base distribution.
+    :param ArrayLike gate: probability of a structural zero.
+    :param ArrayLike gate_logits: log-odds of a structural zero.
+
+    **References:**
+
+    1. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    2. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    """
+    assert_one_of(gate=gate, gate_logits=gate_logits)
+    if gate is not None:
+        return HurdleProbs(base_dist, gate, validate_args=validate_args)
+    assert gate_logits is not None
+    return HurdleLogits(base_dist, gate_logits, validate_args=validate_args)
+
+
+class HurdlePoisson(HurdleProbs):
+    r"""A hurdle Poisson distribution: a two-part model in which structural zeros
+    are produced by a Bernoulli "hurdle" with probability :math:`g` and positive
+    counts follow a zero-truncated :math:`\mathrm{Poisson}(\lambda)`. The hurdle
+    and the magnitude (given a positive count) are conditionally independent;
+    see :class:`HurdleProbs` for the full mechanism and assumptions.
+
+    The probability mass function is
+
+    .. math::
+
+        P(X = 0) = g, \qquad
+        P(X = k) = (1 - g) \, \frac{\lambda^{k} e^{-\lambda} / k!}{1 - e^{-\lambda}}
+        \;\text{for } k \geq 1.
+
+    :param ArrayLike gate: probability of a structural zero, :math:`g \in [0, 1]`.
+    :param ArrayLike rate: rate :math:`\lambda > 0` of the underlying Poisson.
+
+    **References:**
+
+    1. Mullahy, J. (1986). Specification and testing of some modified count
+       data models. *Journal of Econometrics*, 33(3), 341-365.
+    2. Cragg, J. G. (1971). Some Statistical Models for Limited Dependent
+       Variables with Application to the Demand for Durable Goods.
+       *Econometrica*, 39(5), 829-844.
+    """
+
+    arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
+    support = constraints.nonnegative_integer
+    pytree_data_fields = ("rate",)
+
+    def __init__(
+        self,
+        gate: ArrayLike,
+        rate: ArrayLike = 1.0,
+        *,
+        validate_args: Optional[bool] = None,
+    ) -> None:
         _, self.rate = promote_shapes(gate, rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
 class GeometricProbs(Distribution):
+    r"""A Geometric discrete random variable representing the number of failures
+    before the first success, parameterized by the success probability
+    (:attr:`probs`).
+
+    The probability mass function (PMF) is defined as:
+
+    .. math::
+
+        P(X = k; p) = p(1-p)^k
+
+    where :math:`p \in (0,1]` is the probability of success on each independent trial.
+    :math:`k \in \{0, 1, 2, \ldots\}` is the number of failures before first success.
+    Equivalently, the first success occurs on trial :math:`k+1`.
+
+    :param probs: Probability of success on each trial (:math:`p`).
+    :type probs: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
 
-    def __init__(self, probs, *, validate_args=None):
+    def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
         self.probs = probs
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples using inverse CDF method.
+
+        For a uniform random variable :math:`U \sim \mathrm{Uniform}[0, 1)`,
+        a Geometric sample is obtained as:
+
+        .. math::
+            X = \left\lfloor \frac{\log(1-U)}{\log(1-p)} \right\rfloor.
+
+        :param key: JAX PRNGKey for reproducibility.
+        :type key: jax.Array
+        :param sample_shape: The shape of the samples to be generated.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from Geometric distribution of shape ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
-        probs = self.probs
+        assert key is not None
+        probs = jnp.asarray(self.probs)
         dtype = jnp.result_type(probs)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
         return jnp.floor(jnp.log1p(-u) / jnp.log1p(-probs))
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log of the probability mass function.
+
+        .. math::
+            \log P(X = k; p) = k\log(1-p) + \log p.
+
+        :param value: Values at which to evaluate the log density. Values must be nonnegative integers.
+        :type value: ArrayLike
+        :return: Log probability mass.
+        :rtype: jax.Array
+        """
+        value = jnp.asarray(value)
         probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
-        return value * jnp.log1p(-probs) + jnp.log(probs)
+        return value * jnp.log1p(-probs) + jnp.log(self.probs)
 
     @lazy_property
-    def logits(self):
+    def logits(self) -> Array:
+        r"""Calculates the logits corresponding to the success probability.
+
+        .. math::
+            \ell = \log\left(\frac{p}{1-p}\right).
+        """
         return _to_logits_bernoulli(self.probs)
 
     @property
-    def mean(self):
-        return 1.0 / self.probs - 1.0
+    def mean(self) -> Array:
+        r"""Calculates the mean of the Geometric distribution.
+
+        .. math::
+            \mathbb{E}[X] = \frac{1-p}{p}.
+        """
+        return jnp.asarray(1.0 / self.probs - 1.0)
 
     @property
-    def variance(self):
-        return (1.0 / self.probs - 1.0) / self.probs
+    def variance(self) -> Array:
+        r"""Calculates the variance of the Geometric distribution.
+
+        .. math::
+            \operatorname{Var}(X) = \frac{1-p}{p^2}.
+        """
+        return jnp.asarray((1.0 / self.probs - 1.0) / self.probs)
+
+    def entropy(self) -> Array:
+        r"""Entropy of the Geometric distribution.
+
+        .. math::
+            H(X) = -\log p - \frac{1-p}{p}\log(1-p).
+
+        :return: Entropy of the Geometric distribution.
+        :rtype: jax.Array
+        """
+        probs = jnp.asarray(self.probs)
+        return -xlog1py(1 - probs, -probs) / probs - jnp.log(probs)
 
 
 class GeometricLogits(Distribution):
-    arg_constraints = {"logits": constraints.real}
+    r"""Geometric distribution parameterized by logits (:attr:`logits`).
+
+    .. math::
+        P(X = k \mid \ell) = \sigma(\ell)
+        \left(1-\sigma(\ell)\right)^k,
+        \qquad k \in \{0, 1, 2, \ldots\}.
+
+    where :math:`\ell` denote the logits parameter,
+    :math:`p = \sigma(\ell) = \displaystyle\frac{1}{1+\exp(-\ell)}` is the probability of success.
+
+    :param logits: Logits of success on each trial (:math:`\ell`) in
+        :math:`(-\infty, \infty]`; :math:`+\infty` is certain success on the first
+        trial.
+    :type logits: ArrayLike
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    """
+
+    # -inf is p = 0, which has no normalizer.
+    arg_constraints = {"logits": constraints.greater_than(-float("inf"))}
     support = constraints.nonnegative_integer
 
-    def __init__(self, logits, *, validate_args=None):
+    def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
         self.logits = logits
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
 
     @lazy_property
-    def probs(self):
+    def probs(self) -> Array:
+        r"""The success probability obtained by applying the sigmoid function
+        to the logits.
+
+        .. math::
+            p = \sigma(\ell) = \frac{1}{1+\exp(-\ell)}.
+        """
         return _to_probs_bernoulli(self.logits)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Generates samples using inverse CDF technique in logit space.
+
+        :param key: JAX pseudo-random number generator key.
+        :type key: jax.Array
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :type sample_shape: tuple[int, ...]
+        :return: Samples from the Geometric distribution of shape
+            ``sample_shape + batch_shape``.
+        :rtype: jax.Array
+        """
         assert is_prng_key(key)
+        assert key is not None
         logits = self.logits
         dtype = jnp.result_type(logits)
         shape = sample_shape + self.batch_shape
@@ -909,22 +2512,109 @@ class GeometricLogits(Distribution):
         return jnp.floor(jnp.log1p(-u) / -softplus(logits))
 
     @validate_sample
-    def log_prob(self, value):
-        return (-value - 1) * softplus(self.logits) + self.logits
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Calculates the log probability mass function.
+
+        .. math::
+           \log P(X = k; \ell) = -\operatorname{softplus}(-\ell)
+           - k \operatorname{softplus}(\ell),
+
+        where, :math:`\operatorname{softplus}` is :func:`~jax.nn.softplus`.
+
+        :param value: Number of failures before the first success. Values must
+            be nonnegative integers.
+        :type value: ArrayLike
+        :return: Log probability mass.
+        :rtype: jax.Array
+        """
+        value = jnp.asarray(value)
+        logits = jnp.asarray(self.logits)
+        # log p = -softplus(-logits) and log(1 - p) = -softplus(logits) are exact at
+        # +inf, where the equivalent logits - (k + 1) softplus(logits) is inf - inf.
+        log_1mp = jnp.where(value == 0, 0.0, -softplus(logits))
+        return -softplus(-logits) + value * log_1mp
 
     @property
-    def mean(self):
-        return 1.0 / self.probs - 1.0
+    def mean(self) -> Array:
+        r"""Calculates the mean of the Geometric distribution.
+
+        .. math::
+            E[X] = \frac{1}{p}-1,
+
+        where :math:`p=\sigma(\ell)`. Computed directly as
+        :math:`\exp(-\ell)` to avoid cancellation when :math:`p` rounds to one.
+        """
+        logits = jnp.asarray(self.logits)
+        return jnp.exp(-logits.astype(jnp.result_type(logits, float)))
 
     @property
-    def variance(self):
-        return (1.0 / self.probs - 1.0) / self.probs
+    def variance(self) -> Array:
+        r"""Calculates the variance of the Geometric distribution.
+
+        .. math::
+            \operatorname{Var}(X) = \frac{1-p}{p^2},
+
+        implemented as,
+
+        .. math::
+            \operatorname{Var}(X) = \exp(-\ell)(1+\exp(-\ell)),
+
+        where :math:`p=\sigma(\ell)`.
+        """
+        mean = self.mean
+        return mean * (1.0 + mean)
+
+    def entropy(self) -> Array:
+        r"""Calculates the entropy of the Geometric distribution.
+
+        .. math::
+            H(X) = -\frac{1-p}{p}\ln{q}-\ln{p},
+
+        where, :math:`\ln{p}=-\operatorname{softplus}(-\ell)`, :math:`\ln{q}=-\operatorname{softplus}(\ell)`,
+        and :math:`p=\operatorname{expit}(\ell)`. Implementation uses :func:`~jax.nn.softplus`
+        and :func:`~jax.scipy.special.expit` for :math:`\operatorname{softplus}`
+        and :math:`\operatorname{expit}`, respectively.
+
+        :return: Entropy of the Geometric distribution.
+        :rtype: jax.Array
+        """
+        logits = jnp.asarray(self.logits)
+        logq = -softplus(logits)
+        logp = -softplus(-logits)
+        p = expit(logits)
+        # expit(-logits) is 1 - p without cancellation once the sigmoid saturates, and
+        # the guard keeps q * logq at zero (not 0 * -inf) when p is one.
+        q = expit(-logits)
+        p_clip = jnp.clip(p, jnp.finfo(p.dtype).tiny)
+        return -q * jnp.where(q > 0, logq, 0.0) / p_clip - logp
 
 
-def Geometric(probs=None, logits=None, *, validate_args=None):
+def Geometric(
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
+    *,
+    validate_args: Optional[bool] = None,
+) -> Union[GeometricProbs, GeometricLogits]:
+    r"""Geometric distribution parameterized by either probabilities
+    or logits.
+
+    Exactly one of :attr:`probs` or :attr:`logits` must be specified.
+
+    :param probs: Probability of success on each independent trial (:math:`p`).
+    :type probs: ArrayLike, optional
+    :param logits: Logits of success on each independent trial.
+    :type logits: ArrayLike, optional
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+    :type validate_args: bool, optional
+    :return: A probability- or logit-parameterized Geometric distribution.
+    :rtype: Union[GeometricProbs, GeometricLogits]
+    :raises ValueError: If both or neither of :attr:`probs` and :attr:`logits` are specified.
+    """
+    assert_one_of(probs=probs, logits=logits)
     if probs is not None:
         return GeometricProbs(probs, validate_args=validate_args)
     elif logits is not None:
         return GeometricLogits(logits, validate_args=validate_args)
     else:
-        raise ValueError("One of `probs` or `logits` must be specified.")
+        raise NotImplementedError

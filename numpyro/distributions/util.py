@@ -1,21 +1,50 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 from collections import namedtuple
+import functools as ft
 from functools import partial, update_wrapper
 import math
+from typing import Any
 import warnings
 
 import numpy as np
 
 import jax
-from jax import jit, lax, random, vmap
+from jax import Array, jit, lax, random, vmap
+from jax.core import Tracer
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
+from jax.scipy.special import digamma
+from jax.typing import ArrayLike
+
+from numpyro.util import not_jax_tracer
+
+
+def array_equiv(a: ArrayLike, b: ArrayLike, static: bool = False):
+    """Check equality using identity first, then jnp.array_equiv for arrays.
+
+    :param a: First array or value.
+    :param b: Second array or value.
+    :param static: If True, returns a Python bool. Returns False if either input
+        is a JAX array (to avoid tracer issues). If False (default), returns
+        an array-like result suitable for use with JAX tracers.
+    """
+    if a is b:
+        return True
+    if static:
+        if isinstance(a, jax.Array) or isinstance(b, jax.Array):
+            return False
+        return bool(np.array_equiv(a, b))
+    xp = jnp if isinstance(a, jax.Array) or isinstance(b, jax.Array) else np
+    return xp.array_equiv(a, b)
+
 
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
-    "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]
+    "_tr_params",
+    ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"],
 )
 
 
@@ -75,8 +104,25 @@ def _binomial_btrs(key, p, n):
     (https://core.ac.uk/download/pdf/11007254.pdf)
     """
 
+    def accept_fn(k, u, v):
+        # See acceptance condition in Step 3. (Page 3) of TRS algorithm
+        # v <= f(k) * g_grad(u) / alpha
+
+        m = tr_params.m
+        log_p = tr_params.log_p
+        log1_p = tr_params.log1_p
+        # See: formula for log(f(k)) at bottom of Page 5.
+        log_f = (
+            (n + 1.0) * jnp.log((n - m + 1.0) / (n - k + 1.0))
+            + (k + 0.5) * (jnp.log((n - k + 1.0) / (k + 1.0)) + log_p - log1_p)
+            + (stirling_approx_tail(k) - stirling_approx_tail(n - k))
+            + tr_params.log_h
+        )
+        g = (tr_params.a / (0.5 - jnp.abs(u)) ** 2) + tr_params.b
+        return jnp.log((v * tr_params.alpha) / g) <= log_f
+
     def _btrs_body_fn(val):
-        _, key, _, _ = val
+        _, key, _ = val
         key, key_u, key_v = random.split(key, 3)
         u = random.uniform(key_u)
         v = random.uniform(key_v)
@@ -84,47 +130,29 @@ def _binomial_btrs(key, p, n):
         k = jnp.floor(
             (2 * tr_params.a / (0.5 - jnp.abs(u)) + tr_params.b) * u + tr_params.c
         ).astype(n.dtype)
-        return k, key, u, v
-
-    def _btrs_cond_fn(val):
-        def accept_fn(k, u, v):
-            # See acceptance condition in Step 3. (Page 3) of TRS algorithm
-            # v <= f(k) * g_grad(u) / alpha
-
-            m = tr_params.m
-            log_p = tr_params.log_p
-            log1_p = tr_params.log1_p
-            # See: formula for log(f(k)) at bottom of Page 5.
-            log_f = (
-                (n + 1.0) * jnp.log((n - m + 1.0) / (n - k + 1.0))
-                + (k + 0.5) * (jnp.log((n - k + 1.0) / (k + 1.0)) + log_p - log1_p)
-                + (stirling_approx_tail(k) - stirling_approx_tail(n - k))
-                + tr_params.log_h
-            )
-            g = (tr_params.a / (0.5 - jnp.abs(u)) ** 2) + tr_params.b
-            return jnp.log((v * tr_params.alpha) / g) <= log_f
-
-        k, key, u, v = val
         early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
         early_reject = (k < 0) | (k > n)
+        accepted = lax.cond(
+            early_accept | early_reject,
+            lambda _: early_accept,
+            lambda x: accept_fn(*x),
+            (k, u, v),
+        )
+        return k, key, accepted
+
+    def _btrs_cond_fn(val):
         # when vmapped _binomial_dispatch will convert the cond condition into
-        # a HLO select that will execute both branches. This is a workaround
+        # an HLO select that will execute both branches. This is a workaround
         # that avoids the resulting infinite loop when p=0. This should also
         # improve performance in less catastrophic cases.
         cond_exclude_small_mu = p * n >= _binomial_mu_thresh
-        cond_main = lax.cond(
-            early_accept | early_reject,
-            (),
-            lambda _: ~early_accept,
-            (k, u, v),
-            lambda x: ~accept_fn(*x),
-        )
-        return cond_exclude_small_mu & cond_main
+        # The acceptance test is computed once in the body and carried: under vmap,
+        # while_loop evaluates this predicate twice per iteration, and recomputing a
+        # floating-point near-tie here can disagree and freeze an element forever.
+        return cond_exclude_small_mu & ~val[2]
 
     tr_params = _get_tr_params(n, p)
-    ret = lax.while_loop(
-        _btrs_cond_fn, _btrs_body_fn, (-1, key, 1.0, 1.0)
-    )  # use k=-1 initially so that cond_fn returns True
+    ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn, (-1, key, False))
     return ret[0]
 
 
@@ -146,6 +174,8 @@ def _binomial_inversion(key, p, n):
         return cond_exclude_large_mu & (geom_acc <= n)
 
     log1_p = jnp.log1p(-p)
+    # Make sure p=0 is never taken into account as a fix for possible zeros in p.
+    log1_p = jnp.where(log1_p == 0, -jnp.finfo(log1_p.dtype).tiny, log1_p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, (-1, key, 0.0))
     return ret[0]
 
@@ -157,21 +187,22 @@ def _binomial_dispatch(key, p, n):
         mu = n * pq
         k = lax.cond(
             mu < _binomial_mu_thresh,
-            (key, pq, n),
             lambda x: _binomial_inversion(*x),
-            (key, pq, n),
             lambda x: _binomial_btrs(*x),
+            (key, pq, n),
         )
         return jnp.where(is_le_mid, k, n - k)
 
     # Return 0 for nan `p` or negative `n`, since nan values are not allowed for integer types
     cond0 = jnp.isfinite(p) & (n > 0) & (p > 0)
+    valid = cond0 & (p < 1)
+    # Under vmap, lax.cond lowers to select and `dispatch` runs for every element,
+    # so invalid elements need inputs on which both while loops terminate.
     return lax.cond(
-        cond0 & (p < 1),
-        (key, p, n),
+        valid,
         lambda x: dispatch(*x),
-        (),
         lambda _: jnp.where(cond0, n, 0),
+        (key, jnp.where(valid, p, 0.5), jnp.where(valid, n, 0)),
     )
 
 
@@ -182,10 +213,12 @@ def _binomial(key, p, n, shape):
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
     key = random.split(key, jnp.size(p))
-    if jax.default_backend() == "cpu":
-        ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
-    else:
+    # Like jax.random.gamma: vmapped while loops only reproduce per-key streams for
+    # threefry keys; other PRNG implementations take the sequential path.
+    if str(random.key_impl(key)) == "threefry2x32":
         ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
+    else:
+        ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
     return jnp.reshape(ret, shape)
 
 
@@ -235,22 +268,19 @@ def _multinomial(key, p, n, n_max, shape=()):
         return jnp.zeros(shape + p.shape[-1:], dtype=jnp.result_type(int))
     # get indices from categorical distribution then gather the result
     indices = categorical(key, p, (n_max,) + shape)
-    # mask out values when counts is heterogeneous
-    if jnp.ndim(n) > 0:
-        mask = promote_shapes(
-            jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,)
-        )[0]
-        mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
-        excess = jnp.concatenate(
-            [
-                jnp.expand_dims(n_max - n, -1),
-                jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,)),
-            ],
-            -1,
-        )
-    else:
-        mask = 1
-        excess = 0
+    # Mask out trials beyond the count, including scalar counts below n_max.
+    mask = promote_shapes(
+        jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,)
+    )[0]
+    mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
+    # Masked trials land in category zero; subtract them back out.
+    excess = jnp.concatenate(
+        [
+            jnp.expand_dims(n_max - n, -1),
+            jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,), dtype=indices.dtype),
+        ],
+        -1,
+    )
     # NB: we transpose to move batch shape to the front
     indices_2D = (jnp.reshape(indices * mask, (n_max, -1))).T
     samples_2D = vmap(_scatter_add_one, (0, 0, 0))(
@@ -263,7 +293,7 @@ def _multinomial(key, p, n, n_max, shape=()):
 
 def multinomial(key, p, n, shape=(), total_count_max=None):
     if total_count_max is None:
-        if isinstance(n, jax.core.Tracer):
+        if isinstance(n, Tracer):
             raise ValueError(
                 "Please specify total_count_max in Multinomial distribution."
             )
@@ -288,8 +318,28 @@ def cholesky_of_inverse(matrix):
 # TODO: move upstream to jax.nn
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
+    #   = log1p(exp(-|x|)) - yx + max(x, 0)
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
-    return jnp.clip(x, 0) + jnp.log1p(jnp.exp(-jnp.abs(x))) - x * y
+    #
+    # Handling nans: only the portion (- yx + max(x,0)) can produce them:
+    # y=0, x=-inf ->  0*inf + 0   = nan             -> should be 0
+    # y=0, x= inf -> -0*inf + inf = nan + inf = nan -> should be inf
+    # y=1, x=-inf ->  1*inf + 0   = inf             -> correct
+    # y=1, x= inf -> -1*inf + inf = nan             -> should be 0
+    # Use "double where" trick with special clause to handle the nans.
+    # To make a one-liner for the clause, notice that
+    # y=0, x=-inf -> (x>0)=0 and xor(y, x>0)=0
+    # y=0, x= inf -> (x>0)=1 and xor(y, x>0)=1
+    # y=1, x=-inf -> (x>0)=0 and xor(y, x>0)=1
+    # y=1, x= inf -> (x>0)=1 and xor(y, x>0)=0
+    # and that jnp.inf*jnp.array(False) == 0; i.e., no nan, even though
+    # jnp.array(False) == 0.
+    condition = jnp.isfinite(x)
+    safe_x = jnp.where(condition, x, jnp.zeros_like(x))
+    usual_result = (
+        jnp.clip(safe_x, 0) + jnp.log1p(jnp.exp(-jnp.abs(safe_x))) - safe_x * y
+    )
+    return jnp.where(condition, usual_result, jnp.inf * jnp.logical_xor(y, x > 0))
 
 
 def _reshape(x, shape):
@@ -299,16 +349,28 @@ def _reshape(x, shape):
         return jnp.reshape(x, shape)
 
 
-def promote_shapes(*args, shape=()):
+def promote_shapes(*args, shape=(), return_shapes: bool = False):
+    """
+    Promote the shapes of arrays so they have the same number of dimensions and are
+    broadcastable.
+
+    :param *args: Arrays to promote.
+    :param shape: Leading shape to add to arrays.
+    :param return_shapes: Return the shapes of arrays instead of the shape-promoted
+        arrays.
+    """
     # adapted from lax.lax_numpy
     if len(args) < 2 and not shape:
-        return args
+        return [jnp.shape(arg) for arg in args] if return_shapes else args
     else:
         shapes = [jnp.shape(arg) for arg in args]
         num_dims = len(lax.broadcast_shapes(shape, *shapes))
+        shapes = [(1,) * (num_dims - len(shape)) + shape for shape in shapes]
+        if return_shapes:
+            return shapes
         return [
-            _reshape(arg, (1,) * (num_dims - len(s)) + s) if len(s) < num_dims else arg
-            for arg, s in zip(args, shapes)
+            _reshape(arg, shape) if jnp.ndim(arg) < len(shape) else arg
+            for arg, shape in zip(args, shapes)
         ]
 
 
@@ -385,7 +447,7 @@ def cholesky_update(L, x, coef=1):
 def signed_stick_breaking_tril(t):
     # make sure that t in (-1, 1)
     eps = jnp.finfo(t.dtype).eps
-    t = jnp.clip(t, a_min=(-1 + eps), a_max=(1 - eps))
+    t = jnp.clip(t, -1 + eps, 1 - eps)
     # transform t to tril matrix with identity diagonal
     r = vec_to_tril_matrix(t, diagonal=-1)
 
@@ -400,7 +462,7 @@ def signed_stick_breaking_tril(t):
     z1m_cumprod_sqrt_shifted = jnp.pad(
         z1m_cumprod_sqrt[..., :-1], pad_width, mode="constant", constant_values=1.0
     )
-    y = (r + jnp.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
+    y = add_diag(r, 1) * z1m_cumprod_sqrt_shifted
     return y
 
 
@@ -414,9 +476,69 @@ def logmatmulexp(x, y):
     return xy + x_shift + y_shift
 
 
-def clamp_probs(probs):
+@jax.custom_jvp
+def log1mexp(x: ArrayLike) -> Array:
+    """
+    Numerically stable calculation of the quantity
+    :math:`\\log(1 - \\exp(x))`, following the algorithm
+    of `Mächler 2012`_.
+
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
+
+    Returns ``-jnp.inf`` when ``x == 0`` and ``jnp.nan``
+    when ``x > 0``.
+
+    :param x: A number or array of numbers.
+    :return: The value of :math:`\\log(1 - \\exp(x))`.
+    """
+    x = jnp.asarray(x)
+    return jnp.where(
+        x > -0.6931472,  # approx -log(2)
+        jnp.log(-jnp.expm1(x)),
+        jnp.log1p(-jnp.exp(x)),
+    )
+
+
+# Custom jvp for log1mexp to handle the gradient when x is near 0.
+#
+# Inspired by the approach taken here for the function log1mexp(-x):
+# https://github.com/google-research/google-research/blob/14e984cdb8630a7e3d210dff8760fc06d490fc4b/diffusion_distillation/diffusion_distillation/utils.py#L364-L370
+# That code is (c) 2024 The Google Research Authors and licensed under
+# an Apache 2.0 License.
+log1mexp.defjvps(lambda t, ans, x: -t / jnp.expm1(-x))
+
+
+def logdiffexp(a: ArrayLike, b: ArrayLike) -> Array:
+    """
+    Numerically stable calculation of the
+    quantity :math:`\\log(\\exp(a) - \\exp(b))`,
+    provided :math:`+\\infty > a \\ge b`,
+    following the algorithm of `Mächler 2012`_.
+
+    .. _Mächler 2012: https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf
+
+    Returns ``-jnp.inf`` when ``a == b``,
+    including when ``a == b == -jnp.inf``,
+    since this corresponds to ``jnp.log(0)``.
+    Returns ``jnp.nan`` when ``a < b`` or
+    ``a == jnp.inf``.
+
+    :param a: A number or array of numbers.
+    :param b: A number or array of numbers.
+    :return: The value of :math:`\\log(\\exp(a) - \\exp(b))`.
+    """
+    a = jnp.asarray(a)
+    b = jnp.asarray(b)
+    return jnp.where(
+        (a < jnp.inf) & (a > b),
+        a + log1mexp(b - a),
+        jnp.where((a < jnp.inf) & (a == b), -jnp.inf, jnp.nan),
+    )
+
+
+def clamp_probs(probs: ArrayLike) -> Array:
     finfo = jnp.finfo(jnp.result_type(probs, float))
-    return jnp.clip(probs, a_min=finfo.tiny, a_max=1.0 - finfo.eps)
+    return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
 
 
 def betainc(a, b, x):
@@ -606,7 +728,7 @@ def safe_normalize(x, *, p=2):
     assert isinstance(p, (float, int))
     assert p >= 0
     norm = jnp.linalg.norm(x, p, axis=-1, keepdims=True)
-    x = x / jnp.clip(norm, a_min=jnp.finfo(x).tiny)
+    x = x / jnp.clip(norm, jnp.finfo(x.dtype).tiny)
     # Avoid the singularity.
     mask = jnp.all(x == 0, axis=-1, keepdims=True)
     x = jnp.where(mask, x.shape[-1] ** (-1 / p), x)
@@ -621,6 +743,31 @@ def is_prng_key(key):
         return key.shape == (2,) and key.dtype == np.uint32
     except AttributeError:
         return False
+
+
+def assert_one_of(**kwargs):
+    """
+    Assert that exactly one of the keyword arguments is not None.
+    """
+    specified = [key for key, value in kwargs.items() if value is not None]
+    if len(specified) != 1:
+        raise ValueError(
+            f"Exactly one of {list(kwargs)} must be specified; got {specified}."
+        )
+
+
+def multidigamma(a: ArrayLike, d: ArrayLike) -> Array:
+    """
+    Derivative of the log of multivariate gamma.
+    """
+    return digamma(jnp.expand_dims(a, -1) - 0.5 * jnp.arange(d)).sum(axis=-1)
+
+
+def tri_logabsdet(a: ArrayLike) -> Array:
+    """
+    Evaluate the `logabsdet` of a triangular positive-definite matrix.
+    """
+    return jnp.log(jnp.diagonal(a, axis1=-1, axis2=-2)).sum(axis=-1)
 
 
 # The is sourced from: torch.distributions.util.py
@@ -662,15 +809,17 @@ class lazy_property(object):
     def __call__(self, *args, **kwargs):
         return self.wrapped(*args, **kwargs)
 
-    def __get__(self, instance, obj_type=None):
+    def __get__(self, instance: Any, obj_type: Any = None) -> Any:
         if instance is None:
             return self
         value = self.wrapped(instance)
-        setattr(instance, self.wrapped.__name__, value)
+        if not_jax_tracer(value):
+            setattr(instance, self.wrapped.__name__, value)
         return value
 
 
 def validate_sample(log_prob_fn):
+    @ft.wraps(log_prob_fn)
     def wrapper(self, *args, **kwargs):
         log_prob = log_prob_fn(self, *args, **kwargs)
         if self._validate_args:
@@ -680,3 +829,11 @@ def validate_sample(log_prob_fn):
         return log_prob
 
     return wrapper
+
+
+def add_diag(matrix: Array, diag: ArrayLike) -> Array:
+    """
+    Add `diag` to the trailing diagonal of `matrix`.
+    """
+    idx = jnp.arange(matrix.shape[-1])
+    return matrix.at[..., idx, idx].add(diag)

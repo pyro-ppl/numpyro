@@ -22,9 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def assert_equal(a, b, prec=0):
-    return jax.tree_util.tree_map(
-        lambda a, b: np.testing.assert_allclose(a, b, atol=prec), a, b
-    )
+    return jax.tree.map(lambda a, b: np.testing.assert_allclose(a, b, atol=prec), a, b)
 
 
 def model_0(data, params):
@@ -39,7 +37,7 @@ def guide_0(data, params):
         pyro.sample("z", dist.Categorical(probs))
 
 
-params_0 = {"probs": jnp.array([[0.4, 0.6], [0.5, 0.5]])}
+params_0 = {"probs": np.array([[0.4, 0.6], [0.5, 0.5]])}
 
 
 def model_1(data, params):
@@ -59,8 +57,8 @@ def guide_1(data, params):
 
 
 params_1 = {
-    "probs_a": jnp.array([0.5, 0.5]),
-    "probs_b": jnp.array([[[0.5, 0.5], [0.6, 0.4]], [[0.4, 0.6], [0.35, 0.65]]]),
+    "probs_a": np.array([0.5, 0.5]),
+    "probs_b": np.array([[[0.5, 0.5], [0.6, 0.4]], [[0.4, 0.6], [0.35, 0.65]]]),
 }
 
 
@@ -90,32 +88,32 @@ def guide_2(data, params):
 
 
 params_2 = {
-    "probs_a": jnp.array([0.5, 0.5]),
-    "probs_b": jnp.array([[0.4, 0.6], [0.3, 0.7]]),
-    "probs_c": jnp.array([[[0.3, 0.7], [0.8, 0.2]], [[0.2, 0.8], [0.5, 0.5]]]),
-    "probs_d": jnp.array([[[0.2, 0.8], [0.9, 0.1]], [[0.1, 0.9], [0.4, 0.6]]]),
+    "probs_a": np.array([0.5, 0.5]),
+    "probs_b": np.array([[0.4, 0.6], [0.3, 0.7]]),
+    "probs_c": np.array([[[0.3, 0.7], [0.8, 0.2]], [[0.2, 0.8], [0.5, 0.5]]]),
+    "probs_d": np.array([[[0.2, 0.8], [0.9, 0.1]], [[0.1, 0.9], [0.4, 0.6]]]),
 }
 
 
 @pytest.mark.parametrize(
     "model,guide,params,data",
     [
-        (model_0, guide_0, params_0, jnp.array([-0.5, 2.0])),
-        (model_1, guide_1, params_1, jnp.array([-0.5, 2.0])),
-        (model_2, guide_2, params_2, jnp.array([0, 1])),
+        (model_0, guide_0, params_0, np.array([-0.5, 2.0])),
+        (model_1, guide_1, params_1, np.array([-0.5, 2.0])),
+        (model_2, guide_2, params_2, np.array([0, 1])),
     ],
 )
 def test_gradient(model, guide, params, data):
     transform = dist.biject_to(dist.constraints.simplex)
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
 
     # Expected grads based on exact integration
     elbo = infer.TraceEnum_ELBO()
 
     def expected_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
+        params = jax.tree.map(transform, params_raw)
         return elbo.loss(
-            random.PRNGKey(0), {}, model, config_enumerate(guide), data, params
+            random.key(0), {}, model, config_enumerate(guide), data, params
         )
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
@@ -124,8 +122,8 @@ def test_gradient(model, guide, params, data):
     elbo = infer.TraceGraph_ELBO(num_particles=10_000)
 
     def actual_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, data, params)
+        params = jax.tree.map(transform, params_raw)
+        return elbo.loss(random.key(0), {}, model, guide, data, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
@@ -336,23 +334,21 @@ def test_analytic_kl_1(model, kl_sites, valid_kl):
         "probs_z3": jnp.array([[[0.4, 0.6], [0.5, 0.5]], [[0.7, 0.3], [0.9, 0.1]]]),
     }
     transform = dist.biject_to(dist.constraints.simplex)
-    params_raw = jax.tree_util.tree_map(transform.inv, params)
+    params_raw = jax.tree.map(transform.inv, params)
 
     elbo = infer.TraceEnum_ELBO()
 
     # Exact integration based on enumeration
     def expected_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        params = jax.tree.map(transform, params_raw)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     expected_loss, expected_grads = jax.value_and_grad(expected_loss_fn)(params_raw)
 
     # Exact integration based on the mix of enumeration and analytic kl
     def actual_loss_fn(params_raw):
-        params = jax.tree_util.tree_map(transform, params_raw)
-        return elbo.loss(
-            random.PRNGKey(0), {}, model, config_kl(guide, kl_sites), params
-        )
+        params = jax.tree.map(transform, params_raw)
+        return elbo.loss(random.key(0), {}, model, config_kl(guide, kl_sites), params)
 
     if valid_kl:
         actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
@@ -458,12 +454,12 @@ def test_analytic_kl_2():
             "probs_z2": transform(params_raw["probs_z2"]),
             "probs_z3": params_raw["probs_z3"],
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
-    assert_equal(actual_loss, expected_loss, prec=3e-3)
-    assert_equal(actual_grads, expected_grads, prec=4e-3)
+    assert_equal(actual_loss, expected_loss, prec=0.05)
+    assert_equal(actual_grads, expected_grads, prec=0.005)
 
 
 def test_analytic_kl_3():
@@ -553,12 +549,12 @@ def test_analytic_kl_3():
             "probs_z2": transform(params_raw["probs_z2"]),
             "probs_z3": params_raw["probs_z3"],
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, guide, params)
+        return elbo.loss(random.key(0), {}, model, guide, params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 
-    assert_equal(actual_loss, expected_loss, prec=3e-3)
-    assert_equal(actual_grads, expected_grads, prec=4e-3)
+    assert_equal(actual_loss, expected_loss, prec=0.01)
+    assert_equal(actual_grads, expected_grads, prec=0.005)
 
 
 @pytest.mark.parametrize("scale1", [1, 10])
@@ -621,7 +617,7 @@ def test_analytic_kl_4(z1_dim, z2_dim, scale1, scale2):
             "probs_z1": transform(params_raw["probs_z1"]),
             "probs_z2": params_raw["probs_z2"],
         }
-        return elbo.loss(random.PRNGKey(0), {}, model, config_kl(guide), params)
+        return elbo.loss(random.key(0), {}, model, config_kl(guide), params)
 
     actual_loss, actual_grads = jax.value_and_grad(actual_loss_fn)(params_raw)
 

@@ -57,7 +57,7 @@ The NumPyro implementation below uses :class:`~numpyro.primitives.plate` notatio
 dimensions of the age, space and time variables. This allows us to efficiently broadcast arrays
 in the likelihood.
 
-As written above, the model includes a lot of centred random effects. The NUTS alogrithm benefits
+As written above, the model includes a lot of centred random effects. The NUTS algorithm benefits
 from a non-centred reparamatrisation to overcome difficult posterior geometries [2]. Rather than
 manually writing out the non-centred parametrisation, we make use of the NumPyro's automatic
 reparametrisation in :class:`~numpyro.infer.reparam.LocScaleReparam`.
@@ -215,12 +215,12 @@ def main(args):
     print_model_shape(model, a, s2, t, lookup, population)
 
     print("Starting inference...")
-    rng_key = random.PRNGKey(args.rng_seed)
+    rng_key = random.key(args.rng_seed)
     run_inference(model, a, s2, t, lookup, population, deaths, rng_key, args)
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.13.2")
+    assert numpyro.__version__.startswith("0.22.0")
 
     parser = argparse.ArgumentParser(description="Mortality regression model")
     parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)

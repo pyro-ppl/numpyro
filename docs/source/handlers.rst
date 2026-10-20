@@ -27,6 +27,14 @@ condition
     :show-inheritance:
     :member-order: bysource
 
+uncondition
+-----------
+.. autoclass:: numpyro.handlers.uncondition
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 do
 --
 .. autoclass:: numpyro.handlers.do

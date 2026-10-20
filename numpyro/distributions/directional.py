@@ -1,21 +1,26 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 from collections import namedtuple
 import functools
 import math
 from math import pi
 import operator
+from typing import Any, Optional
 
-from jax import lax
+import jax
+from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy import special
 from jax.scipy.special import erf, i0e, i1e, logsumexp
+from jax.typing import ArrayLike
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
+    assert_one_of,
     lazy_property,
     promote_shapes,
     safe_normalize,
@@ -25,11 +30,11 @@ from numpyro.distributions.util import (
 from numpyro.util import is_prng_key, while_loop
 
 
-def _numel(shape):
+def _numel(shape: tuple[int, ...]) -> int:
     return functools.reduce(operator.mul, shape, 1)
 
 
-def log_I1(orders: int, value, terms=250):
+def log_I1(orders: int, value: ArrayLike, terms: int = 250) -> Array:
     r"""Compute first n log modified bessel function of first kind
     .. math ::
         \log(I_v(z)) = v*\log(z/2) + \log(\sum_{k=0}^\inf \exp\left[2*k*\log(z/2) - \sum_kk^k log(kk)
@@ -40,11 +45,11 @@ def log_I1(orders: int, value, terms=250):
     :return: 0 to orders modified bessel function
     """
     orders = orders + 1
-    if value.ndim == 0:
-        vshape = jnp.shape([1])
+    if jnp.ndim(value) == 0:
+        vshape = (1,)
     else:
-        vshape = value.shape
-    value = value.reshape(-1, 1)
+        vshape = jnp.shape(value)
+    value = jnp.reshape(value, (-1, 1))
     flat_vshape = _numel(vshape)
 
     k = jnp.arange(terms)
@@ -77,11 +82,30 @@ def log_I1(orders: int, value, terms=250):
 
 
 class VonMises(Distribution):
-    """
-    The von Mises distribution, also known as the circular normal distribution.
+    r"""The von Mises distribution (circular normal), a continuous distribution
+    on the circle parameterized by location :math:`\mu` and concentration
+    :math:`\kappa > 0`. It is the circular analogue of the Normal distribution
+    and concentrates around :math:`\mu` as :math:`\kappa` grows.
 
-    This distribution is supported by a circular constraint from -pi to +pi. By
-    default, the circular support behaves like
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x \mid \mu, \kappa) =
+        \frac{\exp\!\bigl(\kappa \cos(x - \mu)\bigr)}{2\pi\, I_{0}(\kappa)},
+        \quad x \in [-\pi, \pi]
+
+    where :math:`\mu \in \mathbb{R}` is the location (:attr:`loc`),
+    :math:`\kappa > 0` is the concentration (:attr:`concentration`), and
+    :math:`I_{0}` is the modified Bessel function of the first kind of order
+    zero. The closed interval matches :attr:`support`
+    (:data:`~numpyro.distributions.constraints.circular`). The density is
+    :math:`2\pi`-periodic in :math:`x`, and :meth:`log_prob` wraps ``value``
+    modulo :math:`2\pi`. The implementation evaluates the log-density with the
+    exponentially scaled Bessel :math:`I_{0}^{e}(\kappa) = I_{0}(\kappa)\,e^{-\kappa}`
+    for numerical stability.
+
+    This distribution is supported by a circular constraint from ``-pi`` to
+    ``+pi``. By default, the circular support behaves like
     ``constraints.interval(-math.pi, math.pi)``. To avoid issues at the
     boundaries of this interval during sampling, you should reparameterize this
     distribution using ``handlers.reparam`` with a
@@ -98,11 +122,18 @@ class VonMises(Distribution):
     reparametrized_params = ["loc"]
     support = constraints.circular
 
-    def __init__(self, loc, concentration, *, validate_args=None):
-        """von Mises distribution for sampling directions.
-
-        :param loc: center of distribution
-        :param concentration: concentration of distribution
+    def __init__(
+        self,
+        loc: ArrayLike,
+        concentration: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        r"""
+        :param loc: Location (mean direction) :math:`\mu \in \mathbb{R}`;
+            only :math:`\mu \bmod 2\pi` matters.
+        :param concentration: Concentration :math:`\kappa > 0`.
+        :param validate_args: If True, enforce domain constraints during initialization.
         """
         self.loc, self.concentration = promote_shapes(loc, concentration)
 
@@ -112,13 +143,18 @@ class VonMises(Distribution):
             batch_shape=batch_shape, validate_args=validate_args
         )
 
-    def sample(self, key, sample_shape=()):
-        """Generate sample from von Mises distribution
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        r"""Draw samples by generating a centered von Mises variate and
+        shifting by :attr:`loc`, then wrapping into :math:`[-\pi, \pi]`.
 
-        :param key: random number generator key
-        :param sample_shape: shape of samples
-        :return: samples from von Mises
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Circular samples in :math:`[-\pi, \pi]` (endpoint
+            :math:`-\pi` is reachable).
         """
+        assert key is not None
         assert is_prng_key(key)
         samples = von_mises_centered(
             key, self.concentration, sample_shape + self.shape()
@@ -129,21 +165,50 @@ class VonMises(Distribution):
         return samples
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x \mid \mu, \kappa) =
+            \kappa\bigl(\cos(x - \mu) - 1\bigr)
+            - \log(2\pi)
+            - \log I_{0}^{e}(\kappa)
+
+        which equals
+        :math:`\kappa\cos(x-\mu) - \log(2\pi) - \log I_{0}(\kappa)`.
+
+        :param value: Angle :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density under the von Mises distribution.
+        """
         return -(
             jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))
         ) + self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
-    def mean(self):
-        """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
+    def mean(self) -> Array:
+        r"""Circular mean of the von Mises distribution, equal to :attr:`loc`
+        wrapped into :math:`[-\pi, \pi]`:
+
+        .. math::
+            \mathbb{E}_{\mathrm{circ}}[X] =
+            ((\mu + \pi) \bmod 2\pi) - \pi
+        """
         return jnp.broadcast_to(
             (self.loc + jnp.pi) % (2.0 * jnp.pi) - jnp.pi, self.batch_shape
         )
 
     @property
-    def variance(self):
-        """Computes circular variance of distribution"""
+    def variance(self) -> Array:
+        r"""Circular variance of the von Mises distribution:
+
+        .. math::
+            \mathrm{Var}_{\mathrm{circ}}(X) =
+            1 - \frac{I_{1}(\kappa)}{I_{0}(\kappa)}
+            = 1 - \frac{I_{1}^{e}(\kappa)}{I_{0}^{e}(\kappa)}
+
+        where :math:`I_{1}` is the modified Bessel function of the first kind
+        of order one (evaluated via its exponentially scaled form).
+        """
         return jnp.broadcast_to(
             1.0 - i1e(self.concentration) / i0e(self.concentration), self.batch_shape
         )
@@ -159,6 +224,28 @@ class SineSkewed(Distribution):
     (i.e., :math:`\otimes S^1` where :math:`S^1 = [-pi,pi)`).
     So, a 0-torus is a point, the 1-torus is a circle,
     and the 2-torus is commonly associated with the donut shape.
+
+    Let :math:`f` be the density of ``base_dist`` on the :math:`d`-torus, symmetric
+    about its location :math:`\boldsymbol\mu` (``base_dist.mean``), and let
+    :math:`\boldsymbol\lambda \in \mathbb{R}^d` be the ``skewness`` with
+    :math:`\sum_{i=1}^{d} |\lambda_i| \le 1`. The sine skewed density is
+
+    .. math::
+        p(\mathbf{x} \mid \boldsymbol\lambda) = f(\mathbf{x})
+        \left(1 + \sum_{i=1}^{d} \lambda_i \sin(x_i - \mu_i)\right),
+        \qquad \mathbf{x} \in [-\pi, \pi)^d ,
+
+    so that ``log_prob`` is the base log density plus
+    :math:`\log\big(1 + \sum_i \lambda_i \sin(x_i - \mu_i)\big)`. Normalization is
+    preserved because :math:`f` is symmetric about :math:`\boldsymbol\mu` and
+    :math:`\sin` is odd, so every :math:`\int f(\mathbf{x})\sin(x_i - \mu_i)\,
+    d\mathbf{x}` vanishes; the :math:`\ell_1` constraint on
+    :math:`\boldsymbol\lambda` keeps the bracket non-negative. Sampling follows
+    Section 2.3 of [1]: draw :math:`\mathbf{Y} \sim f` and
+    :math:`U \sim \mathrm{Uniform}(0, 1)`, and return :math:`\mathbf{Y}` if
+    :math:`U \le \tfrac12\big(1 + \sum_i \lambda_i \sin(Y_i - \mu_i)\big)`, otherwise
+    the reflection :math:`2\boldsymbol\mu - \mathbf{Y}`; the result is wrapped to
+    :math:`[-\pi, \pi)^d`.
 
     The sine skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
     For example with a von Mises distribution over a circle (1-torus), the sine skewed von Mises distribution has one
@@ -189,10 +276,10 @@ class SineSkewed(Distribution):
 
     To ensure the skewing does not alter the normalization constant of the (sine bivariate von Mises) base
     distribution the skewness parameters are constraint. The constraint requires the sum of the absolute values of
-    skewness to be less than or equal to one. We can use the :class:`~numpyro.distriubtions.transforms.L1BallTransform`
+    skewness to be less than or equal to one. We can use the :class:`~numpyro.distributions.transforms.L1BallTransform`
     to achieve this.
 
-    In the context of :class:`~pyro.infer.SVI`, this distribution can freely be used as a likelihood, but use as
+    In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can freely be used as a likelihood, but use as
     latent variables it will lead to slow inference for 2 and higher dim toruses. This is because the base_dist
     cannot be reparameterized.
 
@@ -201,13 +288,25 @@ class SineSkewed(Distribution):
     .. note:: For the skewness parameter, it must hold that the sum of the absolute value of its weights for an event
         must be less than or equal to one. See eq. 2.1 in [1].
 
-    ** References: **
+    .. note::
+        ``mean`` returns the base location :math:`\boldsymbol\mu` (``base_dist.mean``),
+        not the circular mean of the skewed distribution; ``variance`` is not
+        implemented. The base distribution must expose ``mean``, which is used as
+        the symmetry center, and must be symmetric about it for the density above
+        to be normalized. When validation is enabled, the checks performed by this
+        class itself only *warn* on values outside the support of this
+        distribution or of the base distribution; however, a ``base_dist``
+        constructed with validation enabled (the default) still masks
+        out-of-support values to :math:`-\infty` inside its own ``log_prob``, and
+        that value is what ``log_prob`` returns.
+
+    **References**
         1. Sine-skewed toroidal distributions and their application in protein bioinformatics
             Ameijeiras-Alonso, J., Ley, C. (2019)
 
     :param numpyro.distributions.Distribution base_dist: base density on a d-dimensional torus. Supported base
         distributions include: 1D :class:`~numpyro.distributions.VonMises`,
-        :class:`~numnumpyro.distributions.SineBivariateVonMises`, 1D :class:`~numpyro.distributions.ProjectedNormal`,
+        :class:`~numpyro.distributions.SineBivariateVonMises`, 1D :class:`~numpyro.distributions.ProjectedNormal`,
         and :class:`~numpyro.distributions.Uniform` (-pi, pi).
     :param jax.numpy.array skewness: skewness of the distribution.
     """
@@ -217,25 +316,32 @@ class SineSkewed(Distribution):
 
     support = constraints.independent(constraints.circular, 1)
 
-    def __init__(self, base_dist: Distribution, skewness, *, validate_args=None):
-        assert (
-            base_dist.event_shape == skewness.shape[-1:]
-        ), "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
+    def __init__(
+        self,
+        base_dist: Distribution,
+        skewness: ArrayLike,
+        *,
+        validate_args: Optional[bool] = None,
+    ):
+        skewness_shape = jnp.shape(skewness)
+        assert base_dist.event_shape == skewness_shape[-1:], (
+            "Sine Skewing is only valid with a skewness parameter for each dimension of `base_dist.event_shape`."
+        )
 
-        batch_shape = jnp.broadcast_shapes(base_dist.batch_shape, skewness.shape[:-1])
-        event_shape = skewness.shape[-1:]
+        batch_shape = jnp.broadcast_shapes(base_dist.batch_shape, skewness_shape[:-1])
+        event_shape = skewness_shape[-1:]
         self.skewness = jnp.broadcast_to(skewness, batch_shape + event_shape)
         self.base_dist = base_dist.expand(batch_shape)
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         args_string = ", ".join(
             [
                 "{}: {}".format(
                     p,
                     getattr(self, p)
-                    if getattr(self, p).numel() == 1
-                    else getattr(self, p).size(),
+                    if getattr(self, p).size == 1
+                    else getattr(self, p).size,
                 )
                 for p in self.arg_constraints.keys()
             ]
@@ -248,10 +354,13 @@ class SineSkewed(Distribution):
             + ")"
         )
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert key is not None
         base_key, skew_key = random.split(key)
         bd = self.base_dist
-        ys = bd.sample(base_key, sample_shape)
+        ys = jnp.asarray(bd.sample(base_key, sample_shape))
         u = random.uniform(skew_key, sample_shape + self.batch_shape)
 
         # Section 2.3 step 3 in [1]
@@ -264,7 +373,9 @@ class SineSkewed(Distribution):
         ) - jnp.pi
         return samples
 
-    def log_prob(self, value):
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> Array:
         if self._validate_args:
             self._validate_sample(value)
         if self.base_dist._validate_args:
@@ -276,10 +387,10 @@ class SineSkewed(Distribution):
                 -1
             )
         )
-        return self.base_dist.log_prob(value) + skew_prob
+        return jnp.asarray(self.base_dist.log_prob(value)) + skew_prob
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         """Mean of the base distribution"""
         return self.base_dist.mean
 
@@ -301,24 +412,63 @@ class SineBivariateVonMises(Distribution):
     kappa's are the concentration and rho gives the correlation between angles :math:`x_1` and :math:`x_2`.
     This distribution is helpful for modeling coupled angles such as torsion angles in peptide chains.
 
+    The density is unimodal when :math:`\rho^2 < \kappa_1\kappa_2` and bimodal when
+    :math:`\rho^2 > \kappa_1\kappa_2` [1]. Passing ``weighted_correlation``
+    :math:`w \in [-1, 1]` sets :math:`\rho = w\sqrt{\kappa_1\kappa_2}`, so
+    :math:`|w| < 1` guarantees unimodality.
+
+    The marginal density of the first angle and the conditional of the second
+    angle, which ``sample`` uses, are
+
+    .. math::
+        f(\phi) \propto \exp\big(\kappa_1 \cos(\phi - \mu_1)\big)\,
+        I_0\!\left(\sqrt{\kappa_2^2 + \rho^2 \sin^2(\phi - \mu_1)}\right), \qquad
+        \psi \mid \phi \sim \mathrm{VonMises}\!\left(\mu_2 + \beta(\phi),\
+        \alpha(\phi)\right),
+
+    with :math:`\alpha(\phi) = \sqrt{\kappa_2^2 + \rho^2\sin^2(\phi - \mu_1)}` and
+    :math:`\beta(\phi) = \arctan\!\big(\tfrac{\rho}{\kappa_2}\sin(\phi - \mu_1)\big)`.
+    ``sample`` draws :math:`\phi` by rejection sampling from an angular central
+    Gaussian envelope (Kent, Ganeiber & Mardia, 2018; see :meth:`sample`), running
+    at most ``max_sample_iter`` (1000) rounds, and then draws :math:`\psi` from
+    the conditional.
+
+    .. note::
+        ``norm_const`` evaluates :math:`\log C` with the series truncated at 50
+        terms and :math:`\rho^2` clipped from below at the dtype ``tiny`` before
+        taking logarithms. ``mean`` returns the locations :math:`(\mu_1, \mu_2)`
+        wrapped to :math:`[-\pi, \pi)`; by the point symmetry of the density about
+        :math:`(\mu_1, \mu_2)` this is the circular mean in both regimes, but in the
+        bimodal regime it is a saddle point rather than a mode. ``variance`` is not
+        implemented. If the rejection sampler has not accepted an entry after
+        ``max_sample_iter`` (1000) rounds, that entry is not resampled: its
+        :math:`\phi` silently falls back to :math:`\mu_1` (the zero initial state
+        of the loop) and :math:`\psi` is drawn from the conditional at that value.
+
     To infer parameters, use :class:`~numpyro.infer.hmc.NUTS` or :class:`~numpyro.infer.hmc.HMC` with priors that
     avoid parameterizations where the distribution becomes bimodal; see note below.
 
     .. note:: Sample efficiency drops as
 
         .. math::
-            \frac{\rho}{\kappa_1\kappa_2} \rightarrow 1
+            \frac{\rho^2}{\kappa_1\kappa_2} \rightarrow 1
 
-        because the distribution becomes increasingly bimodal. To avoid bimodality use the `weighted_correlation`
-        parameter with a skew away from one (e.g., Beta(1,3)). The `weighted_correlation` should be in [0,1].
+        because the distribution becomes increasingly bimodal. To avoid inefficient sampling use the
+        `weighted_correlation` parameter with a skew away from one (e.g.,
+        `TransformedDistribution(Beta(5,5), AffineTransform(loc=-1, scale=2))`).  The `weighted_correlation`
+        should be in [-1,1].
 
     .. note:: The correlation and weighted_correlation params are mutually exclusive.
 
     .. note:: In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can be used as a likelihood but not
         for latent variables.
 
-    ** References: **
-        1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
+    .. note:: Normalization remains accurate for concentrations up to 10,000. Unlike Pyro, there is no assertion to
+        verify this during initialization, as JIT-compilation would invalidate such a check.
+
+    **References**
+        1. Singh, H., Hnizdo, V., & Demchuk, E. (2002). Probabilistic model for two
+           dependent circular variables. *Biometrika*, 89(3), 719–723.
 
     :param np.ndarray phi_loc: location of first angle
     :param np.ndarray psi_loc: location of second angle
@@ -326,7 +476,7 @@ class SineBivariateVonMises(Distribution):
     :param np.ndarray psi_concentration: concentration of second angle
     :param np.ndarray correlation: correlation between the two angles
     :param np.ndarray weighted_correlation: set correlation to weighted_corr * sqrt(phi_conc*psi_conc)
-        to avoid bimodality (see note). The `weighted_correlation` should be in [0,1].
+        to avoid bimodality (see note). The `weighted_correlation` should be in [-1,1].
     """
 
     arg_constraints = {
@@ -341,20 +491,24 @@ class SineBivariateVonMises(Distribution):
 
     def __init__(
         self,
-        phi_loc,
-        psi_loc,
-        phi_concentration,
-        psi_concentration,
-        correlation=None,
-        weighted_correlation=None,
-        validate_args=None,
+        phi_loc: ArrayLike,
+        psi_loc: ArrayLike,
+        phi_concentration: ArrayLike,
+        psi_concentration: ArrayLike,
+        correlation: Optional[ArrayLike] = None,
+        weighted_correlation: Optional[ArrayLike] = None,
+        *,
+        validate_args: Optional[bool] = None,
     ):
-        assert (correlation is None) != (weighted_correlation is None)
+        assert_one_of(
+            correlation=correlation, weighted_correlation=weighted_correlation
+        )
 
         if weighted_correlation is not None:
             correlation = weighted_correlation * jnp.sqrt(
                 phi_concentration * psi_concentration
             )
+        assert correlation is not None
 
         batch_shape = lax.broadcast_shapes(
             jnp.shape(phi_loc),
@@ -387,7 +541,7 @@ class SineBivariateVonMises(Distribution):
         self.correlation = jnp.broadcast_to(self.correlation, batch_shape)
 
     @lazy_property
-    def norm_const(self):
+    def norm_const(self) -> Array:
         corr = jnp.reshape(self.correlation, (1, -1))
         conc = jnp.stack(
             (self.phi_concentration, self.psi_concentration), axis=-1
@@ -398,15 +552,17 @@ class SineBivariateVonMises(Distribution):
         lbinoms = num - 2 * den
 
         fs = lbinoms.reshape(-1, 1) + m * (
-            jnp.log(jnp.clip(corr**2, a_min=jnp.finfo(jnp.result_type(float)).tiny))
+            jnp.log(jnp.clip(corr**2, jnp.finfo(jnp.result_type(float)).tiny))
             - jnp.log(4 * jnp.prod(conc, axis=-1))
         )
-        fs += log_I1(49, conc, terms=51).sum(-1)
+        num_I1terms = 10_001
+        fs += log_I1(49, conc, terms=num_I1terms).sum(-1)
         norm_const = 2 * jnp.log(jnp.array(2 * pi)) + logsumexp(fs, 0)
         return norm_const.reshape(jnp.shape(self.phi_loc))
 
     @validate_sample
-    def log_prob(self, value):
+    def log_prob(self, value: ArrayLike) -> Array:
+        value = jnp.asarray(value)
         indv = self.phi_concentration * jnp.cos(
             value[..., 0] - self.phi_loc
         ) + self.psi_concentration * jnp.cos(value[..., 1] - self.psi_loc)
@@ -417,12 +573,15 @@ class SineBivariateVonMises(Distribution):
         )
         return indv + corr - self.norm_const
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
         """
         ** References: **
             1. A New Unified Approach for the Simulation of a Wide Class of Directional Distributions
                John T. Kent, Asaad M. Ganeiber & Kanti V. Mardia (2018)
         """
+        assert key is not None
         assert is_prng_key(key)
         phi_key, psi_key = random.split(key)
 
@@ -471,7 +630,7 @@ class SineBivariateVonMises(Distribution):
 
     @staticmethod
     def _phi_marginal(shape, rng_key, conc, corr, eig, b0, eigmin, phi_den):
-        def update_fn(curr):
+        def update_fn(curr: PhiMarginalState) -> PhiMarginalState:
             i, done, phi, key = curr
             phi_key, key = random.split(key)
             accept_key, acg_key, phi_key = random.split(phi_key, 3)
@@ -481,14 +640,14 @@ class SineBivariateVonMises(Distribution):
                 x, axis=1, keepdims=True
             )  # Angular Central Gaussian distribution
 
-            lf = (
+            lf: Array = (
                 conc[0] * (x[:, 0] - 1)
                 + eigmin
                 + log_I1(0, jnp.sqrt(conc[1] ** 2 + (corr * x[:, 1]) ** 2)).squeeze(0)
                 - phi_den
             )
 
-            lg_inv = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
+            lg_inv: Array = 1.0 - b0 / 2 + jnp.log(b0 / 2 + (eig * x**2).sum(1))
             assert lg_inv.shape == lf.shape
 
             accepted = random.uniform(accept_key, lf.shape) < jnp.exp(lf + lg_inv)
@@ -497,7 +656,7 @@ class SineBivariateVonMises(Distribution):
             phi = jnp.where(accepted, x, phi)
             return PhiMarginalState(i + 1, done | accepted, phi, key)
 
-        def cond_fn(curr):
+        def cond_fn(curr: PhiMarginalState) -> Array:
             return jnp.bitwise_and(
                 curr.i < SineBivariateVonMises.max_sample_iter,
                 jnp.logical_not(jnp.all(curr.done)),
@@ -518,14 +677,14 @@ class SineBivariateVonMises(Distribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         """Computes circular mean of distribution. Note: same as location when mapped to support [-pi, pi]"""
         mean = (jnp.stack((self.phi_loc, self.psi_loc), axis=-1) + jnp.pi) % (
             2.0 * jnp.pi
         ) - jnp.pi
         return jnp.broadcast_to(mean, (*self.batch_shape, 2))
 
-    def _bfind(self, eig):
+    def _bfind(self, eig: Array) -> Array:
         b = eig.shape[0] / 2 * jnp.ones(self.batch_shape, dtype=eig.dtype)
         g1 = jnp.sum(1 / (b + 2 * eig) ** 2, axis=0)
         g2 = jnp.sum(-2 / (b + 2 * eig) ** 3, axis=0)
@@ -533,12 +692,50 @@ class SineBivariateVonMises(Distribution):
 
 
 class ProjectedNormal(Distribution):
-    """
+    r"""
     Projected isotropic normal distribution of arbitrary dimension.
 
     This distribution over directional data is qualitatively similar to the von
     Mises and von Mises-Fisher distributions, but permits tractable variational
     inference via reparametrized gradients.
+
+    If :math:`\mathbf{z} \sim \mathcal{N}(\boldsymbol{\mu}, \mathbf{I}_d)`, then
+    :math:`\mathbf{x} = \mathbf{z} / \lVert \mathbf{z} \rVert` follows a projected
+    normal distribution on the unit sphere :math:`S^{d-1}`. Its support is
+    :data:`~numpyro.distributions.constraints.sphere`, namely
+    :math:`\{\mathbf{x} \in \mathbb{R}^d : \lVert \mathbf{x} \rVert = 1\}`.
+    Its density with respect to the surface measure on the sphere is obtained by
+    integrating the isotropic normal density along the ray through
+    :math:`\mathbf{x}` [1],
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-\lVert \boldsymbol{\mu} \rVert^2 / 2}}{(2\pi)^{d/2}}
+        \int_0^\infty r^{d-1}
+        \exp\left( -\frac{r^2}{2} + r\, \boldsymbol{\mu}^\top \mathbf{x} \right) dr,
+
+    where :math:`\boldsymbol{\mu}` is :attr:`concentration`. While the radial
+    integral has a closed form for every nonnegative integer power,
+    :meth:`log_prob` implements the resulting density only for :math:`d \in \{2, 3\}`.
+    Writing :math:`t = \boldsymbol{\mu}^\top \mathbf{x}` and
+    :math:`M_k(t) = \int_0^\infty r^k\, \phi(r-t)\, dr`, where :math:`\phi` is the
+    standard normal density, these implemented forms are
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-(\lVert \boldsymbol{\mu} \rVert^2 - t^2) / 2}}{(2\pi)^{(d-1)/2}}
+        M_{d-1}(t),
+
+        M_1(t) = t\, \Phi(t) + \phi(t),
+
+        M_2(t) = t\, \phi(t) + (1 + t^2)\, \Phi(t).
+
+    For :math:`\boldsymbol{\mu} \ne 0`, the intrinsic (Fréchet) mean direction
+    and mode are both :math:`\boldsymbol{\mu} / \lVert \boldsymbol{\mu} \rVert`.
+    For :math:`\boldsymbol{\mu} = 0`, the distribution is uniform on the sphere
+    and has no unique mean direction or mode.
 
     To use this distribution with autoguides and HMC, use ``handlers.reparam``
     with a :class:`~numpyro.infer.reparam.ProjectedNormalReparam`
@@ -550,27 +747,32 @@ class ProjectedNormal(Distribution):
                                        ProjectedNormal(zeros(3)))
             ...
 
-    .. note:: This implements :meth:`log_prob` only for dimensions {2,3}.
-
     [1] D. Hernandez-Stumpfhauser, F.J. Breidt, M.J. van der Woerd (2017)
         "The General Projected Normal Distribution of Arbitrary Dimension:
         Modeling and Bayesian Inference"
-        https://projecteuclid.org/euclid.ba/1453211962
+        https://doi.org/10.1214/16-BA1031
     """
 
     arg_constraints = {"concentration": constraints.real_vector}
     reparametrized_params = ["concentration"]
     support = constraints.sphere
 
-    def __init__(self, concentration, *, validate_args=None):
+    def __init__(
+        self, concentration: ArrayLike, *, validate_args: Optional[bool] = None
+    ):
+        r"""
+        :param concentration: Mean vector :math:`\boldsymbol{\mu} \in \mathbb{R}^d`
+            of the isotropic normal distribution before projection.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         assert jnp.ndim(concentration) >= 1
         self.concentration = concentration
-        batch_shape = concentration.shape[:-1]
-        event_shape = concentration.shape[-1:]
+        batch_shape = jnp.shape(concentration)[:-1]
+        event_shape = jnp.shape(concentration)[-1:]
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @property
-    def mean(self):
+    def mean(self) -> Array:
         """
         Note this is the mean in the sense of a centroid in the submanifold
         that minimizes expected squared geodesic distance.
@@ -578,24 +780,38 @@ class ProjectedNormal(Distribution):
         return safe_normalize(self.concentration)
 
     @property
-    def mode(self):
+    def mode(self) -> jax.Array:
+        """Mode direction for nonzero :attr:`concentration`."""
         return safe_normalize(self.concentration)
 
-    def sample(self, key, sample_shape=()):
+    def sample(
+        self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
+    ) -> Array:
+        assert key is not None
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = random.normal(key, shape=shape)
         return safe_normalize(self.concentration + eps)
 
-    def log_prob(self, value):
+    def log_prob(
+        self, value: ArrayLike, intermediates: Optional[list[Any]] = None
+    ) -> Array:
+        r"""Evaluate the log probability density at ``value``.
+
+        This method implements the closed forms described above for event
+        dimensions 2 and 3 only.
+
+        :param value: Point on :attr:`support` at which to evaluate the log PDF.
+        :param intermediates: Not used.
+        :return: Log probability density under the projected normal distribution.
+        """
         if self._validate_args:
-            event_shape = value.shape[-1:]
+            event_shape = jnp.shape(value)[-1:]
             if event_shape != self.event_shape:
                 raise ValueError(
-                    f"Expected event shape {self.event_shape}, "
-                    f"but got {event_shape}"
+                    f"Expected event shape {self.event_shape}, but got {event_shape}"
                 )
             self._validate_sample(value)
-        dim = int(self.concentration.shape[-1])
+        dim = int(jnp.shape(self.concentration)[-1])
         if dim == 2:
             return _projected_normal_log_prob_2(self.concentration, value)
         if dim == 3:
@@ -605,8 +821,10 @@ class ProjectedNormal(Distribution):
             "Consider using handlers.reparam with ProjectedNormalReparam."
         )
 
-    @staticmethod
-    def infer_shapes(concentration):
+    @classmethod
+    def infer_shapes(
+        cls, concentration: tuple[int, ...]
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
         batch_shape = concentration[:-1]
         event_shape = concentration[-1:]
         return batch_shape, event_shape
@@ -636,7 +854,7 @@ def _projected_normal_log_prob_2(concentration, value):
 
 
 def _projected_normal_log_prob_3(concentration, value):
-    def _dot(x, y):
+    def _dot(x: Array, y: Array) -> Array:
         return (x[..., None, :] @ y[..., None])[..., 0, 0]
 
     # We integrate along a ray, factorizing the integrand as a product of:

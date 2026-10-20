@@ -3,19 +3,33 @@
 
 import inspect
 
+from packaging.version import Version
 import pytest
 
 import jax
 from jax.api_util import flatten_fun_nokwargs
-import jax.core as core
-
-try:
-    import jax.extend.linear_util as lu
-except ImportError:
-    import jax.linear_util as lu
+from jax.extend.core.primitives import call_p, closed_call_p
+import jax.extend.linear_util as lu
 import jax.numpy as jnp
 
+try:
+    from jax.api_util import debug_info
+except ImportError:
+    debug_info = None
+
 from numpyro.ops.provenance import eval_provenance
+
+_JAX_SUBFUNS_API = Version(jax.__version__) >= Version("0.9.2")
+_JAX_CALL_JAXPR_API = Version(jax.__version__) >= Version("0.11.1")
+
+
+def _call_bind(primitive, fn, *args):
+    if _JAX_CALL_JAXPR_API:
+        call_jaxpr = jax.make_jaxpr(fn.call_wrapped)(*args)
+        return primitive.bind(*args, call_jaxpr=call_jaxpr)
+    if _JAX_SUBFUNS_API:
+        return primitive.bind(*args, subfuns=(fn,))
+    return primitive.bind(fn, *args)
 
 
 @pytest.mark.parametrize(
@@ -47,6 +61,12 @@ def test_provenance_const():
     assert eval_provenance(f, x=3) == {"x"}
 
 
+def test_provenance_closed_over_const():
+    const = jnp.arange(5.0)
+
+    assert eval_provenance(lambda x: const * x, x=1.0) == {"x"}
+
+
 def test_provenance_fori():
     def f(x, y, z):
         del z
@@ -70,21 +90,35 @@ def test_provenance_pytree_in():
     assert eval_provenance(f, x={"v": 2, "u": 1}, y=1) == ({"x", "y"}, {"x"})
 
 
+def id_fn(x):
+    return x
+
+
 def test_provenance_call():
     def identity(x):
-        args, in_tree = jax.tree_util.tree_flatten((x,))
-        fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(lambda x: x), in_tree)
-        out = core.closed_call_p.bind(fn, *args)
-        return jax.tree_util.tree_unflatten(out_tree(), out)
+        args, in_tree = jax.tree.flatten((x,))
+        id_info = (
+            dict(debug_info=debug_info("identity", id_fn, x, {}))
+            if debug_info is not None
+            else {}
+        )
+        fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(id_fn, **id_info), in_tree)
+        out = _call_bind(call_p, fn, *args)
+        return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}
 
 
 def test_provenance_closed_call():
     def identity(x):
-        args, in_tree = jax.tree_util.tree_flatten((x,))
-        fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(lambda x: x), in_tree)
-        out = core.closed_call_p.bind(fn, *args)
-        return jax.tree_util.tree_unflatten(out_tree(), out)
+        args, in_tree = jax.tree.flatten((x,))
+        id_info = (
+            dict(debug_info=debug_info("identity", id_fn, x, {}))
+            if debug_info is not None
+            else {}
+        )
+        fn, out_tree = flatten_fun_nokwargs(lu.wrap_init(id_fn, **id_info), in_tree)
+        out = _call_bind(closed_call_p, fn, *args)
+        return jax.tree.unflatten(out_tree(), out)
 
     assert eval_provenance(identity, x={"v": 2}) == {"v": frozenset({"x"})}

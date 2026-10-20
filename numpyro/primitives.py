@@ -4,21 +4,27 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
+from types import TracebackType
+from typing import Callable, Generator, Optional, Union, cast
 import warnings
 
 import jax
-from jax import lax, random
+from jax import Array, lax, random
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 import numpyro
+from numpyro._typing import Message
+from numpyro.distributions.distribution import Distribution
 from numpyro.util import find_stack_level, identity
 
-_PYRO_STACK = []
+_PYRO_STACK: list = []
+
 
 CondIndepStackFrame = namedtuple("CondIndepStackFrame", ["name", "dim", "size"])
 
 
-def default_process_message(msg):
+def default_process_message(msg: Message) -> None:
     if msg["value"] is None:
         if msg["type"] == "sample":
             msg["value"], msg["intermediates"] = msg["fn"](
@@ -28,7 +34,7 @@ def default_process_message(msg):
             msg["value"] = msg["fn"](*msg["args"], **msg["kwargs"])
 
 
-def apply_stack(msg):
+def apply_stack(msg: Message) -> Message:
     """
     Execute the effect stack at a single site according to the following scheme:
 
@@ -61,19 +67,25 @@ def apply_stack(msg):
 
 
 class Messenger(object):
-    def __init__(self, fn=None):
+    def __init__(self, fn: Optional[Callable] = None) -> None:
         if fn is not None and not callable(fn):
             raise ValueError(
                 "Expected `fn` to be a Python callable object; "
                 "instead found type(fn) = {}.".format(type(fn))
             )
         self.fn = fn
-        functools.update_wrapper(self, fn, updated=[])
+        if fn is not None:
+            functools.update_wrapper(self, fn, updated=[])
 
     def __enter__(self):
         _PYRO_STACK.append(self)
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
         if exc_type is None:
             assert _PYRO_STACK[-1] is self
             _PYRO_STACK.pop()
@@ -86,13 +98,15 @@ class Messenger(object):
             # then remove it and everything below it in the stack.
             if self in _PYRO_STACK:
                 loc = _PYRO_STACK.index(self)
-                for i in range(loc, len(_PYRO_STACK)):
+                for _ in range(loc, len(_PYRO_STACK)):
                     _PYRO_STACK.pop()
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
+        """To be implemented by subclasses."""
         pass
 
-    def postprocess_message(self, msg):
+    def postprocess_message(self, msg: Message) -> None:
+        """To be implemented by subclasses."""
         pass
 
     def __call__(self, *args, **kwargs):
@@ -105,7 +119,13 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def _masked_observe(name, fn, obs, obs_mask, **kwargs):
+def _masked_observe(
+    name: str,
+    fn: Distribution,
+    obs: Optional[ArrayLike],
+    obs_mask,  # noqa: ANN001
+    **kwargs,
+) -> ArrayLike:
     # Split into two auxiliary sample sites.
     with numpyro.handlers.mask(mask=obs_mask):
         observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
@@ -120,8 +140,14 @@ def _masked_observe(name, fn, obs, obs_mask, **kwargs):
 
 
 def sample(
-    name, fn, obs=None, rng_key=None, sample_shape=(), infer=None, obs_mask=None
-):
+    name: str,
+    fn: Distribution,
+    obs: Optional[ArrayLike] = None,
+    rng_key: Optional[ArrayLike] = None,
+    sample_shape: tuple[int, ...] = (),
+    infer: Optional[dict] = None,
+    obs_mask: Optional[ArrayLike] = None,
+) -> ArrayLike:
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -136,7 +162,7 @@ def sample(
     :param str name: name of the sample site.
     :param fn: a stochastic function that returns a sample.
     :param jnp.ndarray obs: observed value
-    :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
+    :param jax.random.key rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
     :param dict infer: an optional dictionary containing additional information
         for inference algorithms. For example, if `fn` is a discrete distribution,
@@ -150,15 +176,16 @@ def sample(
         argument is not intended to be used with MCMC.
     :return: sample from the stochastic `fn`.
     """
-    assert isinstance(
-        sample_shape, tuple
-    ), "sample_shape needs to be a tuple of integers"
+    assert isinstance(sample_shape, tuple), (
+        "sample_shape needs to be a tuple of integers"
+    )
     if not isinstance(fn, numpyro.distributions.Distribution):
         type_error = TypeError(
-            "It looks like you tried to use a fn that isn't an instance of "
+            "Invalid type for 'fn': expected an instance of "
             "numpyro.distributions.Distribution, funsor.Funsor or "
-            "tensorflow_probability.distributions.Distribution. If you're using "
-            "funsor or tensorflow_probability, make sure they are correctly installed."
+            "tensorflow_probability.distributions.Distribution, "
+            f"but received {type(fn).__name__}. If you're using funsor or "
+            "tensorflow_probability, make sure they are correctly installed."
         )
 
         # fn can be a funsor.Funsor, but this won't be installed for all users
@@ -223,7 +250,11 @@ def sample(
     return msg["value"]
 
 
-def param(name, init_value=None, **kwargs):
+def param(
+    name: str,
+    init_value: Optional[Union[ArrayLike, Callable]] = None,
+    **kwargs,
+) -> Optional[ArrayLike]:
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.example_libraries.optimizers`. For an example of how `param` statements
@@ -231,7 +262,7 @@ def param(name, init_value=None, **kwargs):
 
     :param str name: name of site.
     :param init_value: initial value specified by the user or a lazy callable
-        that accepts a JAX random PRNGKey and returns an array.
+        that accepts a JAX random PRNG key and returns an array.
         Note that the onus of using this to initialize the optimizer is
         on the user inference algorithm, since there is no global parameter
         store in NumPyro.
@@ -250,25 +281,29 @@ def param(name, init_value=None, **kwargs):
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        assert not callable(
-            init_value
-        ), "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
+        assert not callable(init_value), (
+            "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
+        )
         return init_value
 
+    args: tuple
     if callable(init_value):
 
-        def fn(init_fn, *args, **kwargs):
-            return init_fn(prng_key())
+        def fn(*args, init_value: Callable = init_value, **kwargs) -> ArrayLike:
+            return init_value(prng_key())
+
+        args = ()
 
     else:
-        fn = identity
+        fn = cast(Callable, identity)
+        args = (init_value,)
 
     # Otherwise, we initialize a message...
     initial_msg = {
         "type": "param",
         "name": name,
         "fn": fn,
-        "args": (init_value,),
+        "args": args,
         "kwargs": kwargs,
         "value": None,
         "scale": None,
@@ -280,7 +315,7 @@ def param(name, init_value=None, **kwargs):
     return msg["value"]
 
 
-def deterministic(name, value):
+def deterministic(name: str, value: ArrayLike) -> ArrayLike:
     """
     Used to designate deterministic sites in the model. Note that most effect
     handlers will not operate on deterministic sites (except
@@ -294,7 +329,7 @@ def deterministic(name, value):
     if not _PYRO_STACK:
         return value
 
-    initial_msg = {
+    initial_msg: Message = {
         "type": "deterministic",
         "name": name,
         "value": value,
@@ -306,7 +341,9 @@ def deterministic(name, value):
     return msg["value"]
 
 
-def mutable(name, init_value=None):
+def mutable(
+    name: str, init_value: Optional[ArrayLike] = None
+) -> Union[ArrayLike, None]:
     """
     This primitive is used to store a mutable value that can be changed
     during model execution::
@@ -338,7 +375,7 @@ def mutable(name, init_value=None):
     return msg["value"]
 
 
-def _inspect():
+def _inspect() -> dict:
     """
     EXPERIMENTAL Inspect the Pyro stack.
 
@@ -362,7 +399,7 @@ def _inspect():
     return msg
 
 
-def get_mask():
+def get_mask() -> Union[ArrayLike, None]:
     """
     Records the effects of enclosing ``handlers.mask`` handlers.
     This is useful for avoiding expensive ``numpyro.factor()`` computations during
@@ -381,7 +418,7 @@ def get_mask():
     return _inspect()["mask"]
 
 
-def module(name, nn, input_shape=None):
+def module(name: str, nn: tuple, input_shape: Optional[tuple] = None) -> Callable:
     """
     Declare a :mod:`~jax.example_libraries.stax` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -408,7 +445,9 @@ def module(name, nn, input_shape=None):
     return functools.partial(nn_apply, nn_params)
 
 
-def _subsample_fn(size, subsample_size, rng_key=None):
+def _subsample_fn(
+    size: int, subsample_size: int, rng_key: Optional[ArrayLike] = None
+) -> ArrayLike:
     if rng_key is None:
         raise ValueError(
             "Missing random key to generate subsample indices."
@@ -419,7 +458,7 @@ def _subsample_fn(size, subsample_size, rng_key=None):
         # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
         rng_keys = random.split(rng_key, subsample_size)
 
-        def body_fn(val, idx):
+        def body_fn(val, idx):  # noqa: ANN001, ANN202, ANN205
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
@@ -457,7 +496,13 @@ class plate(Messenger):
         is allocated.
     """
 
-    def __init__(self, name, size, subsample_size=None, dim=None):
+    def __init__(
+        self,
+        name: str,
+        size: int,
+        subsample_size: Optional[int] = None,
+        dim: Optional[int] = None,
+    ) -> None:
         self.name = name
         assert size > 0, "size of plate should be positive"
         self.size = size
@@ -469,9 +514,9 @@ class plate(Messenger):
         self.subsample_size = self._indices.shape[0]
         super(plate, self).__init__()
 
-    # XXX: different from Pyro, this method returns dim and indices
+    # Note: different from Pyro, this method returns dim and indices
     @staticmethod
-    def _subsample(name, size, subsample_size, dim):
+    def _subsample(name, size, subsample_size, dim):  # noqa: ANN001, ANN205
         msg = {
             "type": "plate",
             "fn": _subsample_fn,
@@ -488,6 +533,7 @@ class plate(Messenger):
         }
         apply_stack(msg)
         subsample = msg["value"]
+        assert isinstance(subsample, jnp.ndarray)
         subsample_size = msg["args"][1]
         if subsample_size is not None and subsample_size != subsample.shape[0]:
             warnings.warn(
@@ -497,7 +543,7 @@ class plate(Messenger):
                 + " Did you accidentally use different subsample_size in the model and guide?",
                 stacklevel=find_stack_level(),
             )
-        cond_indep_stack = msg["cond_indep_stack"]
+        cond_indep_stack: list[CondIndepStackFrame] = msg["cond_indep_stack"]
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
             new_dim = -1
@@ -513,14 +559,16 @@ class plate(Messenger):
         return self._indices
 
     @staticmethod
-    def _get_batch_shape(cond_indep_stack):
+    def _get_batch_shape(
+        cond_indep_stack: list[CondIndepStackFrame],
+    ) -> tuple[int, ...]:
         n_dims = max(-f.dim for f in cond_indep_stack)
         batch_shape = [1] * n_dims
         for f in cond_indep_stack:
             batch_shape[f.dim] = f.size
         return tuple(batch_shape)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] not in ("param", "sample", "plate", "deterministic"):
             if msg["type"] == "control_flow":
                 raise NotImplementedError(
@@ -530,7 +578,13 @@ class plate(Messenger):
                 )
             return
 
-        cond_indep_stack = msg["cond_indep_stack"]
+        if (
+            "block_plates" in msg.get("infer", {})
+            and self.name in msg["infer"]["block_plates"]
+        ):
+            return
+
+        cond_indep_stack: list[CondIndepStackFrame] = msg["cond_indep_stack"]
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
         if msg["type"] == "deterministic":
@@ -554,7 +608,7 @@ class plate(Messenger):
                 self.size / self.subsample_size if self.subsample_size else 1
             )
 
-    def postprocess_message(self, msg):
+    def postprocess_message(self, msg: Message) -> None:
         if msg["type"] in ("subsample", "param") and self.dim is not None:
             event_dim = msg["kwargs"].get("event_dim")
             if event_dim is not None:
@@ -583,7 +637,9 @@ class plate(Messenger):
 
 
 @contextmanager
-def plate_stack(prefix, sizes, rightmost_dim=-1):
+def plate_stack(
+    prefix: str, sizes: list[int], rightmost_dim: int = -1
+) -> Generator[None, None, None]:
     """
     Create a contiguous stack of :class:`plate` s with dimensions::
 
@@ -601,7 +657,7 @@ def plate_stack(prefix, sizes, rightmost_dim=-1):
         yield
 
 
-def factor(name, log_factor):
+def factor(name: str, log_factor: ArrayLike) -> None:
     """
     Factor statement to add arbitrary log probability factor to a
     probabilistic model.
@@ -614,15 +670,19 @@ def factor(name, log_factor):
     sample(name, unit_dist, obs=unit_value, infer={"is_auxiliary": True})
 
 
-def prng_key():
+def prng_key() -> Union[Array, None]:
     """
     A statement to draw a pseudo-random number generator key
-    :func:`~jax.random.PRNGKey` under :class:`~numpyro.handlers.seed` handler.
+    :func:`~jax.random.key` under :class:`~numpyro.handlers.seed` handler.
 
     :return: a PRNG key of shape (2,) and dtype unit32.
     """
     if not _PYRO_STACK:
-        return
+        warnings.warn(
+            "Cannot generate JAX PRNG key outside of `seed` handler.",
+            stacklevel=find_stack_level(),
+        )
+        return None
 
     initial_msg = {
         "type": "prng_key",
@@ -636,7 +696,7 @@ def prng_key():
     return msg["value"]
 
 
-def subsample(data, event_dim):
+def subsample(data: ArrayLike, event_dim: int) -> ArrayLike:
     """
     EXPERIMENTAL Subsampling statement to subsample data based on enclosing
     :class:`~numpyro.primitives.plate` s.

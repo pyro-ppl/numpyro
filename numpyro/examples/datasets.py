@@ -1,15 +1,22 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from collections import namedtuple
+from collections.abc import Callable, Generator
 import csv
 import gzip
+from http import HTTPStatus
 import io
 import os
 import pickle
+import shutil
 import struct
+import time
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import urlretrieve
+from urllib.request import Request, urlopen
 import warnings
 import zipfile
 
@@ -27,17 +34,28 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 dset = namedtuple("dset", ["name", "urls"])
 
+BART = dset(
+    "bart",
+    [
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_0.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_1.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_2.npz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/bart/bart_3.npz?raw=true",
+    ],
+)
+
 BASEBALL = dset(
-    "baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"]
+    "baseball",
+    ["https://github.com/pyro-ppl/datasets/blob/master/EfronMorrisBB.txt?raw=true"],
 )
 
 BOSTON_HOUSING = dset(
     "boston_housing",
-    ["https://archive.ics.uci.edu/ml/machine-learning-databases/housing/housing.data"],
+    ["http://archive.ics.uci.edu/ml/machine-learning-databases/housing/housing.data"],
 )
 
 COVTYPE = dset(
-    "covtype", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip"]
+    "covtype", ["https://github.com/pyro-ppl/datasets/blob/master/covtype.npz?raw=true"]
 )
 
 DIPPER_VOLE = dset(
@@ -48,26 +66,32 @@ DIPPER_VOLE = dset(
 MNIST = dset(
     "mnist",
     [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz",
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz",
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-images-idx3-ubyte.gz",
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/train-images-idx3-ubyte.gz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/train-labels-idx1-ubyte.gz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/t10k-images-idx3-ubyte.gz?raw=true",
+        "https://github.com/pyro-ppl/datasets/blob/master/mnist/t10k-labels-idx1-ubyte.gz?raw=true",
     ],
 )
 
-SP500 = dset("SP500", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv"])
+SP500 = dset(
+    "SP500", ["https://github.com/pyro-ppl/datasets/blob/master/SP500.csv?raw=true"]
+)
 
 UCBADMIT = dset(
-    "ucbadmit", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv"]
+    "ucbadmit",
+    ["https://github.com/pyro-ppl/datasets/blob/master/UCBadmit.csv?raw=true"],
 )
 
 LYNXHARE = dset(
-    "lynxhare", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt"]
+    "lynxhare",
+    ["https://github.com/pyro-ppl/datasets/blob/master/LynxHare.txt?raw=true"],
 )
 
 JSB_CHORALES = dset(
     "jsb_chorales",
-    ["https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle"],
+    [
+        "https://github.com/pyro-ppl/datasets/blob/master/polyphonic/jsb_chorales.pickle?raw=true"
+    ],
 )
 
 HIGGS = dset(
@@ -88,17 +112,153 @@ MORTALITY = dset(
 )
 
 
-def _download(dset):
+_DOWNLOAD_MAX_RETRIES = 3
+_DOWNLOAD_BACKOFF_BASE_SECONDS = 1.0
+_DOWNLOAD_BACKOFF_MAX_SECONDS = 8.0
+_TRANSIENT_HTTP_STATUS_CODES = {
+    HTTPStatus.TOO_MANY_REQUESTS,
+    HTTPStatus.INTERNAL_SERVER_ERROR,
+    HTTPStatus.BAD_GATEWAY,
+    HTTPStatus.SERVICE_UNAVAILABLE,
+    HTTPStatus.GATEWAY_TIMEOUT,
+}
+
+
+def _github_raw_fallback_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if parsed.netloc != "github.com":
+        return None
+    path_parts = parsed.path.strip("/").split("/")
+    if len(path_parts) < 4 or path_parts[2] != "blob":
+        return None
+    owner, repo = path_parts[0], path_parts[1]
+    branch_and_path = path_parts[3:]
+    return "https://raw.githubusercontent.com/{}".format(
+        "/".join([owner, repo, *branch_and_path])
+    )
+
+
+def _is_retryable_error(exc: HTTPError | URLError) -> bool:
+    if isinstance(exc, HTTPError):
+        return exc.code in _TRANSIENT_HTTP_STATUS_CODES
+    return isinstance(exc, URLError)
+
+
+def _detached_download_error(exc: HTTPError | URLError) -> HTTPError | URLError:
+    if isinstance(exc, HTTPError):
+        return HTTPError(exc.url, exc.code, exc.msg, exc.headers, fp=None)
+    if isinstance(exc, URLError):
+        return URLError(exc.reason)
+    return exc
+
+
+def _download_backoff_delay(exc: HTTPError | URLError, attempt: int) -> float:
+    if isinstance(exc, HTTPError):
+        retry_after = exc.headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                return min(_DOWNLOAD_BACKOFF_MAX_SECONDS, max(0.0, float(retry_after)))
+            except (TypeError, ValueError):
+                pass
+    return min(
+        _DOWNLOAD_BACKOFF_MAX_SECONDS, _DOWNLOAD_BACKOFF_BASE_SECONDS * (2**attempt)
+    )
+
+
+def _download_with_retries(url: str, out_path: str) -> None:
+    last_exc = None
+    for attempt in range(_DOWNLOAD_MAX_RETRIES):
+        try:
+            request = Request(url, headers={"User-Agent": "numpyro-datasets"})
+            with urlopen(request) as response, open(out_path, "wb") as f:
+                shutil.copyfileobj(response, f)
+            if isinstance(last_exc, HTTPError):
+                last_exc.close()
+            return
+        except (HTTPError, URLError) as exc:
+            retryable = _is_retryable_error(exc)
+            delay = _download_backoff_delay(exc, attempt) if retryable else None
+            detached_exc = _detached_download_error(exc)
+            if isinstance(exc, HTTPError):
+                exc.close()
+            if isinstance(last_exc, HTTPError):
+                last_exc.close()
+            last_exc = detached_exc
+            if not retryable:
+                if isinstance(detached_exc, HTTPError):
+                    detached_exc.close()
+                raise detached_exc
+            if attempt < _DOWNLOAD_MAX_RETRIES - 1:
+                print(
+                    "Download failed with {}. Retrying in {:.1f}s.".format(
+                        type(detached_exc).__name__, delay
+                    )
+                )
+                assert delay is not None
+                time.sleep(delay)
+    if isinstance(last_exc, HTTPError):
+        last_exc.close()
+    assert last_exc is not None
+    raise last_exc
+
+
+def _download(dset: dset) -> None:
     for url in dset.urls:
         file = os.path.basename(urlparse(url).path)
         out_path = os.path.join(DATA_DIR, file)
-        if not os.path.exists(out_path):
-            print("Downloading - {}.".format(url))
-            urlretrieve(url, out_path)
+        if os.path.exists(out_path):
+            continue
+
+        print("Downloading - {}.".format(url))
+        fallback_url = _github_raw_fallback_url(url)
+        download_urls = [url, fallback_url] if fallback_url else [url]
+        last_exc = None
+        for i, download_url in enumerate(download_urls):
+            try:
+                _download_with_retries(download_url, out_path)
+            except (HTTPError, URLError) as exc:
+                last_exc = exc
+                if os.path.exists(out_path):
+                    os.remove(out_path)
+                if i < len(download_urls) - 1:
+                    print(
+                        "Download failed for {} with {}. Trying fallback URL.".format(
+                            download_url, type(exc).__name__
+                        )
+                    )
+                continue
+
             print("Download complete.")
+            break
+        else:
+            if isinstance(last_exc, HTTPError):
+                last_exc.close()
+            assert last_exc is not None
+            raise last_exc
 
 
-def _load_baseball():
+def load_bart_od() -> dict:
+    _download(BART)
+
+    filenames = [os.path.join(DATA_DIR, f"bart_{i}.npz") for i in range(4)]
+    stations = None
+    start_date = None
+    counts_list = []
+    for filename in filenames:
+        with np.load(filename, allow_pickle=True) as dataset:
+            if stations is None:
+                stations = dataset["stations"]
+                start_date = dataset["start_date"]
+            counts_list.append(dataset["counts"])
+    counts = np.vstack(counts_list)
+    return {
+        "stations": stations,
+        "start_date": start_date,
+        "counts": counts,
+    }
+
+
+def _load_baseball() -> dict:
     _download(BASEBALL)
 
     def train_test_split(file):
@@ -119,23 +279,22 @@ def _load_baseball():
     return {"train": (train, player_names), "test": (test, player_names)}
 
 
-def _load_boston_housing():
+def _load_boston_housing() -> dict:
     _download(BOSTON_HOUSING)
     file_path = os.path.join(DATA_DIR, "housing.data")
     data = np.loadtxt(file_path)
     return {"train": (data[:, :-1], data[:, -1])}
 
 
-def _load_covtype():
+def _load_covtype() -> dict:
     _download(COVTYPE)
 
-    file_path = os.path.join(DATA_DIR, "covtype.zip")
-    data = np.load(file_path)
+    file_path = os.path.join(DATA_DIR, "covtype.npz")
+    with np.load(file_path) as data:
+        return {"train": (data["data"], data["target"])}
 
-    return {"train": (data["data"], data["target"])}
 
-
-def _load_dipper_vole():
+def _load_dipper_vole() -> dict:
     _download(DIPPER_VOLE)
 
     file_path = os.path.join(DATA_DIR, "dipper_vole.zip")
@@ -158,7 +317,7 @@ def _load_dipper_vole():
     return data
 
 
-def _load_mnist():
+def _load_mnist() -> dict:
     _download(MNIST)
 
     def read_label(file):
@@ -183,7 +342,7 @@ def _load_mnist():
     }
 
 
-def _load_sp500():
+def _load_sp500() -> dict:
     _download(SP500)
 
     date, value = [], []
@@ -197,7 +356,7 @@ def _load_sp500():
     return {"train": (date, value)}
 
 
-def _load_ucbadmit():
+def _load_ucbadmit() -> dict:
     _download(UCBADMIT)
 
     dept, male, applications, admit = [], [], [], []
@@ -224,7 +383,7 @@ def _load_ucbadmit():
     }
 
 
-def _load_lynxhare():
+def _load_lynxhare() -> dict:
     _download(LYNXHARE)
 
     file_path = os.path.join(DATA_DIR, "LynxHare.txt")
@@ -233,7 +392,7 @@ def _load_lynxhare():
     return {"train": (data[:, 0].astype(int), data[:, 1:])}
 
 
-def _pad_sequence(sequences):
+def _pad_sequence(sequences: list[np.ndarray]) -> np.ndarray:
     # like torch.nn.utils.rnn.pad_sequence with batch_first=True
     max_length = max(x.shape[0] for x in sequences)
     padded_sequences = []
@@ -244,14 +403,21 @@ def _pad_sequence(sequences):
     return np.stack(padded_sequences)
 
 
-def _load_jsb_chorales():
+def _load_jsb_chorales() -> dict:
     _download(JSB_CHORALES)
 
     file_path = os.path.join(DATA_DIR, "jsb_chorales.pickle")
     with open(file_path, "rb") as f:
-        data = pickle.load(f)
+        # Filter numpy deprecation warning from loading legacy pickle file
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="dtype.*align should be passed as Python or NumPy boolean",
+                category=np.exceptions.VisibleDeprecationWarning,
+            )
+            data = pickle.load(f)
 
-    # XXX: we might expose those in `load_dataset` keywords
+    # Note: we might expose those in `load_dataset` keywords
     min_note = 21
     note_range = 88
     processed_dataset = {}
@@ -278,7 +444,7 @@ def _load_jsb_chorales():
     return processed_dataset
 
 
-def _load_higgs(num_datapoints):
+def _load_higgs(num_datapoints: int | None) -> dict:
     warnings.warn(
         "Higgs is a 2.6 GB dataset",
         stacklevel=find_stack_level(),
@@ -305,13 +471,13 @@ def _load_higgs(num_datapoints):
     }  # standard split -500_000: as test
 
 
-def _load_9mers():
+def _load_9mers() -> dict:
     _download(NINE_MERS)
     file_path = os.path.join(DATA_DIR, "9mers_data.pkl")
     return pickle.load(open(file_path, "rb"))
 
 
-def _load_mortality():
+def _load_mortality() -> dict:
     _download(MORTALITY)
 
     a, s1, s2, t, deaths, population = [], [], [], [], [], []
@@ -350,7 +516,7 @@ def _load_mortality():
     }
 
 
-def _load(dset, num_datapoints=-1):
+def _load(dset: dset, num_datapoints: int | None = -1) -> dict:
     if dset == BASEBALL:
         return _load_baseball()
     elif dset == BOSTON_HOUSING:
@@ -378,7 +544,12 @@ def _load(dset, num_datapoints=-1):
     raise ValueError("Dataset - {} not found.".format(dset.name))
 
 
-def iter_dataset(dset, batch_size=None, split="train", shuffle=True):
+def iter_dataset(
+    dset: dset,
+    batch_size: int | None = None,
+    split: str = "train",
+    shuffle: bool = True,
+) -> Generator[tuple[np.ndarray, ...], None, None]:
     arrays = _load(dset)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
@@ -393,12 +564,12 @@ def iter_dataset(dset, batch_size=None, split="train", shuffle=True):
 
 
 def load_dataset(
-    dset,
-    batch_size=None,
-    split="train",
-    shuffle=True,
-    num_datapoints=None,
-):
+    dset: dset,
+    batch_size: int | None = None,
+    split: str = "train",
+    shuffle: bool = True,
+    num_datapoints: int | None = None,
+) -> tuple[Callable, Callable]:
     data = _load(dset, num_datapoints)
     if isinstance(data, dict):
         arrays = data[split]
@@ -418,7 +589,7 @@ def load_dataset(
         return tuple(
             np.take(a, ret_idx, axis=0)
             if isinstance(a, list)
-            else lax.index_take(a, (ret_idx,), axes=(0,))
+            else lax.index_take(a, (ret_idx,), axes=(0,))  # ty: ignore[invalid-argument-type]
             for a in arrays
         )
 

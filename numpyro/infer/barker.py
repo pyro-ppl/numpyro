@@ -87,7 +87,7 @@ class BarkerMH(MCMCKernel):
     :param bool dense_mass: Whether to use a dense (i.e. full-rank) or diagonal mass matrix.
         (defaults to ``dense_mass=False``).
     :param float target_accept_prob: The target acceptance probability that is used to guide
-        step size adapation. Defaults to ``target_accept_prob=0.4``.
+        step size adaptation. Defaults to ``target_accept_prob=0.4``.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
 
@@ -107,7 +107,7 @@ class BarkerMH(MCMCKernel):
         >>>
         >>> kernel = BarkerMH(model)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, progress_bar=True)
-        >>> mcmc.run(jax.random.PRNGKey(0))
+        >>> mcmc.run(jax.random.key(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
 
@@ -126,6 +126,7 @@ class BarkerMH(MCMCKernel):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
         self._model = model
         self._potential_fn = potential_fn
+        self._potential_fn_gen = None
         self._step_size = step_size
         self._adapt_step_size = adapt_step_size
         self._adapt_mass_matrix = adapt_mass_matrix
@@ -164,6 +165,7 @@ class BarkerMH(MCMCKernel):
             )
             init_params = params_info[0]
             model_kwargs = {} if model_kwargs is None else model_kwargs
+            self._potential_fn_gen = potential_fn_gen
             self._potential_fn = potential_fn_gen(*model_args, **model_kwargs)
         return init_params
 
@@ -181,7 +183,7 @@ class BarkerMH(MCMCKernel):
         )
         if self._potential_fn and init_params is None:
             raise ValueError(
-                "Valid value of `init_params` must be provided with" " `potential_fn`."
+                "Valid value of `init_params` must be provided with `potential_fn`."
             )
 
         pe, grad = jax.value_and_grad(self._potential_fn)(init_params)
@@ -208,12 +210,19 @@ class BarkerMH(MCMCKernel):
             wa_state,
             rng_key,
         )
-        return jax.device_put(init_state)
+        return init_state
 
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:
             return identity
         return self._postprocess_fn(*args, **kwargs)
+
+    def _get_potential_fn(self, model_args, model_kwargs):
+        if getattr(self, "_potential_fn_gen", None) is None:
+            return self._potential_fn
+        model_args = () if model_args is None else model_args
+        model_kwargs = {} if model_kwargs is None else model_kwargs
+        return self._potential_fn_gen(*model_args, **model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):
         i, x, x_pe, x_grad, _, mean_accept_prob, adapt_state, rng_key = state
@@ -244,7 +253,8 @@ class BarkerMH(MCMCKernel):
         y_flat = x_flat + dx_flat_scaled
 
         y = unravel_fn(y_flat)
-        y_pe, y_grad = jax.value_and_grad(self._potential_fn)(y)
+        potential_fn = self._get_potential_fn(model_args, model_kwargs)
+        y_pe, y_grad = jax.value_and_grad(potential_fn)(y)
         y_grad_flat, _ = ravel_pytree(y_grad)
         y_grad_flat_scaled = (
             mass_sqrt_inv @ y_grad_flat
@@ -260,7 +270,7 @@ class BarkerMH(MCMCKernel):
                 - softplus(-dx_flat * y_grad_flat_scaled)
             )
         )
-        accept_prob = jnp.clip(jnp.exp(log_accept_ratio), a_max=1.0)
+        accept_prob = jnp.clip(jnp.exp(log_accept_ratio), None, 1.0)
 
         x, x_flat, pe, x_grad = jax.lax.cond(
             random.bernoulli(key_accept, accept_prob),

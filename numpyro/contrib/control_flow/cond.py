@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+from typing import Any, Callable
 
-from jax import device_put, lax
+from jax import lax
 
 from numpyro import handlers
 from numpyro.ops.pytree import PytreeTrace
@@ -14,6 +15,8 @@ def _subs_wrapper(subs_map, site):
     if isinstance(subs_map, dict) and site["name"] in subs_map:
         return subs_map[site["name"]]
     elif callable(subs_map):
+        if site["type"] == "deterministic":
+            return subs_map(site)
         rng_key = site["kwargs"].get("rng_key")
         subs_map = (
             handlers.seed(subs_map, rng_seed=rng_key)
@@ -66,11 +69,11 @@ def cond_wrapper(
 
     wrapped_true_fun = wrap_fn(true_fun, substitute_stack)
     wrapped_false_fun = wrap_fn(false_fun, substitute_stack)
-    wrapped_operand = device_put((rng_key, operand))
+    wrapped_operand = (rng_key, operand)
     return lax.cond(pred, wrapped_true_fun, wrapped_false_fun, wrapped_operand)
 
 
-def cond(pred, true_fun, false_fun, operand):
+def cond(pred: bool, true_fun: Callable, false_fun: Callable, operand: Any) -> Any:
     """
     This primitive conditionally applies ``true_fun`` or ``false_fun``. See
     :func:`jax.lax.cond` for more information.
@@ -111,7 +114,7 @@ def cond(pred, true_fun, false_fun, operand):
        ...     return cond(cluster > 0, true_fun, false_fun, None)
        >>>
        >>> svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
-       >>> svi_result = svi.run(random.PRNGKey(0), num_steps=2500)
+       >>> svi_result = svi.run(random.key(0), num_steps=2500)
 
     .. warning:: This is an experimental utility function that allows users to use
         JAX control flow with NumPyro's effect handlers. Currently, `sample` and

@@ -1,22 +1,35 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 import math
+from typing import Generic, Optional, Sequence, Tuple, Union, cast
 import warnings
 import weakref
 
 import numpy as np
 
-from jax import lax, vmap
-from jax.flatten_util import ravel_pytree
+import jax
+from jax import Array, lax, vmap
 from jax.nn import log_sigmoid, softplus
 import jax.numpy as jnp
+import jax.scipy.fft
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
-from jax.tree_util import register_pytree_node, tree_flatten, tree_map
+from jax.tree_util import register_pytree_node
+from jax.typing import ArrayLike, DTypeLike
 
+from numpyro._typing import (
+    NonScalarArray,
+    NumLike,
+    NumLikeT,
+    PyTree,
+)
 from numpyro.distributions import constraints
+from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.util import (
+    add_diag,
+    array_equiv,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -28,18 +41,25 @@ __all__ = [
     "biject_to",
     "AbsTransform",
     "AffineTransform",
+    "CatTransform",
     "CholeskyTransform",
+    "ComplexTransform",
     "ComposeTransform",
     "CorrCholeskyTransform",
     "CorrMatrixCholeskyTransform",
+    "DiscreteCosineTransform",
     "ExpTransform",
+    "HaarTransform",
     "IdentityTransform",
     "L1BallTransform",
     "LowerCholeskyTransform",
     "ScaledUnitLowerCholeskyTransform",
     "LowerCholeskyAffine",
+    "PackRealFastFourierCoefficientsTransform",
     "PermuteTransform",
     "PowerTransform",
+    "RealFastFourierTransform",
+    "ReshapeTransform",
     "SigmoidTransform",
     "SimplexToOrderedTransform",
     "SoftplusTransform",
@@ -47,58 +67,79 @@ __all__ = [
     "StickBreakingTransform",
     "Transform",
     "UnpackTransform",
+    "ZeroSumTransform",
 ]
 
 
-def _clipped_expit(x):
+def _clipped_expit(x: NumLike) -> NumLike:
     finfo = jnp.finfo(jnp.result_type(x))
-    return jnp.clip(expit(x), a_min=finfo.tiny, a_max=1.0 - finfo.eps)
+    return jnp.clip(expit(x), finfo.tiny, 1.0 - finfo.eps)
 
 
-class Transform(object):
-    domain = constraints.real
-    codomain = constraints.real
-    _inv = None
+class Transform(Generic[NumLikeT]):
+    _inv: Optional[Union["Transform", weakref.ref]] = None
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.real
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.real
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
+    def tree_flatten(self):
+        raise NotImplementedError
+
     @property
-    def inv(self):
+    def inv(self) -> "Transform":
         inv = None
-        if self._inv is not None:
+        if (self._inv is not None) and isinstance(self._inv, weakref.ref):
             inv = self._inv()
         if inv is None:
             inv = _InverseTransform(self)
             self._inv = weakref.ref(inv)
-        return inv
+        return cast("Transform", inv)
 
-    def __call__(self, x):
-        return NotImplementedError
+    def __call__(self, x: NumLikeT) -> NumLike:
+        raise NotImplementedError()
 
-    def _inverse(self, y):
-        raise NotImplementedError
+    def _inverse(self, y: NumLikeT) -> NumLike:
+        raise NotImplementedError()
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        raise NotImplementedError
+    def log_abs_det_jacobian(
+        self, x: NumLikeT, y: NumLikeT, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
+        raise NotImplementedError()
 
-    def call_with_intermediates(self, x):
+    def call_with_intermediates(self, x: NumLikeT) -> Tuple[NumLike, Optional[PyTree]]:
         return self(x), None
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         """
         Infers the shape of the forward computation, given the input shape.
         Defaults to preserving shape.
         """
         return shape
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         """
         Infers the shapes of the inverse computation, given the output shape.
         Defaults to preserving shape.
         """
         return shape
+
+    @property
+    def sign(self) -> NumLike:
+        """
+        Sign of the derivative of the transform if it is bijective.
+        """
+        raise NotImplementedError(
+            f"Transform `{self.__class__.__name__}` does not implement `sign`."
+        )
 
     # Allow for pickle serialization of transforms.
     def __getstate__(self):
@@ -121,65 +162,76 @@ class Transform(object):
             setattr(self, k, v)
         return self
 
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return self is other
 
-class ParameterFreeTransform(Transform):
+    def __eq__(self, other: object) -> bool:
+        return bool(self.eq(other, static=True))
+
+
+class ParameterFreeTransform(Transform[NumLikeT]):
     def tree_flatten(self):
         return (), ((), dict())
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         return isinstance(other, type(self))
 
 
-class _InverseTransform(Transform):
-    def __init__(self, transform):
+class _InverseTransform(Transform[NumLike]):
+    _inv: Transform
+
+    def __init__(self, transform: Transform):
         super().__init__()
         self._inv = transform
 
     @property
-    def domain(self):
+    def domain(self) -> Constraint:
         return self._inv.codomain
 
     @property
-    def codomain(self):
+    def codomain(self) -> Constraint:
         return self._inv.domain
 
     @property
-    def inv(self):
+    def sign(self) -> NumLike:
+        return self._inv.sign
+
+    @property
+    def inv(self) -> Transform:
         return self._inv
 
-    def __call__(self, x):
+    def __call__(self, x: NumLike) -> NumLike:
         return self._inv._inverse(x)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         # NB: we don't use intermediates for inverse transform
         return -self._inv.log_abs_det_jacobian(y, x, None)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return self._inv.inverse_shape(shape)
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return self._inv.forward_shape(shape)
 
     def tree_flatten(self):
         return (self._inv,), (("_inv",), dict())
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _InverseTransform):
             return False
-        return self._inv == other._inv
+        return self._inv.eq(other._inv, static=static)
 
 
-class AbsTransform(ParameterFreeTransform):
+class AbsTransform(ParameterFreeTransform[NumLike]):
     domain = constraints.real
     codomain = constraints.positive
 
-    def __eq__(self, other):
-        return isinstance(other, AbsTransform)
-
-    def __call__(self, x):
+    def __call__(self, x: NumLike) -> NumLike:
         return jnp.abs(x)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         warnings.warn(
             "AbsTransform is not a bijective transform."
             " The inverse of `y` will be `y`.",
@@ -188,19 +240,25 @@ class AbsTransform(ParameterFreeTransform):
         return y
 
 
-class AffineTransform(Transform):
+class AffineTransform(Transform[NumLike]):
     """
     .. note:: When `scale` is a JAX tracer, we always assume that `scale > 0`
         when calculating `codomain`.
     """
 
-    def __init__(self, loc, scale, domain=constraints.real):
+    def __init__(
+        self, loc: NumLike, scale: NumLike, domain: Constraint = constraints.real
+    ):
         self.loc = loc
         self.scale = scale
-        self.domain = domain
+        self._domain = domain
 
     @property
-    def codomain(self):
+    def domain(self) -> Constraint:
+        return self._domain
+
+    @property
+    def codomain(self) -> Constraint:
         if self.domain is constraints.real:
             return constraints.real
         elif isinstance(self.domain, constraints.greater_than):
@@ -227,41 +285,50 @@ class AffineTransform(Transform):
         else:
             raise NotImplementedError
 
-    def __call__(self, x):
-        return self.loc + self.scale * x
+    @property
+    def sign(self) -> NumLike:
+        return jnp.sign(self.scale)
 
-    def _inverse(self, y):
+    def __call__(self, x: NumLike) -> NumLike:
+        return self.loc + jnp.multiply(self.scale, x)
+
+    def _inverse(self, y: NumLike) -> NumLike:
         return (y - self.loc) / self.scale
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return lax.broadcast_shapes(
             shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ())
         )
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return lax.broadcast_shapes(
             shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ())
         )
 
     def tree_flatten(self):
-        return (self.loc, self.scale, self.domain), (("loc", "scale", "domain"), dict())
+        return (self.loc, self.scale, self.domain), (
+            ("loc", "scale", "_domain"),
+            dict(),
+        )
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, AffineTransform):
             return False
         return (
-            jnp.array_equal(self.loc, other.loc)
-            & jnp.array_equal(self.scale, other.scale)
-            & (self.domain == other.domain)
+            array_equiv(self.loc, other.loc, static=static)
+            & array_equiv(self.scale, other.scale, static=static)
+            & self.domain.eq(other.domain, static=static)
         )
 
 
 def _get_compose_transform_input_event_dim(parts):
     input_event_dim = parts[-1].domain.event_dim
-    for part in parts[len(parts) - 1 :: -1]:
+    for part in parts[:-1][::-1]:
         input_event_dim = part.domain.event_dim + max(
             input_event_dim - part.codomain.event_dim, 0
         )
@@ -277,12 +344,12 @@ def _get_compose_transform_output_event_dim(parts):
     return output_event_dim
 
 
-class ComposeTransform(Transform):
-    def __init__(self, parts):
+class ComposeTransform(Transform[NumLike]):
+    def __init__(self, parts: Sequence[Transform]) -> None:
         self.parts = parts
 
     @property
-    def domain(self):
+    def domain(self) -> Constraint:
         input_event_dim = _get_compose_transform_input_event_dim(self.parts)
         first_input_event_dim = self.parts[0].domain.event_dim
         assert input_event_dim >= first_input_event_dim
@@ -294,7 +361,7 @@ class ComposeTransform(Transform):
             )
 
     @property
-    def codomain(self):
+    def codomain(self) -> Constraint:
         output_event_dim = _get_compose_transform_output_event_dim(self.parts)
         last_output_event_dim = self.parts[-1].codomain.event_dim
         assert output_event_dim >= last_output_event_dim
@@ -305,17 +372,26 @@ class ComposeTransform(Transform):
                 self.parts[-1].codomain, output_event_dim - last_output_event_dim
             )
 
-    def __call__(self, x):
+    @property
+    def sign(self) -> NumLike:
+        sign: NumLike = 1
+        for transform in self.parts:
+            sign *= transform.sign
+        return sign
+
+    def __call__(self, x: NumLike) -> NumLike:
         for part in self.parts:
             x = part(x)
         return x
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         for part in self.parts[::-1]:
             y = part.inv(y)
         return y
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         if intermediates is not None:
             if len(intermediates) != len(self.parts):
                 raise ValueError(
@@ -341,8 +417,8 @@ class ComposeTransform(Transform):
         result = result + sum_rightmost(logdet, input_event_dim - part.domain.event_dim)
         return result
 
-    def call_with_intermediates(self, x):
-        intermediates = []
+    def call_with_intermediates(self, x: NumLike) -> Tuple[NumLike, Optional[PyTree]]:
+        intermediates: list[Optional[PyTree]] = []
         for part in self.parts[:-1]:
             x, inter = part.call_with_intermediates(x)
             intermediates.append([x, inter])
@@ -351,12 +427,12 @@ class ComposeTransform(Transform):
         intermediates.append(inter)
         return x, intermediates
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         for part in self.parts:
             shape = part.forward_shape(shape)
         return shape
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         for part in reversed(self.parts):
             shape = part.inverse_shape(shape)
         return shape
@@ -364,25 +440,191 @@ class ComposeTransform(Transform):
     def tree_flatten(self):
         return (self.parts,), (("parts",), {})
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, ComposeTransform):
             return False
-        return jnp.logical_and(*(p1 == p2 for p1, p2 in zip(self.parts, other.parts)))
+        if len(self.parts) != len(other.parts):
+            return False
+        if static:
+            return all(
+                p1.eq(p2, static=True) for p1, p2 in zip(self.parts, other.parts)
+            )
+        result = jnp.array(True)
+        for p1, p2 in zip(self.parts, other.parts):
+            result = result & p1.eq(p2, static=False)
+        return result
 
 
-def _matrix_forward_shape(shape, offset=0):
+class CatTransform(Transform[NonScalarArray]):
+    """
+    Applies a sequence of transforms to consecutive slices along a dimension,
+    in a way compatible with :func:`jax.numpy.concatenate`.
+
+    :param tseq: Sequence of transforms to apply to consecutive slices.
+    :param int dim: Dimension along which to slice.
+    :param lengths: Length of each slice. Defaults to one per transform.
+    """
+
+    def __init__(
+        self,
+        tseq: Sequence[Transform],
+        dim: int = 0,
+        lengths: Optional[Sequence[int]] = None,
+    ) -> None:
+        assert tseq, "tseq cannot be empty"
+        assert all(isinstance(t, Transform) for t in tseq), (
+            "tseq must contain only Transform instances"
+        )
+        assert isinstance(dim, int), "dim must be an integer"
+        self.transforms = tuple(tseq)
+        if lengths is None:
+            lengths = (1,) * len(self.transforms)
+        assert len(lengths) == len(self.transforms), (
+            "lengths must have the same number of elements as tseq"
+        )
+        assert all(isinstance(length, int) and length >= 0 for length in lengths), (
+            "lengths must contain only nonnegative integers"
+        )
+        self.lengths = tuple(lengths)
+        self.dim = dim
+
+    @property
+    def length(self) -> int:
+        return sum(self.lengths)
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.cat(
+            [transform.domain for transform in self.transforms],
+            self.dim,
+            self.lengths,
+        )
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.cat(
+            [transform.codomain for transform in self.transforms],
+            self.dim,
+            self.lengths,
+        )
+
+    def _slices(self, value: NonScalarArray) -> list[NonScalarArray]:
+        ndim = jnp.ndim(value)
+        if not -ndim <= self.dim < ndim:
+            raise ValueError(
+                f"dim {self.dim} out of range for value with {ndim} dimensions"
+            )
+        if jnp.shape(value)[self.dim] != self.length:
+            raise ValueError(
+                f"value.shape[{self.dim}] = {jnp.shape(value)[self.dim]} must equal "
+                f"the sum of lengths {self.length}"
+            )
+
+        values = []
+        start = 0
+        for length in self.lengths:
+            values.append(lax.slice_in_dim(value, start, start + length, axis=self.dim))
+            start += length
+        return values
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        return jnp.concatenate(
+            [
+                transform(value)
+                for transform, value in zip(self.transforms, self._slices(x))
+            ],
+            axis=self.dim,
+        )
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        return jnp.concatenate(
+            [
+                transform.inv(value)
+                for transform, value in zip(self.transforms, self._slices(y))
+            ],
+            axis=self.dim,
+        )
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        if intermediates is not None and len(intermediates) != len(self.transforms):
+            raise ValueError(
+                f"Intermediates array has length = {len(intermediates)}. "
+                f"Expected = {len(self.transforms)}."
+            )
+
+        event_dim = max(self.domain.event_dim, self.codomain.event_dim)
+        logdetjacs = []
+        for i, (transform, xslice, yslice) in enumerate(
+            zip(self.transforms, self._slices(x), self._slices(y))
+        ):
+            intermediate = None if intermediates is None else intermediates[i]
+            logdetjac = transform.log_abs_det_jacobian(
+                xslice, yslice, intermediates=intermediate
+            )
+            transform_event_dim = max(
+                transform.domain.event_dim, transform.codomain.event_dim
+            )
+            logdetjacs.append(sum_rightmost(logdetjac, event_dim - transform_event_dim))
+
+        dim = self.dim
+        if dim >= 0:
+            dim -= jnp.ndim(x)
+        dim += event_dim
+        if dim < 0:
+            return jnp.concatenate(logdetjacs, axis=dim)
+        return sum(logdetjacs)
+
+    def call_with_intermediates(
+        self, x: NonScalarArray
+    ) -> Tuple[NumLike, Optional[PyTree]]:
+        values = []
+        intermediates = []
+        for transform, value in zip(self.transforms, self._slices(x)):
+            value, intermediate = transform.call_with_intermediates(value)
+            values.append(value)
+            intermediates.append(intermediate)
+        return jnp.concatenate(values, axis=self.dim), intermediates
+
+    def tree_flatten(self):
+        return (self.transforms,), (
+            ("transforms",),
+            {"dim": self.dim, "lengths": self.lengths},
+        )
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        if not isinstance(other, CatTransform):
+            return False
+        if self.dim != other.dim or self.lengths != other.lengths:
+            return False
+        if static:
+            return all(
+                t1.eq(t2, static=True)
+                for t1, t2 in zip(self.transforms, other.transforms)
+            )
+        result = jnp.array(True)
+        for t1, t2 in zip(self.transforms, other.transforms):
+            result = result & t1.eq(t2, static=False)
+        return result
+
+
+def _matrix_forward_shape(shape: tuple[int, ...], offset: int = 0) -> tuple[int, ...]:
     # Reshape from (..., N) to (..., D, D).
     if len(shape) < 1:
         raise ValueError("Too few dimensions in input")
     N = shape[-1]
     D = round((0.25 + 2 * N) ** 0.5 - 0.5)
     if D * (D + 1) // 2 != N:
-        raise ValueError("Input is not a flattend lower-diagonal number")
+        raise ValueError("Input is not a flattened lower-diagonal number")
     D = D - offset
     return shape[:-1] + (D, D)
 
 
-def _matrix_inverse_shape(shape, offset=0):
+def _matrix_inverse_shape(shape: tuple[int, ...], offset: int = 0) -> tuple[int, ...]:
     # Reshape from (..., D, D) to (..., N).
     if len(shape) < 2:
         raise ValueError("Too few dimensions on input")
@@ -393,21 +635,27 @@ def _matrix_inverse_shape(shape, offset=0):
     return shape[:-2] + (N,)
 
 
-class CholeskyTransform(ParameterFreeTransform):
+class CholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     positive definite matrix.
     """
+
     domain = constraints.positive_definite
     codomain = constraints.lower_cholesky
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         return jnp.linalg.cholesky(x)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         return jnp.matmul(y, jnp.swapaxes(y, -2, -1))
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
         n = jnp.shape(x)[-1]
         order = -jnp.arange(n, 0, -1)
@@ -416,9 +664,9 @@ class CholeskyTransform(ParameterFreeTransform):
         )
 
 
-class CorrCholeskyTransform(ParameterFreeTransform):
+class CorrCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
-    Transforms a uncontrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
+    Transforms an unconstrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
     Cholesky factor of a D-dimension correlation matrix. This Cholesky factor is a lower
     triangular matrix with positive diagonals and unit Euclidean norm for each row.
     The transform is processed as follows:
@@ -442,15 +690,16 @@ class CorrCholeskyTransform(ParameterFreeTransform):
             c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
             d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
     """
+
     domain = constraints.real_vector
     codomain = constraints.corr_cholesky
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         # we interchange step 1 and step 2.a for a better performance
         t = jnp.tanh(x)
         return signed_stick_breaking_tril(t)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         # inverse stick-breaking
         z1m_cumprod = 1 - jnp.cumsum(y * y, axis=-1)
         pad_width = [(0, 0)] * y.ndim
@@ -464,7 +713,12 @@ class CorrCholeskyTransform(ParameterFreeTransform):
         # inverse of tanh
         return jnp.arctanh(t)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         # NB: because domain and codomain are two spaces with different dimensions, determinant of
         # Jacobian is not well-defined. Here we return `log_abs_det_jacobian` of `x` and the
         # flatten lower triangular part of `y`.
@@ -479,10 +733,10 @@ class CorrCholeskyTransform(ParameterFreeTransform):
         tanh_logdet = -2 * jnp.sum(x + softplus(-2 * x) - jnp.log(2.0), axis=-1)
         return stick_breaking_logdet + tanh_logdet
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _matrix_forward_shape(shape, offset=-1)
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _matrix_inverse_shape(shape, offset=-1)
 
 
@@ -491,24 +745,36 @@ class CorrMatrixCholeskyTransform(CholeskyTransform):
     Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
     correlation matrix.
     """
+
     domain = constraints.corr_matrix
     codomain = constraints.corr_cholesky
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         # NB: see derivation in LKJCholesky implementation
         n = jnp.shape(x)[-1]
         order = -jnp.arange(n - 1, -1, -1)
         return jnp.sum(order * jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1)), axis=-1)
 
 
-class ExpTransform(Transform):
+class ExpTransform(Transform[NumLike]):
+    sign = 1
+
     # TODO: refine domain/codomain logic through setters, especially when
     # transforms for inverses are supported
-    def __init__(self, domain=constraints.real):
-        self.domain = domain
+    def __init__(self, domain: Constraint = constraints.real):
+        self._domain = domain
 
     @property
-    def codomain(self):
+    def domain(self) -> Constraint:
+        return self._domain
+
+    @property
+    def codomain(self) -> Constraint:
         if self.domain is constraints.ordered_vector:
             return constraints.positive_ordered_vector
         elif self.domain is constraints.real:
@@ -523,44 +789,52 @@ class ExpTransform(Transform):
         else:
             raise NotImplementedError
 
-    def __call__(self, x):
-        # XXX consider to clamp from below for stability if necessary
+    def __call__(self, x: NumLike) -> NumLike:
+        # Note: consider to clamp from below for stability if necessary
         return jnp.exp(x)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         return jnp.log(y)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         return x
 
     def tree_flatten(self):
-        return (self.domain,), (("domain",), dict())
+        return (self.domain,), (("_domain",), dict())
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, ExpTransform):
             return False
-        return self.domain == other.domain
+        return self.domain.eq(other.domain, static=static)
 
 
-class IdentityTransform(ParameterFreeTransform):
-    def __call__(self, x):
+class IdentityTransform(ParameterFreeTransform[NumLike]):
+    sign = 1
+
+    def __call__(self, x: NumLike) -> NumLike:
         return x
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         return y
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         return jnp.zeros_like(x)
 
 
-class IndependentTransform(Transform):
+class IndependentTransform(Transform[NumLike]):
     """
     Wraps a transform by aggregating over ``reinterpreted_batch_ndims``-many
     dims in :meth:`check`, so that an event is valid only if all its
     independent entries are valid.
     """
 
-    def __init__(self, base_transform, reinterpreted_batch_ndims):
+    def __init__(
+        self, base_transform: Transform, reinterpreted_batch_ndims: int
+    ) -> None:
         assert isinstance(base_transform, Transform)
         assert isinstance(reinterpreted_batch_ndims, int)
         assert reinterpreted_batch_ndims >= 0
@@ -569,24 +843,26 @@ class IndependentTransform(Transform):
         super().__init__()
 
     @property
-    def domain(self):
+    def domain(self) -> Constraint:
         return constraints.independent(
             self.base_transform.domain, self.reinterpreted_batch_ndims
         )
 
     @property
-    def codomain(self):
+    def codomain(self) -> Constraint:
         return constraints.independent(
             self.base_transform.codomain, self.reinterpreted_batch_ndims
         )
 
-    def __call__(self, x):
+    def __call__(self, x: NumLike) -> NumLike:
         return self.base_transform(x)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         return self.base_transform._inverse(y)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         result = self.base_transform.log_abs_det_jacobian(
             x, y, intermediates=intermediates
         )
@@ -595,37 +871,38 @@ class IndependentTransform(Transform):
             raise ValueError(f"Expected x.dim() >= {expected} but got {jnp.ndim(x)}")
         return sum_rightmost(result, self.reinterpreted_batch_ndims)
 
-    def call_with_intermediates(self, x):
+    def call_with_intermediates(self, x: NumLike) -> Tuple[NumLike, Optional[PyTree]]:
         return self.base_transform.call_with_intermediates(x)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return self.base_transform.forward_shape(shape)
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return self.base_transform.inverse_shape(shape)
 
     def tree_flatten(self):
-        return (self.base_transform, self.reinterpreted_batch_ndims), (
-            ("base_transform", "reinterpreted_batch_ndims"),
-            dict(),
+        return (self.base_transform,), (
+            ("base_transform",),
+            {"reinterpreted_batch_ndims": self.reinterpreted_batch_ndims},
         )
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, IndependentTransform):
             return False
-        return (self.base_transform == other.base_transform) & (
-            self.reinterpreted_batch_ndims == other.reinterpreted_batch_ndims
-        )
+        if self.reinterpreted_batch_ndims != other.reinterpreted_batch_ndims:
+            return False
+        return self.base_transform.eq(other.base_transform, static=static)
 
 
-class L1BallTransform(ParameterFreeTransform):
+class L1BallTransform(ParameterFreeTransform[NonScalarArray]):
     r"""
-    Transforms a uncontrained real vector :math:`x` into the unit L1 ball.
+    Transforms an unconstrained real vector :math:`x` into the unit L1 ball.
     """
+
     domain = constraints.real_vector
     codomain = constraints.l1_ball
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         # transform to (-1, 1) interval
         t = jnp.tanh(x)
 
@@ -635,20 +912,25 @@ class L1BallTransform(ParameterFreeTransform):
         remainder = jnp.pad(remainder, pad_width, mode="constant", constant_values=1.0)
         return t * remainder
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         # inverse stick-breaking
         remainder = 1 - jnp.cumsum(jnp.abs(y[..., :-1]), axis=-1)
         pad_width = [(0, 0)] * (y.ndim - 1) + [(1, 0)]
         remainder = jnp.pad(remainder, pad_width, mode="constant", constant_values=1.0)
         finfo = jnp.finfo(y.dtype)
-        remainder = jnp.clip(remainder, a_min=finfo.tiny)
+        remainder = jnp.clip(remainder, finfo.tiny)
         t = y / remainder
 
         # inverse of tanh
-        t = jnp.clip(t, a_min=-1 + finfo.eps, a_max=1 - finfo.eps)
+        t = jnp.clip(t, -1 + finfo.eps, 1 - finfo.eps)
         return jnp.arctanh(t)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         # compute stick-breaking logdet
         #   t1 -> t1
         #   t2 -> t2 * (1 - abs(t1))
@@ -657,7 +939,7 @@ class L1BallTransform(ParameterFreeTransform):
         # of the diagonal part of the jacobian
         one_minus_remainder = jnp.cumsum(jnp.abs(y[..., :-1]), axis=-1)
         eps = jnp.finfo(y.dtype).eps
-        one_minus_remainder = jnp.clip(one_minus_remainder, a_max=1 - eps)
+        one_minus_remainder = jnp.clip(one_minus_remainder, None, 1 - eps)
         # log(remainder) = log1p(remainder - 1)
         stick_breaking_logdet = jnp.sum(jnp.log1p(-one_minus_remainder), axis=-1)
 
@@ -665,12 +947,14 @@ class L1BallTransform(ParameterFreeTransform):
         return stick_breaking_logdet + tanh_logdet
 
 
-class LowerCholeskyAffine(Transform):
+class LowerCholeskyAffine(Transform[NonScalarArray]):
     r"""
     Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
 
     :param loc: a real vector.
     :param scale_tril: a lower triangular matrix with positive diagonal.
+        May include leading batch dimensions, which are broadcast against
+        ``loc`` and the input.
 
     **Example**
 
@@ -685,43 +969,53 @@ class LowerCholeskyAffine(Transform):
        >>> affine(base)
        Array([0.3, 1.5], dtype=float32)
     """
+
     domain = constraints.real_vector
     codomain = constraints.real_vector
 
-    def __init__(self, loc, scale_tril):
-        if jnp.ndim(scale_tril) != 2:
+    def __init__(self, loc: NonScalarArray, scale_tril: NonScalarArray):
+        if jnp.ndim(scale_tril) < 2:
             raise ValueError(
-                "Only support 2-dimensional scale_tril matrix. "
-                "Please make a feature request if you need to "
-                "use this transform with batched scale_tril."
+                "scale_tril must be at least 2-dimensional, got shape "
+                f"{jnp.shape(scale_tril)}."
+            )
+        if scale_tril.shape[-1] != scale_tril.shape[-2]:
+            raise ValueError(
+                "scale_tril must be square in its last two dimensions, got shape "
+                f"{jnp.shape(scale_tril)}."
             )
         self.loc = loc
         self.scale_tril = scale_tril
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         return self.loc + jnp.squeeze(
             jnp.matmul(self.scale_tril, x[..., jnp.newaxis]), axis=-1
         )
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         y = y - self.loc
-        original_shape = jnp.shape(y)
-        yt = jnp.reshape(y, (-1, original_shape[-1])).T
-        xt = solve_triangular(self.scale_tril, yt, lower=True)
-        return jnp.reshape(xt.T, original_shape)
+        return jnp.squeeze(
+            solve_triangular(self.scale_tril, y[..., jnp.newaxis], lower=True),
+            axis=-1,
+        )
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         return jnp.broadcast_to(
             jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
             jnp.shape(x)[:-1],
         )
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         if len(shape) < 1:
             raise ValueError("Too few dimensions on input")
         return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         if len(shape) < 1:
             raise ValueError("Too few dimensions on input")
         return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
@@ -729,15 +1023,15 @@ class LowerCholeskyAffine(Transform):
     def tree_flatten(self):
         return (self.loc, self.scale_tril), (("loc", "scale_tril"), dict())
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, LowerCholeskyAffine):
             return False
-        return jnp.array_equal(self.loc, other.loc) & jnp.array_equal(
-            self.scale_tril, other.scale_tril
+        return array_equiv(self.loc, other.loc, static=static) & array_equiv(
+            self.scale_tril, other.scale_tril, static=static
         )
 
 
-class LowerCholeskyTransform(ParameterFreeTransform):
+class LowerCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     """
     Transform a real vector to a lower triangular cholesky
     factor, where the strictly lower triangular submatrix is
@@ -748,27 +1042,32 @@ class LowerCholeskyTransform(ParameterFreeTransform):
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = jnp.exp(x[..., -n:])
-        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
+        return add_diag(z, diag)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         z = matrix_to_tril_vec(y, diagonal=-1)
         return jnp.concatenate(
             [z, jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1))], axis=-1
         )
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _matrix_forward_shape(shape)
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _matrix_inverse_shape(shape)
 
 
@@ -784,28 +1083,34 @@ class ScaledUnitLowerCholeskyTransform(LowerCholeskyTransform):
     and :math:`scale\_diag` is a diagonal matrix with all positive
     entries that is parameterized with a softplus transform.
     """
+
     domain = constraints.real_vector
     codomain = constraints.scaled_unit_lower_cholesky
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = softplus(x[..., -n:])
-        return (z + jnp.identity(n)) * diag[..., None]
+        return add_diag(z, jnp.array(1)) * diag[..., None]
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         diag = jnp.diagonal(y, axis1=-2, axis2=-1)
         z = matrix_to_tril_vec(y / diag[..., None], diagonal=-1)
         return jnp.concatenate([z, _softplus_inv(diag)], axis=-1)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         diag = x[..., -n:]
         diag_softplus = jnp.diagonal(y, axis1=-2, axis2=-1)
         return (jnp.log(diag_softplus) * jnp.arange(n) - softplus(-diag)).sum(-1)
 
 
-class OrderedTransform(ParameterFreeTransform):
+class OrderedTransform(ParameterFreeTransform[NonScalarArray]):
     """
     Transform a real vector to an ordered vector.
 
@@ -829,94 +1134,113 @@ class OrderedTransform(ParameterFreeTransform):
     domain = constraints.real_vector
     codomain = constraints.ordered_vector
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         z = jnp.concatenate([x[..., :1], jnp.exp(x[..., 1:])], axis=-1)
         return jnp.cumsum(z, axis=-1)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         x = jnp.log(y[..., 1:] - y[..., :-1])
         return jnp.concatenate([y[..., :1], x], axis=-1)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         return jnp.sum(x[..., 1:], -1)
 
 
-class PermuteTransform(Transform):
+class PermuteTransform(Transform[NonScalarArray]):
     domain = constraints.real_vector
     codomain = constraints.real_vector
 
-    def __init__(self, permutation):
+    def __init__(self, permutation: NonScalarArray) -> None:
         self.permutation = permutation
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         return x[..., self.permutation]
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         size = self.permutation.size
-        permutation_inv = (
+        permutation_inv: NonScalarArray = (
             jnp.zeros(size, dtype=jnp.result_type(int))
             .at[self.permutation]
             .set(jnp.arange(size))
         )
         return y[..., permutation_inv]
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         return jnp.full(jnp.shape(x)[:-1], 0.0)
 
     def tree_flatten(self):
         return (self.permutation,), (("permutation",), dict())
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, PermuteTransform):
             return False
-        return jnp.array_equal(self.permutation, other.permutation)
+        return array_equiv(self.permutation, other.permutation, static=static)
 
 
-class PowerTransform(Transform):
+class PowerTransform(Transform[NumLike]):
     domain = constraints.positive
     codomain = constraints.positive
 
-    def __init__(self, exponent):
+    def __init__(self, exponent: NumLike) -> None:
         self.exponent = exponent
 
-    def __call__(self, x):
+    def __call__(self, x: NumLike) -> NumLike:
         return jnp.power(x, self.exponent)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         return jnp.power(y, 1 / self.exponent)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.log(jnp.abs(self.exponent * y / x))
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
+        return jnp.log(jnp.abs(self.exponent)) + (self.exponent - 1) * jnp.log(x)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return lax.broadcast_shapes(shape, getattr(self.exponent, "shape", ()))
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return lax.broadcast_shapes(shape, getattr(self.exponent, "shape", ()))
 
     def tree_flatten(self):
         return (self.exponent,), (("exponent",), dict())
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, PowerTransform):
             return False
-        return jnp.array_equal(self.exponent, other.exponent)
+        return array_equiv(self.exponent, other.exponent, static=static)
+
+    @property
+    def sign(self) -> NumLike:
+        return jnp.sign(self.exponent)
 
 
-class SigmoidTransform(ParameterFreeTransform):
+class SigmoidTransform(ParameterFreeTransform[NumLike]):
     codomain = constraints.unit_interval
+    sign = 1
 
-    def __call__(self, x):
+    def __call__(self, x: NumLike) -> NumLike:
         return _clipped_expit(x)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         return logit(y)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         return -softplus(x) - softplus(-x)
 
 
-class SimplexToOrderedTransform(Transform):
+class SimplexToOrderedTransform(Transform[NonScalarArray]):
     """
     Transform a simplex into an ordered vector (via difference in Logistic CDF between cutpoints)
     Used in [1] to induce a prior on latent cutpoints via transforming ordered category probabilities.
@@ -945,25 +1269,28 @@ class SimplexToOrderedTransform(Transform):
     domain = constraints.simplex
     codomain = constraints.ordered_vector
 
-    def __init__(self, anchor_point=0.0):
+    def __init__(self, anchor_point: ArrayLike = 0.0) -> None:
         self.anchor_point = anchor_point
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         s = jnp.cumsum(x[..., :-1], axis=-1)
         y = logit(s) + jnp.expand_dims(self.anchor_point, -1)
         return y
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         y = y - jnp.expand_dims(self.anchor_point, -1)
         s = expit(y)
         # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
-        # add two boundary points 0 and 1
-        pad_width = [(0, 0)] * (jnp.ndim(s) - 1) + [(1, 1)]
-        s = jnp.pad(s, pad_width, constant_values=(0, 1))
-        x = s[..., 1:] - s[..., :-1]
+        x = jnp.diff(s, prepend=0, append=1)
         return x
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        y = y - jnp.expand_dims(self.anchor_point, -1)
         # |dp/dc| = |dx/dy| = prod(ds/dy) = prod(expit'(y))
         # we know log derivative of expit(y) is `-softplus(y) - softplus(-y)`
         J_logdet = (softplus(y) + softplus(-y)).sum(-1)
@@ -972,41 +1299,45 @@ class SimplexToOrderedTransform(Transform):
     def tree_flatten(self):
         return (self.anchor_point,), (("anchor_point",), dict())
 
-    def __eq__(self, other):
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, SimplexToOrderedTransform):
             return False
-        return jnp.array_equal(self.anchor_point, other.anchor_point)
+        return array_equiv(self.anchor_point, other.anchor_point, static=static)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return shape[:-1] + (shape[-1] - 1,)
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return shape[:-1] + (shape[-1] + 1,)
 
 
-def _softplus_inv(y):
+def _softplus_inv(y: NumLike) -> NumLike:
     return jnp.log(-jnp.expm1(-y)) + y
 
 
-class SoftplusTransform(ParameterFreeTransform):
+class SoftplusTransform(ParameterFreeTransform[NumLike]):
     r"""
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
     The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
     """
+
     domain = constraints.real
     codomain = constraints.softplus_positive
+    sign = 1
 
-    def __call__(self, x):
+    def __call__(self, x: NumLike) -> NumLike:
         return softplus(x)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NumLike) -> NumLike:
         return _softplus_inv(y)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self, x: NumLike, y: NumLike, intermediates: Optional[PyTree] = None
+    ) -> NumLike:
         return -softplus(-x)
 
 
-class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
+class SoftplusLowerCholeskyTransform(ParameterFreeTransform[NonScalarArray]):
     """
     Transform from unconstrained vector to lower-triangular matrices with
     nonnegative diagonal entries. This is useful for parameterizing positive
@@ -1016,35 +1347,40 @@ class SoftplusLowerCholeskyTransform(ParameterFreeTransform):
     domain = constraints.real_vector
     codomain = constraints.softplus_lower_cholesky
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
         diag = softplus(x[..., -n:])
         return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         z = matrix_to_tril_vec(y, diagonal=-1)
         diag = _softplus_inv(jnp.diagonal(y, axis1=-2, axis2=-1))
         return jnp.concatenate([z, diag], axis=-1)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         # the jacobian is diagonal, so logdet is the sum of diagonal
         # `softplus` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return -softplus(-x[..., -n:]).sum(-1)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _matrix_forward_shape(shape)
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         return _matrix_inverse_shape(shape)
 
 
-class StickBreakingTransform(ParameterFreeTransform):
+class StickBreakingTransform(ParameterFreeTransform[NonScalarArray]):
     domain = constraints.real_vector
     codomain = constraints.simplex
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         # we shift x to obtain a balanced mapping (0, 0, ..., 0) -> (1/K, 1/K, ..., 1/K)
         x = x - jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
         # convert to probabilities (relative to the remaining) of each fraction of the stick
@@ -1060,60 +1396,71 @@ class StickBreakingTransform(ParameterFreeTransform):
         )
         return z_padded * z1m_cumprod_shifted
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         y_crop = y[..., :-1]
-        z1m_cumprod = jnp.clip(
-            1 - jnp.cumsum(y_crop, axis=-1), a_min=jnp.finfo(y.dtype).tiny
-        )
+        z1m_cumprod = jnp.clip(1 - jnp.cumsum(y_crop, axis=-1), jnp.finfo(y.dtype).tiny)
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
         x = jnp.log(y_crop / z1m_cumprod)
         return x + jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - sigmoid(x)))
         #          = Product(y * sigmoid(x) * exp(-x))
         x = x - jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
         return jnp.sum(jnp.log(y[..., :-1]) + (log_sigmoid(x) - x), axis=-1)
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         if len(shape) < 1:
             raise ValueError("Too few dimensions on input")
         return shape[:-1] + (shape[-1] + 1,)
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         if len(shape) < 1:
             raise ValueError("Too few dimensions on input")
         return shape[:-1] + (shape[-1] - 1,)
 
 
-class UnpackTransform(Transform):
+class UnpackTransform(Transform[NonScalarArray]):
     """
     Transforms a contiguous array to a pytree of subarrays.
 
     :param unpack_fn: callable used to unpack a contiguous array.
+    :param pack_fn: callable used to pack a pytree into a contiguous array.
     """
 
     domain = constraints.real_vector
     codomain = constraints.dependent
 
-    def __init__(self, unpack_fn):
+    def __init__(self, unpack_fn, pack_fn=None):
         self.unpack_fn = unpack_fn
+        self.pack_fn = pack_fn
 
-    def __call__(self, x):
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
         batch_shape = x.shape[:-1]
         if batch_shape:
             unpacked = vmap(self.unpack_fn)(x.reshape((-1,) + x.shape[-1:]))
-            return tree_map(
+            return jax.tree.map(
                 lambda z: jnp.reshape(z, batch_shape + z.shape[1:]), unpacked
             )
         else:
             return self.unpack_fn(x)
 
-    def _inverse(self, y):
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        if self.pack_fn is None:
+            raise NotImplementedError(
+                "pack_fn needs to be provided to perform UnpackTransform.inv."
+            )
         leading_dims = [
-            v.shape[0] if jnp.ndim(v) > 0 else 0 for v in tree_flatten(y)[0]
+            v.shape[0] if jnp.ndim(v) > 0 else 0 for v in jax.tree.flatten(y)[0]
         ]
+        if not leading_dims:
+            return jnp.array([])
         d0 = leading_dims[0]
         not_scalar = d0 > 0 or len(leading_dims) > 1
         if not_scalar and all(d == d0 for d in leading_dims[1:]):
@@ -1122,23 +1469,766 @@ class UnpackTransform(Transform):
                 " cannot transform a batch of unpacked arrays.",
                 stacklevel=find_stack_level(),
             )
-        return ravel_pytree(y)[0]
+        return self.pack_fn(y)
 
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
         return jnp.zeros(jnp.shape(x)[:-1])
 
-    def forward_shape(self, shape):
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         raise NotImplementedError
 
-    def inverse_shape(self, shape):
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
         raise NotImplementedError
 
     def tree_flatten(self):
-        # XXX: what if unpack_fn is a parametrized callable pytree?
-        return (), ((), {"unpack_fn": self.unpack_fn})
+        # Note: what if unpack_fn is a parametrized callable pytree?
+        return (), ((), {"unpack_fn": self.unpack_fn, "pack_fn": self.pack_fn})
 
-    def __eq__(self, other):
-        return isinstance(other, UnpackTransform) and self.unpack_fn is other.unpack_fn
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, UnpackTransform)
+            and (self.unpack_fn is other.unpack_fn)
+            and (self.pack_fn is other.pack_fn)
+        )
+
+
+def _get_target_shape(
+    shape: tuple[int, ...],
+    forward_shape: tuple[int, ...],
+    inverse_shape: tuple[int, ...],
+) -> tuple[int, ...]:
+    batch_ndims = len(shape) - len(inverse_shape)
+    return shape[:batch_ndims] + forward_shape
+
+
+class ReshapeTransform(Transform[NonScalarArray]):
+    """
+    Reshape a sample, leaving batch dimensions unchanged.
+
+    :param forward_shape: Shape to transform the sample to.
+    :param inverse_shape: Shape of the sample for the inverse transform.
+    """
+
+    def __init__(
+        self,
+        forward_shape: tuple[int, ...],
+        inverse_shape: tuple[int, ...],
+    ) -> None:
+        forward_size = math.prod(forward_shape)
+        inverse_size = math.prod(inverse_shape)
+        if forward_size != inverse_size:
+            raise ValueError(
+                f"forward shape {forward_shape} (size {forward_size}) and inverse "
+                f"shape {inverse_shape} (size {inverse_size}) are not compatible"
+            )
+        self._forward_shape = forward_shape
+        self._inverse_shape = inverse_shape
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, len(self._inverse_shape))
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.real, len(self._forward_shape))
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        return _get_target_shape(shape, self._forward_shape, self._inverse_shape)
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        return _get_target_shape(shape, self._inverse_shape, self._forward_shape)
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        return jnp.reshape(x, self.forward_shape(jnp.shape(x)))
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        return jnp.reshape(y, self.inverse_shape(jnp.shape(y)))
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        return jnp.zeros_like(x, shape=x.shape[: x.ndim - len(self._inverse_shape)])
+
+    def tree_flatten(self):
+        aux_data = {
+            "_forward_shape": self._forward_shape,
+            "_inverse_shape": self._inverse_shape,
+        }
+        return (), ((), aux_data)
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, ReshapeTransform)
+            and self._forward_shape == other._forward_shape
+            and self._inverse_shape == other._inverse_shape
+        )
+
+
+def _normalize_rfft_shape(
+    input_shape: tuple[int, ...],
+    shape: Optional[tuple[int, ...]],
+) -> tuple[int, ...]:
+    if shape is None:
+        return input_shape
+    return input_shape[: len(input_shape) - len(shape)] + shape
+
+
+class RealFastFourierTransform(Transform[NonScalarArray]):
+    """
+    N-dimensional discrete fast Fourier transform for real input.
+
+    :param transform_shape: Length of each transformed axis to use from the input,
+        defaults to the input size.
+    :param transform_ndims: Number of trailing dimensions to transform.
+    """
+
+    def __init__(
+        self,
+        transform_shape: Optional[tuple[int, ...]] = None,
+        transform_ndims: int = 1,
+    ) -> None:
+        if isinstance(transform_shape, int):
+            transform_shape = (transform_shape,)
+        if transform_shape is not None and len(transform_shape) != transform_ndims:
+            raise ValueError(
+                f"Length of transform shape ({transform_shape}) does not match number "
+                f"of dimensions to transform ({transform_ndims})."
+            )
+        self.transform_shape = transform_shape
+        self.transform_ndims = transform_ndims
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.rfftn(x, self.transform_shape, axes)
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        axes = tuple(range(-self.transform_ndims, 0))
+        return jnp.fft.irfftn(y, self.transform_shape, axes)
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        # Dimensions remain unchanged except the last transformed dimension.
+        shape = _normalize_rfft_shape(shape, self.transform_shape)
+        return shape[:-1] + (shape[-1] // 2 + 1,)
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if self.transform_shape:
+            return _normalize_rfft_shape(shape, self.transform_shape)
+        size = 2 * (shape[-1] - 1)
+        return shape[:-1] + (size,)
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        batch_shape = jnp.broadcast_shapes(
+            x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
+        )
+        event_shape = x.shape[-self.transform_ndims :]
+        size = math.prod(event_shape)
+        q = math.prod(2 - size % 2 for size in event_shape)
+        return jnp.broadcast_to(
+            (size * jnp.log(size) - jnp.log(2) * (size - q)) / 2, batch_shape
+        )
+
+    def tree_flatten(self):
+        aux_data = {
+            "transform_shape": self.transform_shape,
+            "transform_ndims": self.transform_ndims,
+        }
+        return (), ((), aux_data)
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.complex, self.transform_ndims)
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, RealFastFourierTransform)
+            and self.transform_ndims == other.transform_ndims
+            and self.transform_shape == other.transform_shape
+        )
+
+
+class PackRealFastFourierCoefficientsTransform(Transform[NonScalarArray]):
+    """
+    Transform a real vector to complex coefficients of a real fast Fourier transform.
+
+    :param transform_shape: Shape of the real vector, defaults to the input size.
+    """
+
+    domain = constraints.real_vector
+    codomain = constraints.independent(constraints.complex, 1)
+
+    def __init__(self, transform_shape: Optional[tuple[int, ...]] = None) -> None:
+        assert transform_shape is None or len(transform_shape) == 1, (
+            "Packing Fourier coefficients is only implemented for vectors."
+        )
+        self.shape: Optional[tuple[int, ...]] = transform_shape
+
+    def tree_flatten(self):
+        return (), ((), {"shape": self.shape})
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        *batch_shape, n = shape
+        assert self.shape is None or self.shape == (n,), (
+            f"`shape` must be `None` or `{self.shape}. Got `{shape}`."
+        )
+        n_rfft = n // 2 + 1
+        return (*batch_shape, n_rfft)
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        *batch_shape, n_rfft = shape
+        assert self.shape is not None, (
+            "Shape must be specified in `__init__` for inverse transform."
+        )
+        (n,) = self.shape
+        assert n_rfft == n // 2 + 1
+        return (*batch_shape, n)
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> Array:
+        shape = jnp.broadcast_shapes(x.shape[:-1], y.shape[:-1])
+        return jnp.zeros_like(x, shape=shape)
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        assert self.shape is None or self.shape == x.shape[-1:]
+        n = x.shape[-1]
+        n_real = n // 2 + 1
+        n_imag = n - n_real
+        complex_dtype = jnp.result_type(x.dtype, jnp.complex64)
+        return (
+            jnp.asarray(x)[..., :n_real]
+            .astype(complex_dtype)
+            .at[..., 1 : 1 + n_imag]
+            .add(1j * x[..., n_real:])
+        )
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        assert self.shape is not None, (
+            "Shape must be specified in `__init__` for inverse transform."
+        )
+        (n,) = self.shape
+        n_real = n // 2 + 1
+        n_imag = n - n_real
+        return jnp.concatenate([y.real, y.imag[..., 1 : n_imag + 1]], axis=-1)
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, PackRealFastFourierCoefficientsTransform)
+            and self.shape == other.shape
+        )
+
+
+class RecursiveLinearTransform(Transform[NonScalarArray]):
+    """
+    Apply a linear transformation recursively such that
+    :math:`y_t = A y_{t - 1} + x_t` for :math:`t > 0`, where :math:`x_t` and :math:`y_t`
+    are vectors and :math:`A` is a square transition matrix. The series is initialized
+    by :math:`y_0 = 0`.
+
+    :param transition_matrix: Square transition matrix :math:`A` for successive states
+        or a batch of transition matrices.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> from jax import numpy as jnp
+        >>> import numpyro
+        >>> from numpyro import distributions as dist
+        >>>
+        >>> def cauchy_random_walk():
+        ...     return numpyro.sample(
+        ...         "x",
+        ...         dist.TransformedDistribution(
+        ...             dist.Cauchy(0, 1).expand([10, 1]).to_event(1),
+        ...             dist.transforms.RecursiveLinearTransform(jnp.eye(1)),
+        ...         ),
+        ...     )
+        >>>
+        >>> numpyro.handlers.seed(cauchy_random_walk, 0)().shape
+        (10, 1)
+        >>>
+        >>> def rocket_trajectory():
+        ...     scale = numpyro.sample(
+        ...         "scale",
+        ...         dist.HalfCauchy(1).expand([2]).to_event(1),
+        ...     )
+        ...     transition_matrix = jnp.array([[1, 1], [0, 1]])
+        ...     return numpyro.sample(
+        ...         "x",
+        ...         dist.TransformedDistribution(
+        ...             dist.Normal(0, scale).expand([10, 2]).to_event(1),
+        ...             dist.transforms.RecursiveLinearTransform(transition_matrix),
+        ...         ),
+        ...     )
+        >>>
+        >>> numpyro.handlers.seed(rocket_trajectory, 0)().shape
+        (10, 2)
+    """
+
+    domain = constraints.real_matrix
+    codomain = constraints.real_matrix
+
+    def __init__(
+        self,
+        transition_matrix: NonScalarArray,
+        initial_value: Optional[NonScalarArray] = None,
+    ) -> None:
+        event_shape = transition_matrix.shape[-1:]
+
+        if initial_value is None:
+            initial_value = np.zeros(event_shape)
+
+        assert event_shape == initial_value.shape[-1:], (
+            f"Event shape of initial value must be the same as transition matrix, got {event_shape} and"
+            f" {initial_value.shape[-1:]}."
+        )
+
+        self.initial_value = initial_value
+        self.transition_matrix = transition_matrix
+
+    def _get_initial_value(self, sample_shape) -> Array:
+        iv_batch_shape, event_shape = (
+            self.initial_value.shape[:-1],
+            self.initial_value.shape[-1:],
+        )
+        transition_batch_shape = self.transition_matrix.shape[:-2]
+
+        batch_shape = jnp.broadcast_shapes(
+            sample_shape, transition_batch_shape, iv_batch_shape
+        )
+
+        return jnp.broadcast_to(self.initial_value, batch_shape + event_shape)
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        # Move the time axis to the first position so we can scan over it.
+        sample_shape = x.shape[:-2]
+        x = jnp.moveaxis(x, -2, 0)
+
+        def f(y, x):
+            y = jnp.einsum("...ij,...j->...i", self.transition_matrix, y) + x
+            return y, y
+
+        initial_value = self._get_initial_value(sample_shape)
+
+        _, y = lax.scan(f, initial_value, x)
+        return jnp.moveaxis(y, 0, -2)
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        # Move the time axis to the first position so we can scan over it in reverse.
+        sample_shape = y.shape[:-2]
+        y = jnp.moveaxis(y, -2, 0)
+
+        def f(y, prev):
+            x = y - jnp.einsum("...ij,...j->...i", self.transition_matrix, prev)
+            return prev, x
+
+        initial_value = self._get_initial_value(sample_shape)
+
+        _, x = lax.scan(
+            f, y[-1], jnp.roll(y, 1, axis=0).at[0].set(initial_value), reverse=True
+        )
+        return jnp.moveaxis(x, 0, -2)
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        return jnp.zeros_like(x, shape=x.shape[:-2])
+
+    def tree_flatten(self):
+        return (self.transition_matrix, self.initial_value), (
+            ("transition_matrix", "initial_value"),
+            {},
+        )
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        if not isinstance(other, RecursiveLinearTransform):
+            return False
+        tm_eq = array_equiv(
+            self.transition_matrix, other.transition_matrix, static=static
+        )
+        if self.initial_value is None and other.initial_value is None:
+            iv_eq = True
+        elif self.initial_value is None or other.initial_value is None:
+            iv_eq = False
+        else:
+            iv_eq = array_equiv(self.initial_value, other.initial_value, static=static)
+        return tm_eq & iv_eq
+
+
+class ZeroSumTransform(Transform[NonScalarArray]):
+    """A transform that constrains an array to sum to zero, adapted from PyMC [1] as described in [2,3]
+
+    :param transform_ndims: Number of trailing dimensions to transform.
+
+    **References**
+    [1] https://github.com/pymc-devs/pymc/blob/244fb97b01ad0f3dadf5c3837b65839e2a59a0e8/pymc/distributions/transforms.py#L266
+    [2] https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.ZeroSumNormal.html
+    [3] https://learnbayesstats.com/episode/74-optimizing-nuts-developing-zerosumnormal-distribution-adrian-seyboldt/
+    """
+
+    def __init__(self, transform_ndims: int = 1) -> None:
+        self.transform_ndims = transform_ndims
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, self.transform_ndims)
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.zero_sum(self.transform_ndims)
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        zero_sum_axes = tuple(range(-self.transform_ndims, 0))
+        for axis in zero_sum_axes:
+            x = self.extend_axis(x, axis=axis)
+        return x
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        zero_sum_axes = tuple(range(-self.transform_ndims, 0))
+        for axis in zero_sum_axes:
+            y = self.extend_axis_rev(y, axis=axis)
+        return y
+
+    def extend_axis_rev(self, array: NonScalarArray, axis: int) -> NonScalarArray:
+        normalized_axis = axis if axis >= 0 else jnp.ndim(array) + axis
+
+        n = array.shape[normalized_axis]
+        last = jnp.take(array, jnp.array([-1]), axis=normalized_axis)
+
+        sum_vals = -last * jnp.sqrt(n)
+        norm = sum_vals / (jnp.sqrt(n) + n)
+        slice_before = (slice(None, None),) * normalized_axis
+        return array[(*slice_before, slice(None, -1))] + norm
+
+    def extend_axis(self, array: NonScalarArray, axis: int) -> NonScalarArray:
+        n = array.shape[axis] + 1
+
+        sum_vals = array.sum(axis, keepdims=True)
+        norm = sum_vals / (jnp.sqrt(n) + n)
+        fill_val = norm - sum_vals / jnp.sqrt(n)
+
+        out = jnp.concatenate([array, fill_val], axis=axis)
+        return out - norm
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> jnp.ndarray:
+        shape = jnp.broadcast_shapes(
+            x.shape[: -self.transform_ndims], y.shape[: -self.transform_ndims]
+        )
+        return jnp.zeros_like(x, shape=shape)
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        return shape[: -self.transform_ndims] + tuple(
+            s + 1 for s in shape[-self.transform_ndims :]
+        )
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        return shape[: -self.transform_ndims] + tuple(
+            s - 1 for s in shape[-self.transform_ndims :]
+        )
+
+    def tree_flatten(self):
+        aux_data = {"transform_ndims": self.transform_ndims}
+        return (), ((), aux_data)
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, ZeroSumTransform)
+            and self.transform_ndims == other.transform_ndims
+        )
+
+
+class ComplexTransform(ParameterFreeTransform[NonScalarArray]):
+    """
+    Transforms a pair of real numbers to a complex number.
+    """
+
+    domain = constraints.real_vector
+    codomain = constraints.complex
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        assert x.shape[-1] == 2, "Input must have a trailing dimension of size 2."
+        return lax.complex(x[..., 0], x[..., 1])
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        return jnp.stack([y.real, y.imag], axis=-1)
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NonScalarArray:
+        return jnp.zeros_like(y)
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        assert shape[-1] == 2, "Input must have a trailing dimension of size 2."
+        return shape[:-1]
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        return shape + (2,)
+
+
+_ROOT_TWO_INVERSE: float = 1.0 / math.sqrt(2.0)
+
+
+def _haar_forward(x: NonScalarArray) -> NonScalarArray:
+    """
+    Orthonormal Haar transform along the last axis.
+
+    This matches the block-structured Haar transform used by Pyro for sequences
+    whose length is not a power of two, but it is implemented with a bounded
+    ``for`` loop over a statically known number of levels (no ``while`` loop and
+    no recursion), so it traces cleanly under ``jax.jit`` and ``jax.vmap``. The
+    output is ordered as ``[dc, hi_k, end_k, ..., hi_1, end_1]`` where ``end_i``
+    is the trailing odd element (if any) at level ``i``.
+    """
+    size = x.shape[-1]
+    num_levels = max(0, size.bit_length() - 1)
+    lo = x
+    his: list[NonScalarArray] = []
+    ends: list[NonScalarArray] = []
+    for _ in range(num_levels):
+        n = lo.shape[-1] // 2
+        even = lo[..., 0 : 2 * n : 2]
+        odd = lo[..., 1 : 2 * n : 2]
+        ends.append(lo[..., 2 * n :])
+        his.append(_ROOT_TWO_INVERSE * (even - odd))
+        lo = _ROOT_TWO_INVERSE * (even + odd)
+    parts = [lo]
+    for i in range(num_levels - 1, -1, -1):
+        parts.append(his[i])
+        parts.append(ends[i])
+    return jnp.concatenate(parts, axis=-1)
+
+
+def _haar_inverse(y: NonScalarArray) -> NonScalarArray:
+    """
+    Inverse of :func:`_haar_forward` along the last axis.
+
+    Like the forward transform, this uses a bounded ``for`` loop over a
+    statically known number of levels (no ``while`` loop and no recursion).
+    """
+    size = y.shape[-1]
+    num_levels = max(0, size.bit_length() - 1)
+    lengths: list[int] = []
+    length = size
+    for _ in range(num_levels):
+        lengths.append(length)
+        length = length // 2
+    lo = y[..., 0:1]  # dc coefficient
+    offset = 1
+    for i in range(num_levels - 1, -1, -1):  # coarsest to finest
+        level_size = lengths[i]
+        n = level_size // 2
+        e = level_size - 2 * n
+        hi = y[..., offset : offset + n]
+        offset += n
+        end = y[..., offset : offset + e]
+        offset += e
+        even = _ROOT_TWO_INVERSE * (lo + hi)
+        odd = _ROOT_TWO_INVERSE * (lo - hi)
+        even_odd = jnp.stack([even, odd], axis=-1).reshape(even.shape[:-1] + (2 * n,))
+        lo = jnp.concatenate([even_odd, end], axis=-1)
+    return lo
+
+
+class HaarTransform(Transform[NonScalarArray]):
+    """
+    Discrete Haar transform.
+
+    This computes the (orthonormal) Haar transform and its inverse along a
+    chosen axis. The Jacobian determinant is 1. For sequences with length ``T``
+    not a power of two, this implementation is equivalent to a block-structured
+    Haar transform in which block sizes decrease by factors of one half from
+    left to right.
+
+    :param dim: Dimension along which to transform. Must be negative. This is an
+        absolute dim counting from the right.
+    :param flip: Whether to flip the time axis before applying the Haar
+        transform. Defaults to False.
+    """
+
+    bijective = True
+
+    def __init__(self, dim: int = -1, flip: bool = False) -> None:
+        assert isinstance(dim, int) and dim < 0
+        self.dim = dim
+        self.flip = flip
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        self.forward_shape(jnp.shape(x))
+        if self.dim != -1:
+            x = jnp.swapaxes(x, self.dim, -1)
+        if self.flip:
+            x = jnp.flip(x, -1)
+        y = _haar_forward(x)
+        if self.dim != -1:
+            y = jnp.swapaxes(y, self.dim, -1)
+        return y
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        self.inverse_shape(jnp.shape(y))
+        if self.dim != -1:
+            y = jnp.swapaxes(y, self.dim, -1)
+        x = _haar_inverse(y)
+        if self.flip:
+            x = jnp.flip(x, -1)
+        if self.dim != -1:
+            x = jnp.swapaxes(x, self.dim, -1)
+        return x
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        return jnp.zeros(jnp.shape(x)[: self.dim])
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def tree_flatten(self):
+        return (), ((), {"dim": self.dim, "flip": self.flip})
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, HaarTransform)
+            and self.dim == other.dim
+            and self.flip == other.flip
+        )
+
+
+class DiscreteCosineTransform(Transform[NonScalarArray]):
+    """
+    Discrete Cosine Transform of type II.
+
+    This computes the orthonormal DCT and its inverse along a chosen axis using
+    :func:`jax.scipy.fft.dct` and :func:`jax.scipy.fft.idct`. The Jacobian
+    determinant is 1.
+
+    When reparameterizing variables that are approximately continuous along the
+    time dimension, set ``smooth=1``. For variables that are approximately
+    continuously differentiable along the time axis, set ``smooth=2``.
+
+    :param dim: Dimension along which to transform. Must be negative. This is an
+        absolute dim counting from the right.
+    :param smooth: Smoothing parameter. When 0, this transforms white noise to
+        white noise; when 1 this transforms Brownian noise to white noise; when
+        -1 this transforms violet noise to white noise; etc. Any real number is
+        allowed. See https://en.wikipedia.org/wiki/Colors_of_noise.
+    """
+
+    bijective = True
+
+    def __init__(self, dim: int = -1, smooth: float = 0.0) -> None:
+        assert isinstance(dim, int) and dim < 0
+        self.dim = dim
+        self.smooth = float(smooth)
+
+    @property
+    def domain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    @property
+    def codomain(self) -> Constraint:
+        return constraints.independent(constraints.real, -self.dim)
+
+    def _weight(self, size: int, dtype: DTypeLike) -> Array:
+        # Weight by frequency**smooth, where the DCT-II frequencies are
+        # ``linspace(0.5, size - 0.5, size)``. The weights are normalized so
+        # that their geometric mean is one, ensuring ``|jacobian| = 1``. The
+        # result depends only on the static ``size`` and ``smooth``, so it is
+        # constant-folded under ``jit`` and contributes zero gradient.
+        freq = jnp.linspace(0.5, size - 0.5, size, dtype=dtype)
+        w = freq**self.smooth
+        w = w / jnp.exp(jnp.mean(jnp.log(w)))
+        return w.reshape((size,) + (1,) * (-self.dim - 1))
+
+    def __call__(self, x: NonScalarArray) -> NonScalarArray:
+        self.forward_shape(jnp.shape(x))
+        y = jax.scipy.fft.dct(jnp.asarray(x), type=2, norm="ortho", axis=self.dim)
+        if self.smooth:
+            y = y * self._weight(jnp.shape(x)[self.dim], y.dtype)
+        return y
+
+    def _inverse(self, y: NonScalarArray) -> NonScalarArray:
+        self.inverse_shape(jnp.shape(y))
+        if self.smooth:
+            y = y / self._weight(jnp.shape(y)[self.dim], y.dtype)
+        return jax.scipy.fft.idct(jnp.asarray(y), type=2, norm="ortho", axis=self.dim)
+
+    def log_abs_det_jacobian(
+        self,
+        x: NonScalarArray,
+        y: NonScalarArray,
+        intermediates: Optional[PyTree] = None,
+    ) -> NumLike:
+        return jnp.zeros(jnp.shape(x)[: self.dim])
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < -self.dim:
+            raise ValueError("Too few dimensions on input")
+        return shape
+
+    def tree_flatten(self):
+        return (), ((), {"dim": self.dim, "smooth": self.smooth})
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return (
+            isinstance(other, DiscreteCosineTransform)
+            and self.dim == other.dim
+            and self.smooth == other.smooth
+        )
 
 
 ##########################################################
@@ -1172,6 +2262,13 @@ class ConstraintRegistry(object):
 biject_to = ConstraintRegistry()
 
 
+@biject_to.register(constraints.cat)
+def _biject_to_cat(constraint):
+    return CatTransform(
+        [biject_to(c) for c in constraint.cseq], constraint.dim, constraint.lengths
+    )
+
+
 @biject_to.register(constraints.corr_cholesky)
 def _transform_to_corr_cholesky(constraint):
     return CorrCholeskyTransform()
@@ -1185,11 +2282,13 @@ def _transform_to_corr_matrix(constraint):
 
 
 @biject_to.register(type(constraints.positive))
+@biject_to.register(type(constraints.nonnegative))
 def _transform_to_positive(constraint):
     return ExpTransform()
 
 
 @biject_to.register(constraints.greater_than)
+@biject_to.register(constraints.greater_than_eq)
 def _transform_to_greater_than(constraint):
     return ComposeTransform(
         [
@@ -1200,6 +2299,7 @@ def _transform_to_greater_than(constraint):
 
 
 @biject_to.register(constraints.less_than)
+@biject_to.register(constraints.less_than_eq)
 def _transform_to_less_than(constraint):
     return ComposeTransform(
         [
@@ -1259,6 +2359,7 @@ def _transform_to_ordered_vector(constraint):
 
 
 @biject_to.register(constraints.positive_definite)
+@biject_to.register(constraints.positive_semidefinite)
 def _transform_to_positive_definite(constraint):
     return ComposeTransform([LowerCholeskyTransform(), CholeskyTransform().inv])
 
@@ -1266,6 +2367,11 @@ def _transform_to_positive_definite(constraint):
 @biject_to.register(constraints.positive_ordered_vector)
 def _transform_to_positive_ordered_vector(constraint):
     return ComposeTransform([OrderedTransform(), ExpTransform()])
+
+
+@biject_to.register(constraints.complex)
+def _transform_to_complex(constraint):
+    return ComplexTransform()
 
 
 @biject_to.register(constraints.real)
@@ -1286,3 +2392,8 @@ def _transform_to_softplus_lower_cholesky(constraint):
 @biject_to.register(constraints.simplex)
 def _transform_to_simplex(constraint):
     return StickBreakingTransform()
+
+
+@biject_to.register(constraints.zero_sum)
+def _transform_to_zero_sum(constraint):
+    return ZeroSumTransform(constraint.event_dim)

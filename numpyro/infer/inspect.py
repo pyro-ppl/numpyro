@@ -58,8 +58,10 @@ def _get_abstract_trace(model, model_args, model_kwargs):
 
 def _get_log_probs(model, model_args, model_kwargs, **sample):
     # Note: We use seed 0 for parameter initialization.
-    with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
-        data=sample
+    with (
+        handlers.trace() as tr,
+        handlers.seed(rng_seed=0),
+        handlers.substitute(data=sample),
     ):
         model(*model_args, **model_kwargs)
     return {
@@ -126,11 +128,12 @@ def get_dependencies(
             },
         }
 
-    Here is an example where two variables ``a`` and ``b`` start out
-    conditionally independent in the prior, but become conditionally dependent
-    in the posterior do the so-called collider variable ``c`` on which they
-    both depend. This is called "moralization" in the graphical model
-    literature::
+    Here is an example where two variables ``a`` and ``b`` are
+    conditionally independent in the prior but conditionally dependent
+    in the posterior due to a so-called "collider" variable ``c``. ``a``
+    and ``b`` both affect `c``, and so they are conditionally dependent
+    given a value of ``c``. This is called "moralization" in the graphical
+    model literature.::
 
         def model_2():
             a = numpyro.sample("a", dist.Normal(0, 1))
@@ -229,7 +232,7 @@ def get_dependencies(
     for d, upstreams in prior_dependencies.items():
         for u, p in upstreams.items():
             if u not in observed:
-                # Note the folowing reverses:
+                # Note the following reverses:
                 # u is henceforth downstream and d is henceforth upstream.
                 posterior_dependencies[u][d] = p.copy()
 
@@ -267,7 +270,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
        that site;
     -  "param_constraint" maps each param site to the name of the constraints at
        that site;
-    -  "plate_sample" maps each plate name to a lists of the sample sites
+    -  "plate_sample" maps each plate name to a list of the sample sites
        within that plate; and
     -  "observe" is a list of observed sample sites.
 
@@ -317,6 +320,9 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
                 site["fn_name"] = _get_dist_name(site.pop("fn"))
             elif site["type"] == "deterministic":
                 site["fn_name"] = "Deterministic"
+            elif site["type"] == "param":
+                # Remove lambda functions from param args to avoid jax.eval_shape issues
+                site.pop("args", None)
         return PytreeTrace(trace)
 
     # We use eval_shape to avoid any array computation.
@@ -370,8 +376,9 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
 
         # Note: We use seed 0 for parameter initialization.
         with handlers.trace() as tr, handlers.seed(rng_seed=0):
-            with handlers.substitute(data=sample), substitute_deterministic(
-                data=sample
+            with (
+                handlers.substitute(data=sample),
+                substitute_deterministic(data=sample),
             ):
                 model(*model_args, **model_kwargs)
         provenance_arrays = {}
@@ -385,8 +392,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     samples = {
         name: site["value"]
         for name, site in trace.items()
-        if (site["type"] == "sample" and not site["is_observed"])
-        or site["type"] == "deterministic"
+        if site["type"] == "sample" or site["type"] == "deterministic"
     }
 
     params = {
@@ -548,7 +554,7 @@ def render_graph(graph_specification, render_distributions=False):
                 shape = "plain"
                 rv_label = rv.replace(
                     "$params", ""
-                )  # incase of neural network parameters
+                )  # in case of neural network parameters
 
             # use different symbol for Deterministic site
             node_style = (
@@ -630,9 +636,14 @@ def render_model(
 
     if filename is not None:
         filename = Path(filename)
+        # remove leading period from suffix
+        filename_without_suffix = filename.with_suffix("")
         graph.render(
-            filename.stem, view=False, cleanup=True, format=filename.suffix[1:]
-        )  # remove leading period from suffix
+            filename_without_suffix,
+            view=False,
+            cleanup=True,
+            format=filename.suffix[1:],
+        )
 
     return graph
 

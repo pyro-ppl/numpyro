@@ -2,6 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import warnings
+
+warnings.filterwarnings(
+    "ignore", message=".*Attempting to hash a tracer.*", category=FutureWarning
+)
+
+# ruff: noqa: E402
 
 from numpyro import compat, diagnostics, distributions, handlers, infer, ops, optim
 from numpyro.distributions.distribution import enable_validation, validation_enabled

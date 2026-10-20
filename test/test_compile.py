@@ -31,12 +31,15 @@ def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
         num_warmup=100,
         num_samples=100,
     )
-    mcmc.run(random.PRNGKey(0), deterministic=deterministic)
+    mcmc.run(random.key(0), deterministic=deterministic)
     mcmc.get_samples()
 
     num_traces_for_heuristic = 2 if find_heuristic_step_size else 0
     if deterministic:
-        assert GLOBAL["count"] == 4 + num_traces_for_heuristic
+        # We have two extra calls to the model to get deterministic values:
+        # 1. transform the init state
+        # 2. transform state during the loop
+        assert GLOBAL["count"] == 5 + num_traces_for_heuristic
     else:
         assert GLOBAL["count"] == 3 + num_traces_for_heuristic
 
@@ -46,11 +49,15 @@ def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
 def test_mcmc_parallel_chain(deterministic):
     GLOBAL["count"] = 0
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100, num_chains=2)
-    mcmc.run(random.PRNGKey(0), deterministic=deterministic)
+    mcmc.run(random.key(0), deterministic=deterministic)
     mcmc.get_samples()
 
     if deterministic:
-        assert GLOBAL["count"] == 4
+        # As in test_mcmc_one_chain, we have two extra calls to the model
+        # to get deterministic values:
+        # 1. transform the init state
+        # 2. transform state during the loop
+        assert GLOBAL["count"] == 5
     else:
         assert GLOBAL["count"] == 3
 
@@ -60,10 +67,10 @@ def test_autoguide(deterministic):
     GLOBAL["count"] = 0
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), deterministic=deterministic)
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi_state = lax.fori_loop(0, 100, lambda i, val: svi.update(val)[0], svi_state)
     params = svi.get_params(svi_state)
-    guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(100,))
+    guide.sample_posterior(random.key(1), params, sample_shape=(100,))
 
     if deterministic:
         assert GLOBAL["count"] == 5

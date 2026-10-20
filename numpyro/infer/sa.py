@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 
-from jax import device_put, lax, random, vmap
+from jax import lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
@@ -112,7 +112,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         model_kwargs=None,
         rng_key=None,
     ):
-        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
+        rng_key = random.key(0) if rng_key is None else rng_key
         nonlocal wa_steps
         wa_steps = num_warmup
         pe_fn = potential_fn
@@ -139,7 +139,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             else jnp.sqrt(inverse_mass_matrix)
         )
         if adapt_state_size is None:
-            # XXX: heuristic choice
+            # Note: heuristic choice
             adapt_state_size = 2 * z_flat.shape[-1]
         else:
             assert adapt_state_size > 1, "adapt_state_size should be greater than 1."
@@ -174,7 +174,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             adapt_state,
             rng_key_sa,
         )
-        return device_put(sa_state)
+        return sa_state
 
     def sample_kernel(sa_state, model_args=(), model_kwargs=None):
         pe_fn = potential_fn
@@ -182,7 +182,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
         zs, pes, loc, scale = sa_state.adapt_state
         # we recompute loc/scale after each iteration to avoid precision loss
-        # XXX: consider to expose a setting to do this job periodically
+        # Note: consider to expose a setting to do this job periodically
         # to save some computations
         loc = jnp.mean(zs, 0)
         if scale.ndim == 2:
@@ -235,7 +235,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             sa_state.mean_accept_prob + (accept_prob - sa_state.mean_accept_prob) / n
         )
 
-        # XXX: we make a modification of SA sampler in [1]
+        # Note: we make a modification of SA sampler in [1]
         # in [1], each MCMC state contains N points `zs`
         # here we do resampling to pick randomly a point from those N points
         k = random.categorical(rng_key_accept, jnp.zeros(zs.shape[0]))
@@ -345,7 +345,7 @@ class SA(MCMCKernel):
         )
         if self._potential_fn and init_params is None:
             raise ValueError(
-                "Valid value of `init_params` must be provided with" " `potential_fn`."
+                "Valid value of `init_params` must be provided with `potential_fn`."
             )
 
         # NB: init args is different from HMC

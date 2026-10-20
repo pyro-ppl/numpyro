@@ -5,10 +5,10 @@ from abc import ABCMeta
 from collections import namedtuple
 import inspect
 
+import jax
 from jax import random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 import tensorflow_probability.substrates.jax as tfp
 
 from numpyro.infer import init_to_uniform
@@ -44,7 +44,7 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
             flatten_result = vmap(lambda a: -potential_fn(unravel_fn(a)))(
                 jnp.reshape(x, (-1,) + jnp.shape(x)[-1:])
             )
-            return tree_map(
+            return jax.tree.map(
                 lambda a: jnp.reshape(a, batch_shape + jnp.shape(a)[1:]), flatten_result
             )
         else:
@@ -56,9 +56,9 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
 class _TFPKernelMeta(ABCMeta):
     def __getitem__(cls, kernel_class):
         assert issubclass(kernel_class, tfp.mcmc.TransitionKernel)
-        assert (
-            "target_log_prob_fn" in inspect.getfullargspec(kernel_class).args
-        ), f"the first argument of {kernel_class} must be `target_log_prob_fn`"
+        assert "target_log_prob_fn" in inspect.getfullargspec(kernel_class).args, (
+            f"the first argument of {kernel_class} must be `target_log_prob_fn`"
+        )
 
         _PyroKernel = type(kernel_class.__name__, (TFPKernel,), {})
         _PyroKernel.kernel_class = kernel_class
@@ -193,7 +193,7 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         if is_prng_key(rng_key):
             init_state = self._init_fn(init_params, rng_key)
         else:
-            # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
+            # note: it's safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(self._init_fn)(init_params, rng_key)
@@ -236,9 +236,7 @@ for _name, _Kernel in tfp.mcmc.__dict__.items():
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/{}>`_
     with :class:`~numpyro.contrib.tfp.mcmc.TFPKernel`. The first argument `target_log_prob_fn`
     in TFP kernel construction is replaced by either `model` or `potential_fn`.
-    """.format(
-        _Kernel.__module__, _Kernel.__name__, _Kernel.__name__
-    )
+    """.format(_Kernel.__module__, _Kernel.__name__, _Kernel.__name__)
 
     __all__.append(_name)
 
@@ -250,9 +248,7 @@ __doc__ = "\n\n".join(
     {0}
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.mcmc.{0}
-    """.format(
-            _name
-        )
+    """.format(_name)
         for _name in __all__[:1] + sorted(__all__[1:])
     ]
 )

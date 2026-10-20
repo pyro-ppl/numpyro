@@ -1,9 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import jax
 from jax import numpy as jnp, vmap
 from jax.flatten_util import ravel_pytree
-from jax.tree_util import tree_map
 
 from numpyro.distributions import biject_to
 from numpyro.distributions.constraints import real
@@ -64,14 +64,14 @@ def batch_ravel_pytree(pytree, nbatch_dims=0):
         flat, unravel_fn = ravel_pytree(pytree)
         return flat, unravel_fn, unravel_fn
 
-    shapes = tree_map(lambda x: x.shape, pytree)
-    flat_pytree = tree_map(lambda x: x.reshape(*x.shape[:-nbatch_dims], -1), pytree)
+    shapes = jax.tree.map(lambda x: x.shape, pytree)
+    flat_pytree = jax.tree.map(lambda x: x.reshape(*x.shape[:-nbatch_dims], -1), pytree)
     flat = vmap(lambda x: ravel_pytree(x)[0])(flat_pytree)
-    unravel_fn = ravel_pytree(tree_map(lambda x: x[0], flat_pytree))[1]
+    unravel_fn = ravel_pytree(jax.tree.map(lambda x: x[0], flat_pytree))[1]
     return (
         flat,
         unravel_fn,
-        lambda _flat: tree_map(
+        lambda _flat: jax.tree.map(
             lambda x, shape: x.reshape(shape), vmap(unravel_fn)(_flat), shapes
         ),
     )

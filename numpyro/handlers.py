@@ -10,6 +10,21 @@ read `Poutine: A Guide to Programming with Effect Handlers in Pyro
 can be composed together or new ones added to enable implementation of custom
 inference utilities and algorithms.
 
+When a handler, such as `handlers.seed`, is applied to a model in NumPyro, e.g.,
+`seeded_model = handlers.seed(model, rng_seed=0)`, it creates a callable object
+with stateful attributes. These attributes can interfere with JAX primitives,
+such as `jax.jit`, `jax.vmap`, and `jax.grad`. To ensure proper composition with
+JAX primitives, handlers should be applied locally within the function or context
+where the model is used, rather than globally. For example::
+
+    # Good: can be used in a jitted function
+    def seeded_model(data):
+        return handlers.seed(model, rng_seed=0)(data)
+
+    # Bad: might create tracer-leaks when used in a jitted function
+    seeded_model = handlers.seed(model, rng_seed=0)
+
+
 **Example**
 
 As an example, we are using :class:`~numpyro.handlers.seed`, :class:`~numpyro.handlers.trace`
@@ -41,14 +56,14 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    ...     logits = jnp.sum(coefs * data + intercept, axis=-1)
    ...     return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-   >>> data = random.normal(random.PRNGKey(0), (N, D))
+   >>> data = random.normal(random.key(0), (N, D))
    >>> true_coefs = jnp.arange(1., D + 1.)
    >>> logits = jnp.sum(true_coefs * data, axis=-1)
-   >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+   >>> labels = dist.Bernoulli(logits=logits).sample(random.key(1))
 
    >>> num_warmup, num_samples = 1000, 1000
    >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup=num_warmup, num_samples=num_samples)
-   >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
+   >>> mcmc.run(random.key(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
    >>> mcmc.print_summary()  # doctest: +SKIP
 
@@ -71,21 +86,27 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    ...     log_lk_vals = log_lk_fn(random.split(rng_key, n), params)
    ...     return jnp.sum(logsumexp(log_lk_vals, 0) - jnp.log(n))
 
-   >>> print(log_predictive_density(random.PRNGKey(2), mcmc.get_samples(),
+   >>> print(log_predictive_density(random.key(2), mcmc.get_samples(),
    ...       logistic_regression, data, labels))  # doctest: +SKIP
    -874.89813
 """
 
+from __future__ import annotations
+
 from collections import OrderedDict
+from types import TracebackType
+from typing import TYPE_CHECKING, Callable, Optional, Union, cast
 import warnings
 
 import numpy as np
 
-from jax import random
+from jax import Array, random
 import jax.numpy as jnp
+from jax.typing import ArrayLike
 
 import numpyro
-from numpyro.distributions.distribution import COERCIONS
+from numpyro._typing import Message, TraceT
+from numpyro.distributions.distribution import COERCIONS, Distribution
 from numpyro.primitives import (
     _PYRO_STACK,
     CondIndepStackFrame,
@@ -94,6 +115,9 @@ from numpyro.primitives import (
     plate,
 )
 from numpyro.util import find_stack_level, is_prng_key, not_jax_tracer
+
+if TYPE_CHECKING:
+    from numpyro.infer.reparam import Reparam
 
 __all__ = [
     "block",
@@ -109,6 +133,7 @@ __all__ = [
     "seed",
     "substitute",
     "trace",
+    "uncondition",
     "do",
 ]
 
@@ -131,7 +156,7 @@ class trace(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
+       >>> exec_trace = trace(seed(model, random.key(0))).get_trace()
        >>> pp.pprint(exec_trace)  # doctest: +SKIP
        OrderedDict([('a',
                      {'args': (),
@@ -143,12 +168,12 @@ class trace(Messenger):
                       'value': Array(-0.20584235, dtype=float32)})])
     """
 
-    def __enter__(self):
+    def __enter__(self) -> TraceT:
         super(trace, self).__enter__()
-        self.trace = OrderedDict()
+        self.trace: TraceT = OrderedDict()
         return self.trace
 
-    def postprocess_message(self, msg):
+    def postprocess_message(self, msg: Message) -> None:
         if "name" not in msg:
             # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
             # which has no name
@@ -160,7 +185,7 @@ class trace(Messenger):
         )
         self.trace[msg["name"]] = msg.copy()
 
-    def get_trace(self, *args, **kwargs):
+    def get_trace(self, *args, **kwargs) -> TraceT:
         """
         Run the wrapped callable and return the recorded trace.
 
@@ -193,7 +218,7 @@ class replay(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
+       >>> exec_trace = trace(seed(model, random.key(0))).get_trace()
        >>> print(exec_trace['a']['value'])  # doctest: +SKIP
        -0.20584235
        >>> replayed_trace = trace(replay(model, exec_trace)).get_trace()
@@ -202,12 +227,16 @@ class replay(Messenger):
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
 
-    def __init__(self, fn=None, trace=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        trace: Optional[TraceT] = None,
+    ) -> None:
         assert trace is not None
         self.trace = trace
         super(replay, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] in ("sample", "plate") and msg["name"] in self.trace:
             name = msg["name"]
             guide_msg = self.trace[name]
@@ -222,19 +251,25 @@ class replay(Messenger):
                 raise RuntimeError(f"Site {name} must be sampled in trace.")
             msg["value"] = guide_msg["value"]
             msg["infer"] = guide_msg["infer"].copy()
+        if msg["type"] == "control_flow":
+            msg["kwargs"]["substitute_stack"].append(("replay", self.trace))
 
 
 class block(Messenger):
     """
     Given a callable `fn`, return another callable that selectively hides
-    primitive sites  where `hide_fn` returns True from other effect handlers
-    on the stack.
+    primitive sites from other effect handlers on the stack. In the absence
+    of parameters, all primitive sites are blocked. `hide_fn` takes precedence
+    over `hide`, which has higher priority than `expose_types` followed by `expose`.
+    Only the parameter with the precedence is considered.
 
     :param callable fn: Python callable with NumPyro primitives.
     :param callable hide_fn: function which when given a dictionary containing
         site-level metadata returns whether it should be blocked.
     :param list hide: list of site names to hide.
     :param list expose_types: list of site types to expose, e.g. `['param']`.
+    :param list expose: list of site names to expose.
+    :returns: Python callable with NumPyro primitives.
 
     **Example:**
 
@@ -249,7 +284,7 @@ class block(Messenger):
        ...     a = numpyro.sample('a', dist.Normal(0., 1.))
        ...     return numpyro.sample('b', dist.Normal(a, 1.))
 
-       >>> model = seed(model, random.PRNGKey(0))
+       >>> model = seed(model, random.key(0))
        >>> block_all = block(model)
        >>> block_a = block(model, lambda site: site['name'] == 'a')
        >>> trace_block_all = trace(block_all).get_trace()
@@ -259,20 +294,43 @@ class block(Messenger):
        >>> assert 'b' in trace_block_a
     """
 
-    def __init__(self, fn=None, hide_fn=None, hide=None, expose_types=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        hide_fn: Optional[Callable] = None,
+        hide: Optional[list[str]] = None,
+        expose_types: Optional[list[str]] = None,
+        expose: Optional[list[str]] = None,
+    ) -> None:
         if hide_fn is not None:
             self.hide_fn = hide_fn
         elif hide is not None:
             self.hide_fn = lambda msg: msg.get("name") in hide
         elif expose_types is not None:
             self.hide_fn = lambda msg: msg.get("type") not in expose_types
+        elif expose is not None:
+            self.hide_fn = lambda msg: msg.get("name") not in expose
         else:
             self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
 
-    def process_message(self, msg):
-        if self.hide_fn(msg):
-            msg["stop"] = True
+    def process_message(self, msg: Message) -> None:
+        if not self.hide_fn(msg) or msg["type"] == "prng_key":
+            return
+        msg["stop"] = True
+
+        # For specific message types, get a prng key from the stack if no key or value
+        # is available yet. These types match the implementation in `seed` except
+        # `prng_key` because it would lead to infinite recursion. The corresponding
+        # message reaches the seed handler because we always let messages of `prng_key`
+        # propagate.
+        allowed_types = {"sample", "plate", "control_flow"}
+        if (
+            msg["type"] in allowed_types
+            and msg["value"] is None
+            and msg["kwargs"]["rng_key"] is None
+        ):
+            msg["kwargs"]["rng_key"] = numpyro.prng_key()
 
 
 class collapse(trace):
@@ -285,7 +343,7 @@ class collapse(trace):
 
     _coerce = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         if collapse._coerce is None:
             import funsor
             from funsor.distribution import CoerceDistributionToFunsor
@@ -294,7 +352,7 @@ class collapse(trace):
             collapse._coerce = CoerceDistributionToFunsor("jax")
         super().__init__(*args, **kwargs)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         from funsor.terms import Funsor
 
         if msg["type"] == "sample":
@@ -304,14 +362,19 @@ class collapse(trace):
             if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
                 msg["stop"] = True
 
-    def __enter__(self):
+    def __enter__(self) -> TraceT:
         self.preserved_plates = frozenset(
             h.name for h in _PYRO_STACK if isinstance(h, plate)
         )
         COERCIONS.append(self._coerce)
         return super().__enter__()
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
         import funsor
 
         _coerce = COERCIONS.pop()
@@ -324,7 +387,7 @@ class collapse(trace):
         # Convert delayed statements to pyro.factor()
         reduced_vars = []
         log_prob_terms = []
-        plates = frozenset()
+        plates: frozenset[str] = frozenset()
         for name, site in self.trace.items():
             if site["type"] != "sample":
                 continue
@@ -375,22 +438,25 @@ class condition(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> model = seed(model, random.PRNGKey(0))
+       >>> model = seed(model, random.key(0))
        >>> exec_trace = trace(condition(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
 
-    def __init__(self, fn=None, data=None, condition_fn=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        data: Optional[dict[str, ArrayLike]] = None,
+        condition_fn: Optional[Callable] = None,
+    ) -> None:
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
-            raise ValueError(
-                "Only one of `data` or `condition_fn` " "should be provided."
-            )
+            raise ValueError("Only one of `data` or `condition_fn` should be provided.")
         super(condition, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if (msg["type"] != "sample") or msg.get("_control_flow_done", False):
             if msg["type"] == "control_flow":
                 if self.data is not None:
@@ -404,11 +470,58 @@ class condition(Messenger):
         if self.data is not None:
             value = self.data.get(msg["name"])
         else:
+            assert self.condition_fn is not None
             value = self.condition_fn(msg)
 
         if value is not None:
             msg["value"] = value
             msg["is_observed"] = True
+
+
+class uncondition(Messenger):
+    """
+    Messenger to force the value of observed nodes to be sampled from their
+    distribution, ignoring observations.
+
+    **Example:**
+
+    .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import seed, trace, uncondition
+       >>> import numpyro.distributions as dist
+
+       >>> def model(obs=None):
+       ...     return numpyro.sample('x', dist.Normal(0., 1.), obs=obs)
+
+       >>> # By default, the observed value is used
+       >>> model = seed(model, random.key(0))
+       >>> exec_trace = trace(model).get_trace(obs=1.5)
+       >>> assert exec_trace['x']['value'] == 1.5
+       >>> assert exec_trace['x']['is_observed']
+
+       >>> # With uncondition, we sample from the prior instead
+       >>> unconditioned_model = uncondition(seed(model, random.key(0)))
+       >>> exec_trace = trace(unconditioned_model).get_trace(obs=1.5)
+       >>> assert exec_trace['x']['value'] != 1.5  # sampled value
+       >>> assert not exec_trace['x']['is_observed']
+       >>> assert exec_trace['x']['infer']['was_observed']
+       >>> assert exec_trace['x']['infer']['obs'] == 1.5
+    """
+
+    def process_message(self, msg: Message) -> None:
+        if msg["type"] != "sample":
+            return
+        if msg["is_observed"]:
+            msg["is_observed"] = False
+            msg["infer"]["was_observed"] = True
+            msg["infer"]["obs"] = msg["value"]
+            msg["value"] = None
+            # Request an rng_key if none was provided (since seed handler
+            # may have skipped this site when it saw an observed value)
+            if msg["kwargs"]["rng_key"] is None:
+                msg["kwargs"]["rng_key"] = numpyro.prng_key()
 
 
 class infer_config(Messenger):
@@ -421,12 +534,16 @@ class infer_config(Messenger):
     :param config_fn: a callable taking a site and returning an infer dict
     """
 
-    def __init__(self, fn=None, config_fn=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        config_fn: Optional[Callable] = None,
+    ) -> None:
         super().__init__(fn)
         self.config_fn = config_fn
 
-    def process_message(self, msg):
-        if msg["type"] in ("sample",):
+    def process_message(self, msg: Message) -> None:
+        if msg["type"] in ("sample",) and self.config_fn is not None:
             msg["infer"].update(self.config_fn(msg))
 
 
@@ -456,20 +573,24 @@ class lift(Messenger):
     :param prior: prior function in the form of a Distribution or a dict of Distributions
     """
 
-    def __init__(self, fn=None, prior=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        prior: Optional[Union[Distribution, dict[str, Distribution]]] = None,
+    ) -> None:
         super().__init__(fn)
         self.prior = prior
-        self._samples_cache = {}
+        self._samples_cache: dict[str, Message] = {}
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self._samples_cache = {}
         return super().__enter__()
 
-    def __exit__(self, *args, **kwargs):
+    def __exit__(self, *args, **kwargs) -> None:
         self._samples_cache = {}
         return super().__exit__(*args, **kwargs)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "param":
             return
 
@@ -508,13 +629,17 @@ class mask(Messenger):
         probability of sample sites (`True` includes a site, `False` excludes a site).
     """
 
-    def __init__(self, fn=None, mask=True):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        mask: Optional[ArrayLike] = True,
+    ) -> None:
         if jnp.result_type(mask) != "bool":
             raise ValueError("`mask` should be a bool array.")
         self.mask = mask
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "sample":
             if msg["type"] == "inspect":
                 msg["mask"] = (
@@ -549,22 +674,33 @@ class reparam(Messenger):
     :type config: dict or callable
     """
 
-    def __init__(self, fn=None, config=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        config: Optional[
+            Union[dict[str, "Reparam"], Callable[[Message], Optional["Reparam"]]]
+        ] = None,
+    ) -> None:
         assert isinstance(config, dict) or callable(config)
-        self.config = config
+        self.config: Optional[
+            Union[dict[str, "Reparam"], Callable[[Message], Optional["Reparam"]]]
+        ] = config
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "sample":
             return
 
         if isinstance(self.config, dict):
             reparam = self.config.get(msg["name"])
-        else:
+        elif self.config is not None:
             reparam = self.config(msg)
+        else:
+            return
         if reparam is None:
             return
 
+        reparam = cast("Reparam", reparam)
         new_fn, value = reparam(msg["name"], msg["fn"], msg["value"])
 
         if value is not None:
@@ -594,14 +730,18 @@ class scale(Messenger):
     :type scale: float or numpy.ndarray
     """
 
-    def __init__(self, fn=None, scale=1.0):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        scale: ArrayLike = 1.0,
+    ) -> None:
         if not_jax_tracer(scale):
             if np.any(np.less_equal(scale, 0)):
                 raise ValueError("'scale' argument should be positive.")
         self.scale = scale
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] not in ("param", "sample", "plate"):
             return
 
@@ -642,13 +782,20 @@ class scope(Messenger):
     :param list hide_types: an optional list of side types to skip renaming.
     """
 
-    def __init__(self, fn=None, prefix="", divider="/", *, hide_types=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        prefix: str = "",
+        divider: str = "/",
+        *,
+        hide_types: Optional[list[str]] = None,
+    ) -> None:
         self.prefix = prefix
         self.divider = divider
         self.hide_types = [] if hide_types is None else hide_types
         super().__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg.get("name") and msg["type"] not in self.hide_types:
             msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
 
@@ -664,17 +811,17 @@ class scope(Messenger):
 class seed(Messenger):
     """
     JAX uses a functional pseudo random number generator that requires passing
-    in a seed :func:`~jax.random.PRNGKey` to every stochastic function. The
+    in a seed :func:`~jax.random.key` to every stochastic function. The
     `seed` handler allows us to initially seed a stochastic function with a
-    :func:`~jax.random.PRNGKey`. Every call to the :func:`~numpyro.handlers.sample`
+    :func:`~jax.random.key`. Every call to the :func:`~numpyro.handlers.sample`
     primitive inside the function results in a splitting of this initial seed
     so that we use a fresh seed for each subsequent call without having to
-    explicitly pass in a `PRNGKey` to each `sample` call.
+    explicitly pass in a PRNG key to each `sample` call.
 
     :param fn: Python callable with NumPyro primitives.
     :param rng_seed: a random number generator seed.
-    :type rng_seed: int, jnp.ndarray scalar, or jax.random.PRNGKey
-    :param list hide_types: an optional list of side types to skip seeding, e.g. ['plate'].
+    :type rng_seed: int, jnp.ndarray scalar, or jax.random.key
+    :param list hide_types: an optional list of site types to skip seeding, e.g. ['plate'].
 
     .. note::
 
@@ -682,6 +829,14 @@ class seed(Messenger):
         it in seed handler since there is no global random state. As such,
         users need to use `seed` as a contextmanager to generate samples from
         distributions or as a decorator for their model callable (See below).
+
+    .. note::
+
+       The seed handler has a mutable attribute `rng_key` which keeps changing after
+       each `sample` call. Hence an instance of this class (e.g. `seed(model, rng_seed=0)`)
+       might create tracer-leaks when jitted. A solution is to close the instance in a
+       function, e.g., `seeded_model = lambda *args: seed(model, rng_seed=0)(*args)`.
+       This `seeded_model` can be jitted.
 
     **Example:**
 
@@ -704,22 +859,32 @@ class seed(Messenger):
        >>> assert x == y
     """
 
-    def __init__(self, fn=None, rng_seed=None, hide_types=None):
-        if not is_prng_key(rng_seed) and (
-            isinstance(rng_seed, int)
-            or (
-                isinstance(rng_seed, (np.ndarray, jnp.ndarray))
-                and not jnp.shape(rng_seed)
-            )
-        ):
-            rng_seed = random.PRNGKey(rng_seed)
-        if not is_prng_key(rng_seed):
-            raise TypeError("Incorrect type for rng_seed: {}".format(type(rng_seed)))
+    stateful = False
+
+    def __init__(
+        self,
+        fn: Callable | None = None,
+        rng_seed: Array | int | None = None,
+        hide_types: list[str] | None = None,
+    ) -> None:
+        if rng_seed is not None:
+            if not is_prng_key(rng_seed) and (
+                isinstance(rng_seed, int)
+                or (
+                    isinstance(rng_seed, (np.ndarray, jnp.ndarray))
+                    and not jnp.shape(rng_seed)
+                )
+            ):
+                rng_seed = random.key(rng_seed)
+            if not is_prng_key(rng_seed):
+                raise TypeError(
+                    "Incorrect type for rng_seed: {}".format(type(rng_seed))
+                )
         self.rng_key = rng_seed
         self.hide_types = [] if hide_types is None else hide_types
         super(seed, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] in self.hide_types:
             return
         if msg["type"] not in ["sample", "prng_key", "plate", "control_flow"]:
@@ -727,8 +892,18 @@ class seed(Messenger):
         if (msg["kwargs"]["rng_key"] is not None) or (msg["value"] is not None):
             # no need to create a new key when value is available
             return
-        self.rng_key, rng_key_sample = random.split(self.rng_key)
-        msg["kwargs"]["rng_key"] = rng_key_sample
+        if self.rng_key is not None:
+            self.rng_key, rng_key_sample = random.split(self.rng_key)
+            msg["kwargs"]["rng_key"] = rng_key_sample
+
+    def __call__(self, *args, **kwargs):
+        if self.fn is not None and not self.stateful:
+            cloned_seeded_fn = seed(
+                self.fn, rng_seed=self.rng_key, hide_types=self.hide_types
+            )
+            cloned_seeded_fn.stateful = True
+            return cloned_seeded_fn.__call__(*args, **kwargs)
+        return super().__call__(*args, **kwargs)
 
 
 class substitute(Messenger):
@@ -766,24 +941,29 @@ class substitute(Messenger):
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
 
-       >>> model = seed(model, random.PRNGKey(0))
+       >>> model = seed(model, random.key(0))
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
 
-    def __init__(self, fn=None, data=None, substitute_fn=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        data: Optional[dict[str, Array]] = None,
+        substitute_fn: Optional[Callable] = None,
+    ) -> None:
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
             raise ValueError(
-                "Only one of `data` or `substitute_fn` " "should be provided."
+                "Only one of `data` or `substitute_fn` should be provided."
             )
         super(substitute, self).__init__(fn)
 
-    def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "mutable", "plate")) or msg.get(
-            "_control_flow_done", False
-        ):
+    def process_message(self, msg: Message) -> None:
+        if (
+            msg["type"] not in ("sample", "param", "mutable", "plate", "deterministic")
+        ) or msg.get("_control_flow_done", False):
             if msg["type"] == "control_flow":
                 if self.data is not None:
                     msg["kwargs"]["substitute_stack"].append(("substitute", self.data))
@@ -793,12 +973,16 @@ class substitute(Messenger):
                     )
             return
 
-        if self.data is not None:
-            value = self.data.get(msg["name"])
-        else:
+        value = None
+
+        if self.data is not None and (name := msg.get("name")) in self.data:
+            value = self.data[name]
+        elif self.substitute_fn is not None:
             value = self.substitute_fn(msg)
 
         if value is not None:
+            if msg["type"] == "mutable" and isinstance(value, dict):
+                value = value.copy()
             msg["value"] = value
 
 
@@ -846,17 +1030,22 @@ class do(Messenger):
       >>> assert z_square == 1
     """
 
-    def __init__(self, fn=None, data=None):
+    def __init__(
+        self,
+        fn: Optional[Callable] = None,
+        data: Optional[dict[str, ArrayLike]] = None,
+    ) -> None:
         self.data = data
         self._intervener_id = str(id(self))
         super(do, self).__init__(fn)
 
-    def process_message(self, msg):
+    def process_message(self, msg: Message) -> None:
         if msg["type"] != "sample":
             return
         if (
             msg.get("_intervener_id", None) != self._intervener_id
-            and self.data.get(msg["name"]) is not None
+            and self.data is not None
+            and (name := msg.get("name")) in self.data
         ):
             if msg.get("_intervener_id", None) is not None:
                 warnings.warn(
@@ -871,7 +1060,7 @@ class do(Messenger):
             new_msg = msg.copy()
             apply_stack(new_msg)
 
-            intervention = self.data.get(msg["name"])
+            intervention = self.data[name]
             msg["name"] = msg["name"] + "__CF"  # mangle old name
             msg["value"] = intervention
             msg["is_observed"] = True

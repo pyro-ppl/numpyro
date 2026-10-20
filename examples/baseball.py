@@ -40,7 +40,7 @@ it is better to disable progress bar to avoid dispatching overhead.
 **References:**
 
     1. Carpenter B. (2016), `"Hierarchical Partial Pooling for Repeated Binary Trials"
-       <http://mc-stan.org/users/documentation/case-studies/pool-binary-trials.html/>`_.
+       <https://mc-stan.org/learn-stan/case-studies/pool-binary-trials.html>`_.
     2. Efron B., Morris C. (1975), "Data analysis using Stein's estimator and its
        generalizations", J. Amer. Statist. Assoc., 70, 311-319.
     3. Neal, R. (2012), "MCMC using Hamiltonian Dynamics",
@@ -195,7 +195,7 @@ def main(args):
     for i, model in enumerate(
         (fully_pooled, not_pooled, partially_pooled, partially_pooled_with_logit)
     ):
-        rng_key, rng_key_predict = random.split(random.PRNGKey(i + 1))
+        rng_key, rng_key_predict = random.split(random.key(i + 1))
         zs = run_inference(model, at_bats, hits, rng_key, args)
         predict(model, at_bats, hits, zs, rng_key_predict, player_names)
         predict(
@@ -210,7 +210,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.13.2")
+    assert numpyro.__version__.startswith("0.22.0")
     parser = argparse.ArgumentParser(description="Baseball batting average using MCMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)

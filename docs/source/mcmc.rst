@@ -9,7 +9,10 @@ We provide a high-level overview of the MCMC algorithms in NumPyro:
 * `BarkerMH <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.barker.BarkerMH>`_ is a gradient-based MCMC method that may be competitive with HMC and NUTS for some models. It is applicable to models with continuous latent variables.
 * `HMCGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.hmc_gibbs.HMCGibbs>`_ combines HMC/NUTS steps with custom Gibbs updates. Gibbs updates must be specified by the user.
 * `DiscreteHMCGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.hmc_gibbs.DiscreteHMCGibbs>`_ combines HMC/NUTS steps with Gibbs updates for discrete latent variables. The corresponding Gibbs updates are computed automatically.
-* `SA <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.sa.SA>`_ is the only MCMC method in NumPyro that does not leverage gradients. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate. It may be a good choice for models with non-differentiable log densities. Note that SA generally requires a *very* large number of samples, as mixing tends to be slow. On the plus side individual steps can be fast.
+* `Gibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.gibbs.Gibbs>`_ composes any number of block kernels (HMC/NUTS, `DiscreteGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.gibbs.DiscreteGibbs>`_, `CustomGibbs <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.gibbs.CustomGibbs>`_, or nested `Gibbs`), each owning a subset of the latent variables and conditioned on the others. `HMCGibbs` and `DiscreteHMCGibbs` are two-block instances of it.
+* `SA <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.sa.SA>`_ is a gradient-free MCMC method. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate. It may be a good choice for models with non-differentiable log densities. Note that SA generally requires a *very* large number of samples, as mixing tends to be slow. On the plus side individual steps can be fast.
+* `AIES <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.ensemble.AIES>`_ is a gradient-free ensemble MCMC method that informs Metropolis-Hastings proposals by sharing information between chains. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate. It may be a good choice for models with non-differentiable log densities, and can be robust to likelihood-free models. AIES generally requires the number of chains to be twice as large as the number of latent parameters, (and ideally larger). 
+* `ESS <https://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.ensemble.ESS>`_ is a gradient-free ensemble MCMC method that shares information between chains to find good slice sampling directions. It tends to be more sample efficient than AIES. It is only applicable to models with continuous latent variables. It is expected to perform best for models whose latent dimension is low to moderate and may be a good choice for models with non-differentiable log densities. ESS generally requires the number of chains to be twice as large as the number of latent parameters, (and ideally larger). 
 
 Like HMC/NUTS, all remaining MCMC algorithms support enumeration over discrete latent variables if possible (see `restrictions <https://pyro.ai/examples/enumeration.html#Restriction-1:-conditional-independence>`_). Enumerated sites need to be marked with `infer={'enumerate': 'parallel'}` like in the `annotation example <https://num.pyro.ai/en/stable/examples/annotation.html>`_.
 
@@ -19,12 +22,6 @@ Like HMC/NUTS, all remaining MCMC algorithms support enumeration over discrete l
     :show-inheritance:
     :member-order: bysource
 
-Nested Sampling
-===============================
-
-Nested Sampling is a non-MCMC approach that works for arbitrary probability models, and is particularly well suited to complex posteriors:
-
-* `NestedSampler <https://num.pyro.ai/en/latest/contrib.html#nested-sampling>`_ offers a wrapper for `jaxns <https://github.com/Joshuaalbert/jaxns>`_. See `JAXNS's readthedocs <https://jaxns.readthedocs.io/en/latest/>`_ for examples and `Nested Sampling for Gaussian Shells <https://num.pyro.ai/en/stable/examples/gaussian_shells.html>`_ example for how to apply the sampler on numpyro models. Can handle arbitrary models, including ones with discrete RVs, and non-invertible transformations.
 
 MCMC Kernels
 ------------
@@ -56,6 +53,30 @@ HMC
 NUTS
 ^^^^
 .. autoclass:: numpyro.infer.hmc.NUTS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Gibbs
+^^^^^
+.. autoclass:: numpyro.infer.gibbs.Gibbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+CustomGibbs
+^^^^^^^^^^^
+.. autoclass:: numpyro.infer.gibbs.CustomGibbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+DiscreteGibbs
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.infer.gibbs.DiscreteGibbs
     :members:
     :undoc-members:
     :show-inheritance:
@@ -101,6 +122,30 @@ SA
     :show-inheritance:
     :member-order: bysource
 
+EnsembleSampler
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.infer.ensemble.EnsembleSampler
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AIES
+^^^^
+.. autoclass:: numpyro.infer.ensemble.AIES
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ESS
+^^^
+.. autoclass:: numpyro.infer.ensemble.ESS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autofunction:: numpyro.infer.hmc.hmc
 
 .. autofunction:: numpyro.infer.hmc.hmc.init_kernel
@@ -113,9 +158,21 @@ SA
 
 .. autodata:: numpyro.infer.hmc.HMCState
 
-.. autodata:: numpyro.infer.hmc_gibbs.HMCGibbsState
+.. autoclass:: numpyro.infer.gibbs.GibbsState
+
+.. autoclass:: numpyro.infer.gibbs.CustomGibbsState
+
+.. autoclass:: numpyro.infer.gibbs.DiscreteGibbsState
+
+.. autoclass:: numpyro.infer.hmc_gibbs.HMCGibbsState
 
 .. autodata:: numpyro.infer.sa.SAState
+
+.. autodata:: numpyro.infer.ensemble.EnsembleSamplerState
+
+.. autodata:: numpyro.infer.ensemble.AIESState
+
+.. autodata:: numpyro.infer.ensemble.ESSState
 
 
 TensorFlow Kernels
@@ -139,3 +196,42 @@ MCMC Utilities
 .. autofunction:: numpyro.infer.hmc_util.parametric
 
 .. autofunction:: numpyro.infer.hmc_util.parametric_draws
+
+
+Gibbs Utilities
+^^^^^^^^^^^^^^^
+
+Helpers from :mod:`numpyro.infer.gibbs` shared by :class:`~numpyro.infer.gibbs.Gibbs`, its block kernels and the HMC-within-Gibbs kernels: conditioning a model on the sites a block does not own, selecting sites from a prototype trace, and the discrete proposals.
+
+.. autodata:: numpyro.infer.gibbs.GIBBS_SITES_KWARG
+
+.. autofunction:: numpyro.infer.gibbs.conditioned
+
+.. autofunction:: numpyro.infer.gibbs.with_conditioning
+
+.. autodata:: numpyro.infer.gibbs.ModelWrapper
+
+.. autodata:: numpyro.infer.gibbs.SiteSelector
+
+.. autodata:: numpyro.infer.gibbs.SitesSpec
+
+.. autoclass:: numpyro.infer.gibbs.GibbsUpdateFn
+    :members: __call__
+
+.. autofunction:: numpyro.infer.gibbs.prototype_trace
+
+.. autofunction:: numpyro.infer.gibbs.latent_sample_sites
+
+.. autofunction:: numpyro.infer.gibbs.discrete_latent_sites
+
+.. autofunction:: numpyro.infer.gibbs.discrete_support_sizes
+
+.. autofunction:: numpyro.infer.gibbs.subsample_plate_sizes
+
+.. autofunction:: numpyro.infer.gibbs.any_changed
+
+.. autodata:: numpyro.infer.gibbs.ProposalFn
+
+.. autofunction:: numpyro.infer.gibbs.select_discrete_proposal
+
+.. autofunction:: numpyro.infer.gibbs.discrete_gibbs_sweep

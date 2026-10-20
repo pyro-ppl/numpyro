@@ -1,0 +1,259 @@
+[project]
+name = "numpyro"
+authors = [{ name = "Uber AI Labs", email = "fehiepsi@gmail.com" }]
+dynamic = ["version"]
+description = "Probabilistic programming with NumPy powered by JAX for autograd and JIT compilation to GPU/TPU/CPU."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+keywords = ["bayesian", "machine learning", "probabilistic", "statistics"]
+dependencies = [
+    "jax>=0.7.0",
+    "jaxlib>=0.7.0",
+    "multipledispatch",
+    "numpy",
+    "tqdm",
+]
+
+[project.urls]
+Changelog = "https://github.com/pyro-ppl/numpyro/blob/main/CHANGELOG.md"
+Discussion = "https://github.com/pyro-ppl/numpyro/discussions"
+Homepage = "https://github.com/pyro-ppl/numpyro"
+Issues = "https://github.com/pyro-ppl/numpyro/issues"
+
+[project.optional-dependencies]
+cpu = ["jax[cpu]>=0.7.0"]
+cuda12 = ["jax[cuda12]>=0.7.0"]
+cuda13 = ["jax[cuda13]>=0.7.0"]
+tpu = ["jax[tpu]>=0.7.0"]
+
+[dependency-groups]
+dev = [
+    "equinox",
+    "flax",
+    "funsor>=0.4.1",
+    "gpjax>=0.14.0",
+    "graphviz",
+    "jaxns>=2.6.3,<=2.6.9",
+    "matplotlib",
+    "optax>=0.0.6",
+    "pandas>=3.0.3",
+    "pre-commit>=4.6.1",
+    "pylab-sdk",                         # jaxns dependency
+    "pyro-api>=0.1.2",
+    "pytest>=9.1.1",
+    "pytest-cov",
+    "pyyaml",                            # flax dependency
+    "requests",                          # pylab dependency
+    "ruff>=0.15.22",
+    "scikit-learn>=1.9.0",
+    "seaborn>=0.13.2",
+    "tfp-nightly",
+    "ty==0.0.75",
+    "wordcloud>=1.9.6",
+]
+ci = [
+    "coverage>=7.13.5",
+    "coveralls>=4.1.0",
+    "funsor",
+]
+docs = [
+    "ipython",                           # sphinx needs this to render codes
+    "nbsphinx>=0.8.9",
+    "readthedocs-sphinx-search>=0.3.2",
+    "sphinx>=5",
+    "sphinx-gallery",
+    "sphinx-rtd-theme",
+]
+examples = [
+    "arviz",
+    "jupyter",
+    "matplotlib",
+    "pandas",
+    "scikit-learn",
+    "seaborn",
+    "wordcloud",
+]
+test = [
+    "importlib-metadata<5.0",
+    "pyro-api>=0.1.1",
+    "pytest>=4.1",
+    "ruff>=0.1.8",
+    "scikit-learn",
+    "scipy>=1.9",
+    "ty==0.0.75",
+]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+addopts = ["-v", "--color=yes"]
+doctest_optionflags = [
+    "ELLIPSIS",
+    "NORMALIZE_WHITESPACE",
+    "IGNORE_EXCEPTION_DETAIL",
+]
+filterwarnings = [
+    "error",
+    "ignore:.*Attempting to hash a tracer:FutureWarning",
+    "ignore:numpy.ufunc size changed,:RuntimeWarning",
+    "ignore:Using a non-tuple sequence:FutureWarning",
+    "ignore:jax.tree_structure is deprecated:FutureWarning",
+    "ignore:numpy.linalg support is experimental:UserWarning",
+    "ignore:scipy.linalg support is experimental:UserWarning",
+    "once:No GPU:UserWarning",
+    "once::DeprecationWarning",
+]
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "docs/src",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+# Same as Black.
+line-length = 88
+indent-width = 4
+extend-include = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = ["ANN", "E", "F", "I", "W"]
+ignore = [
+    "ANN002",                         # missing args type annotation
+    "ANN003",                         # missing kwargs type annotation
+    "ANN204",                         # missing type annotation for __call__
+    "ANN401",                         # function arguments are annotated with a more specific type than Any.
+    "E203",
+]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 120
+
+[tool.ruff.lint.per-file-ignores]
+"!numpyro/{diagnostics.py,handlers.py,optim.py,patch.py,primitives.py,infer/elbo.py,distributions/distribution.py}" = [
+    "ANN",
+]                                                                                                                        # require type annotations in typed modules
+
+[tool.ruff.lint.extend-per-file-ignores]
+"numpyro/contrib/tfp/distributions.py" = ["F811"]
+"numpyro/distributions/kl.py" = ["F811"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["funsor", "numpyro", "test"]
+known-third-party = ["opt_einsum"]
+force-sort-within-sections = true
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "known-jax",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+known-jax = ["flax", "jax", "optax", "tensorflow_probability"]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "numpyro.version.__version__" }
+
+# NOTE: this can be simplified using src-layout
+[tool.setuptools.packages.find]
+include = ["numpyro*"]
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.rules]
+unresolved-import = "ignore"
+
+[tool.ty.src]
+include = [
+    "numpyro/_typing.py",
+    "numpyro/contrib/control_flow",
+    "numpyro/contrib/funsor",
+    "numpyro/contrib/hsgp",
+    "numpyro/contrib/stochastic_support",
+    "numpyro/diagnostics.py",
+    "numpyro/distributions",
+    "numpyro/examples/datasets.py",
+    "numpyro/handlers.py",
+    "numpyro/infer/elbo.py",
+    "numpyro/infer/gibbs.py",
+    "numpyro/infer/hmc.py",
+    "numpyro/infer/hmc_gibbs.py",
+    "numpyro/infer/mcmc.py",
+    "numpyro/infer/mixed_hmc.py",
+    "numpyro/infer/util.py",
+    "numpyro/optim.py",
+    "numpyro/patch.py",
+    "numpyro/primitives.py",
+    "numpyro/util.py",
+]
+respect-ignore-files = true
+
+[tool.uv.sources]
+funsor = { git = "https://github.com/pyro-ppl/funsor.git" }

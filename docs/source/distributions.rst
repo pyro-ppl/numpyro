@@ -136,6 +136,22 @@ Chi2
     :show-inheritance:
     :member-order: bysource
 
+CirculantNormal
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.CirculantNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Dagum
+^^^^^
+.. autoclass:: numpyro.distributions.continuous.Dagum
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Dirichlet
 ^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Dirichlet
@@ -151,7 +167,7 @@ EulerMaruyama
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-    
+
 Exponential
 ^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Exponential
@@ -192,6 +208,14 @@ GaussianRandomWalk
     :show-inheritance:
     :member-order: bysource
 
+GaussianStateSpace
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.GaussianStateSpace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Gompertz
 ^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Gompertz
@@ -224,9 +248,41 @@ HalfNormal
     :show-inheritance:
     :member-order: bysource
 
+HurdleGamma
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.HurdleGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleLogNormal
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.HurdleLogNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 InverseGamma
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.InverseGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+InverseWishart
+^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.InverseWishart
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+InverseWishartCholesky
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.InverseWishartCholesky
     :members:
     :undoc-members:
     :show-inheritance:
@@ -243,6 +299,14 @@ Kumaraswamy
 Laplace
 ^^^^^^^
 .. autoclass:: numpyro.distributions.continuous.Laplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Levy
+^^^^
+.. autoclass:: numpyro.distributions.continuous.Levy
     :members:
     :undoc-members:
     :show-inheritance:
@@ -380,6 +444,29 @@ Weibull
     :show-inheritance:
     :member-order: bysource
 
+Wishart
+^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.Wishart
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+WishartCholesky
+^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.WishartCholesky
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ZeroSumNormal
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.continuous.ZeroSumNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 Discrete Distributions
 ----------------------
@@ -407,6 +494,14 @@ BernoulliProbs
 BetaBinomial
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.conjugate.BetaBinomial
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+BetaNegativeBinomial
+^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.conjugate.BetaNegativeBinomial
     :members:
     :undoc-members:
     :show-inheritance:
@@ -496,6 +591,38 @@ GeometricProbs
     :show-inheritance:
     :member-order: bysource
 
+HurdleDistribution
+^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.discrete.HurdleDistribution
+
+HurdleLogits
+^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdleLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleNegativeBinomial2
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.conjugate.HurdleNegativeBinomial2
+
+HurdlePoisson
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdlePoisson
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HurdleProbs
+^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.HurdleProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Multinomial
 ^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.Multinomial
@@ -563,6 +690,22 @@ Poisson
 ZeroInflatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
+
+ZeroInflatedLogits
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ZeroInflatedProbs
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 ZeroInflatedPoisson
 ^^^^^^^^^^^^^^^^^^^
@@ -639,6 +782,14 @@ VonMises
 Truncated Distributions
 -----------------------
 
+DoublyTruncatedPowerLaw
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.DoublyTruncatedPowerLaw
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LeftTruncatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.truncated.LeftTruncatedDistribution
@@ -647,9 +798,33 @@ LeftTruncatedDistribution
     :show-inheritance:
     :member-order: bysource
 
+LeftTruncatedGamma
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.LeftTruncatedGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LowerTruncatedPowerLaw
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.LowerTruncatedPowerLaw
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 RightTruncatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.truncated.RightTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RightTruncatedGamma
+^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.RightTruncatedGamma
     :members:
     :undoc-members:
     :show-inheritance:
@@ -666,6 +841,10 @@ TruncatedCauchy
 TruncatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.truncated.TruncatedDistribution
+
+TruncatedGamma
+^^^^^^^^^^^^^^
+.. autofunction:: numpyro.distributions.truncated.TruncatedGamma
 
 TruncatedNormal
 ^^^^^^^^^^^^^^^
@@ -691,6 +870,40 @@ TwoSidedTruncatedDistribution
     :show-inheritance:
     :member-order: bysource
 
+TwoSidedTruncatedGamma
+^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.truncated.TwoSidedTruncatedGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Censored Distributions
+-----------------------
+
+LeftCensoredDistribution
+^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.censored.LeftCensoredDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RightCensoredDistribution
+^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.censored.RightCensoredDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+IntervalCensoredDistribution
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.censored.IntervalCensoredDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 TensorFlow Distributions
 ------------------------
@@ -731,6 +944,10 @@ corr_matrix
 dependent
 ^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.dependent
+
+extended_real
+^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.extended_real
 
 greater_than
 ^^^^^^^^^^^^
@@ -812,6 +1029,10 @@ simplex
 ^^^^^^^
 .. autodata:: numpyro.distributions.constraints.simplex
 
+softmax_logits
+^^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.softmax_logits
+
 sphere
 ^^^^^^
 .. autodata:: numpyro.distributions.constraints.sphere
@@ -820,6 +1041,9 @@ unit_interval
 ^^^^^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.unit_interval
 
+zero_sum
+^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.zero_sum
 
 Transforms
 ----------
@@ -860,6 +1084,14 @@ CholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+ComplexTransform
+^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.ComplexTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ComposeTransform
 ^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.ComposeTransform
@@ -884,9 +1116,25 @@ CorrMatrixCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+DiscreteCosineTransform
+^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.DiscreteCosineTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ExpTransform
 ^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.ExpTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+HaarTransform
+^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.HaarTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -932,6 +1180,14 @@ OrderedTransform
     :show-inheritance:
     :member-order: bysource
 
+PackRealFastFourierCoefficientsTransform
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.transforms.PackRealFastFourierCoefficientsTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 PermuteTransform
 ^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.PermuteTransform
@@ -943,6 +1199,24 @@ PermuteTransform
 PowerTransform
 ^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.transforms.PowerTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RealFastFourierTransform
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.RealFastFourierTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RecursiveLinearTransform
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.RecursiveLinearTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -996,6 +1270,15 @@ StickBreakingTransform
     :show-inheritance:
     :member-order: bysource
 
+ZeroSumTransform
+^^^^^^^^^^^^^^^^
+
+.. autoclass:: numpyro.distributions.transforms.ZeroSumTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 Flows
 -----
@@ -1015,3 +1298,15 @@ BlockNeuralAutoregressiveTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+
+Utilities
+---------
+
+log1mexp
+^^^^^^^^
+.. autofunction:: numpyro.distributions.util.log1mexp
+
+logdiffexp
+^^^^^^^^^^
+.. autofunction:: numpyro.distributions.util.logdiffexp

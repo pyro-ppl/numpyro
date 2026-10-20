@@ -436,9 +436,9 @@ class BaseEnumMessenger(NamedMessenger):
     """
 
     def __init__(self, fn=None, first_available_dim=None):
-        assert (
-            first_available_dim is None or first_available_dim < 0
-        ), first_available_dim
+        assert first_available_dim is None or first_available_dim < 0, (
+            first_available_dim
+        )
         self.first_available_dim = first_available_dim
         super().__init__(fn)
 
@@ -526,7 +526,7 @@ class plate(GlobalNamedMessenger):
             plate_to_scale[self.name] = (
                 self.size / self.subsample_size if self.subsample_size else 1
             )
-        return OrigPlateMessenger.process_message(self, msg)
+        return OrigPlateMessenger.process_message(self, msg)  # ty: ignore[invalid-argument-type]
 
     def postprocess_message(self, msg):
         if msg["type"] in ["to_funsor", "to_data"]:

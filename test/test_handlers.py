@@ -8,7 +8,6 @@ import pytest
 import jax
 from jax import jit, random, value_and_grad, vmap
 import jax.numpy as jnp
-from jax.tree_util import tree_map
 
 try:
     import funsor
@@ -17,6 +16,7 @@ except ImportError:
 
 import numpyro
 from numpyro import handlers
+from numpyro.contrib import control_flow
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
@@ -40,8 +40,8 @@ def test_mask(mask_last, use_jit):
                 with handlers.scale(scale=2):
                     numpyro.sample("obs", dist.Normal(x, 1), obs=data)
 
-    data = random.normal(random.PRNGKey(0), (N,))
-    x = random.normal(random.PRNGKey(1), (N,))
+    data = random.normal(random.key(0), (N,))
+    x = random.normal(random.key(1), (N,))
     if use_jit:
         log_joint = jit(lambda *args: log_density(*args)[0], static_argnums=(0,))(
             model, (data, mask), {}, {"x": x, "y": x}
@@ -81,7 +81,7 @@ def test_obs_mask_ok(Elbo, mask, num_particles):
 
     elbo = Elbo(num_particles=num_particles)
     svi = SVI(model, guide, numpyro.optim.Adam(1), elbo)
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
@@ -119,7 +119,7 @@ def test_obs_mask_multivariate_ok(Elbo, mask, num_particles):
 
     elbo = Elbo(num_particles=num_particles)
     svi = SVI(model, guide, numpyro.optim.Adam(1), elbo)
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
@@ -140,8 +140,9 @@ def test_scale(use_context_manager):
             numpyro.sample("obs", dist.Normal(x, 1), obs=data)
 
     model = model if use_context_manager else handlers.scale(model, 10.0)
-    data = random.normal(random.PRNGKey(0), (3,))
-    x = random.normal(random.PRNGKey(1))
+    key1, key2 = random.split(random.key(0))
+    data = random.normal(key1, (3,))
+    x = random.normal(key2)
     log_joint = log_density(model, (data,), {}, {"x": x})[0]
     log_prob1, log_prob2 = (
         dist.Normal(0, 1).log_prob(x),
@@ -207,7 +208,7 @@ def test_condition():
         y = numpyro.sample("y", dist.Normal(0.0, 1.0))
         return x + y
 
-    model = handlers.condition(handlers.seed(model, random.PRNGKey(1)), {"y": 2.0})
+    model = handlers.condition(handlers.seed(model, random.key(1)), {"y": 2.0})
     model_trace = handlers.trace(model).get_trace()
     assert model_trace["y"]["value"] == 2.0
     assert model_trace["y"]["is_observed"]
@@ -339,9 +340,10 @@ def model_subsample_2():
         model_subsample_2,
     ],
 )
-def test_plate(model):
-    trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
-    jit_trace = handlers.trace(jit(handlers.seed(model, random.PRNGKey(1)))).get_trace()
+def test_trace_jit(model):
+    trace = handlers.trace(handlers.seed(model, random.key(1))).get_trace()
+    with jax.check_tracer_leaks(False):
+        jit_trace = handlers.trace(jit(handlers.seed(model, random.key(1)))).get_trace()
     assert "z" in trace
     for name, site in trace.items():
         if site["type"] == "sample":
@@ -373,8 +375,10 @@ def test_subsample_substitute():
     data = jnp.arange(100.0)
     subsample_size = 7
     subsample = jnp.array([13, 3, 30, 4, 1, 68, 5])
-    with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
-        data={"a": subsample}
+    with (
+        handlers.trace() as tr,
+        handlers.seed(rng_seed=0),
+        handlers.substitute(data={"a": subsample}),
     ):
         with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
             assert data[idx].shape == (subsample_size,)
@@ -425,7 +429,7 @@ def test_subsample_gradient(scale, subsample):
     optimizer = optim.Adam(0.1)
     elbo = Trace_ELBO(num_particles=num_particles)
     svi = SVI(model, guide, optimizer, loss=elbo)
-    svi_state = svi.init(random.PRNGKey(0), None)
+    svi_state = svi.init(random.key(0), None)
     params = svi.optim.get_params(svi_state.optim_state)
     normalizer = 2 if subsample else 1
     if subsample_size == 1:
@@ -441,7 +445,7 @@ def test_subsample_gradient(scale, subsample):
                 svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
             )
         )(params)
-        grads = tree_map(lambda *vals: vals[0] + vals[1], grads1, grads2)
+        grads = jax.tree.map(lambda *vals: vals[0] + vals[1], grads1, grads2)
         loss = loss1 + loss2
     else:
         subsample = jnp.array([0, 1])
@@ -574,12 +578,95 @@ def test_counterfactual_query(intervene, observe, flip):
                     )
 
 
-def test_block():
+def test_block_hide_fn():
     with handlers.trace() as trace:
-        with handlers.block(hide=["x"]):
+        with handlers.block(
+            hide_fn=lambda msg: msg.get("name") == "mu" or msg.get("type") == "sample"
+        ):
             with handlers.seed(rng_seed=0):
-                numpyro.sample("x", dist.Normal())
-    assert "x" not in trace
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" not in trace and "mu" not in trace and "sigma" in trace
+
+
+def test_block_hide():
+    with handlers.trace() as trace:
+        with handlers.block(hide=["x", "sigma"]):
+            with handlers.seed(rng_seed=0):
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" not in trace and "mu" in trace and "sigma" not in trace
+
+
+def test_block_expose_types():
+    with handlers.trace() as trace:
+        with handlers.block(expose_types=["param"]):
+            with handlers.seed(rng_seed=0):
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" not in trace and "mu" in trace and "sigma" in trace
+
+
+def test_block_expose():
+    with handlers.trace() as trace:
+        with handlers.block(expose=["x", "sigma"]):
+            with handlers.seed(rng_seed=0):
+                mu = numpyro.param("mu", 0)
+                sigma = numpyro.param("sigma", 1)
+                numpyro.sample("x", dist.Normal(mu, sigma))
+    assert "x" in trace and "mu" not in trace and "sigma" in trace
+
+
+@pytest.mark.parametrize(
+    "block_config, expected_sites",
+    [
+        ({"hide": ["y"]}, {"x", "z", "n", "cluster", "a", "b"}),
+        ({"expose_types": ["prng_key"]}, set()),
+        ({"hide": ["n"]}, {"x", "y", "z", "cluster", "a", "b"}),
+        ({"hide": ["cluster", "b"]}, {"x", "y", "z", "n", "a"}),
+        ({"expose": ["x", "z"]}, {"x", "z"}),
+    ],
+)
+def test_block_seed(block_config: dict, expected_sites: set) -> None:
+    def fn():
+        sample = {}
+        sample["x"] = numpyro.sample("x", dist.Normal())
+        sample["y"] = numpyro.sample("y", dist.Normal(sample["x"]))
+        with numpyro.plate("n", 10, subsample_size=7) as sample["idx"]:
+            sample["z"] = numpyro.sample("z", dist.Normal(sample["y"]))
+
+        def true_fun(_):
+            a = numpyro.sample("a", dist.Normal(4.0))
+            b = numpyro.deterministic("b", a - 2.0)
+            return a, b
+
+        def false_fun(_):
+            a = numpyro.sample("a", dist.Normal(0.0))
+            b = numpyro.deterministic("b", a)
+            return a, b
+
+        sample["cluster"] = numpyro.sample("cluster", dist.Normal())
+        sample["a"], sample["b"] = control_flow.cond(
+            sample["cluster"] > 0, true_fun, false_fun, None
+        )
+        return sample
+
+    blocked_seeded = handlers.block(handlers.seed(fn, rng_seed=17), **block_config)
+    with handlers.trace() as trace1:
+        sample1 = blocked_seeded()
+    assert set(trace1) == expected_sites
+
+    seeded_blocked = handlers.seed(handlers.block(fn, **block_config), rng_seed=17)
+    with handlers.trace() as trace2:
+        sample2 = seeded_blocked()
+    assert set(trace2) == expected_sites
+
+    # Verify that the sample values are identical.
+    for key, value in sample1.items():
+        assert jnp.allclose(value, sample2[key])
 
 
 def test_scope():
@@ -689,8 +776,8 @@ def test_collapse_beta_binomial():
 
     svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
     svi2 = SVI(model2, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state1 = svi1.init(random.PRNGKey(0))
-    svi_state2 = svi2.init(random.PRNGKey(0))
+    svi_state1 = svi1.init(random.key(0))
+    svi_state2 = svi2.init(random.key(0))
     params1 = svi1.get_params(svi_state1)
     params2 = svi2.get_params(svi_state2)
     assert_allclose(params1["c1"], params2["c1"])
@@ -718,7 +805,7 @@ def test_collapse_beta_bernoulli():
         numpyro.sample("c", dist.Gamma(a, b))
 
     svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
@@ -739,17 +826,18 @@ def test_collapse_beta_binomial_plate():
         numpyro.sample("c", dist.Gamma(a, b))
 
     svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0))
+    svi_state = svi.init(random.key(0))
     svi.update(svi_state)
 
 
 def test_prng_key():
-    assert numpyro.prng_key() is None
+    with pytest.warns(Warning, match="outside of `seed`"):
+        assert numpyro.prng_key() is None
 
     with handlers.seed(rng_seed=0):
         rng_key = numpyro.prng_key()
 
-    assert rng_key.shape == (2,) and rng_key.dtype == "uint32"
+    assert rng_key.shape == () and rng_key.dtype.name == "key<fry>"
 
 
 def test_prng_key_with_vmap():
@@ -775,10 +863,10 @@ def test_subsample_fn():
     def subsample_fn(rng_key):
         return numpyro.primitives._subsample_fn(size, subsample_size, rng_key)
 
-    rng_keys = random.split(random.PRNGKey(0), num_samples)
+    rng_keys = random.split(random.key(0), num_samples)
     subsamples = vmap(subsample_fn)(rng_keys)
     for k in range(1, 11):
-        i = random.randint(random.PRNGKey(k), (), 0, size)
+        i = random.randint(random.key(k), (), 0, size)
         assert_allclose(
             jnp.mean(subsamples == i, axis=0),
             jnp.full(subsample_size, 1 / size),
@@ -797,4 +885,103 @@ def test_sites_have_unique_names():
     mcmc = MCMC(NUTS(model), num_chains=1, num_samples=10, num_warmup=10)
     msg = "all sites must have unique names but got `alpha` duplicated"
     with pytest.raises(AssertionError, match=msg):
-        mcmc.run(random.PRNGKey(0))
+        mcmc.run(random.key(0))
+
+
+def test_uncondition():
+    def model(obs=None):
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0), obs=obs)
+        return x
+
+    obs_value = 1.5
+
+    # Without uncondition, the observed value is used
+    model_with_seed = handlers.seed(model, random.key(0))
+    trace_observed = handlers.trace(model_with_seed).get_trace(obs=obs_value)
+    assert trace_observed["x"]["value"] == obs_value
+    assert trace_observed["x"]["is_observed"]
+
+    # With uncondition, we sample from the prior instead
+    unconditioned_model = handlers.uncondition(handlers.seed(model, random.key(0)))
+    trace_unconditioned = handlers.trace(unconditioned_model).get_trace(obs=obs_value)
+
+    # The value should be sampled, not the observation
+    assert trace_unconditioned["x"]["value"] != obs_value
+    assert not trace_unconditioned["x"]["is_observed"]
+
+    # The original observation is stored in infer dict
+    assert trace_unconditioned["x"]["infer"]["was_observed"]
+    assert trace_unconditioned["x"]["infer"]["obs"] == obs_value
+
+
+def test_uncondition_multiple_sites():
+    def model(obs_x=None, obs_y=None):
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0), obs=obs_x)
+        y = numpyro.sample("y", dist.Normal(x, 1.0), obs=obs_y)
+        z = numpyro.sample("z", dist.Normal(y, 1.0))  # not observed
+        return x, y, z
+
+    obs_x, obs_y = 1.0, 2.0
+
+    unconditioned_model = handlers.uncondition(handlers.seed(model, random.key(0)))
+    trace = handlers.trace(unconditioned_model).get_trace(obs_x=obs_x, obs_y=obs_y)
+
+    # Both observed sites should now be sampled
+    assert not trace["x"]["is_observed"]
+    assert trace["x"]["infer"]["was_observed"]
+    assert trace["x"]["infer"]["obs"] == obs_x
+
+    assert not trace["y"]["is_observed"]
+    assert trace["y"]["infer"]["was_observed"]
+    assert trace["y"]["infer"]["obs"] == obs_y
+
+    # The unobserved site should remain unobserved
+    assert not trace["z"]["is_observed"]
+    assert not trace["z"]["infer"].get("was_observed", False)
+
+
+class _StringCategorical(dist.Distribution):
+    """Fake categorical over string labels; samples are numpy ``<U1`` arrays."""
+
+    def __init__(self, probs):
+        self.probs = jnp.asarray(probs)
+        self.values = np.array(["A", "B", "C"])
+        super().__init__(batch_shape=jnp.shape(self.probs)[:-1])
+
+    def sample(self, key, sample_shape=()):
+        idx = dist.CategoricalProbs(self.probs).sample(key, sample_shape)
+        return self.values[np.asarray(idx)]
+
+    def log_prob(self, value):
+        idx = np.searchsorted(self.values, np.asarray(value))
+        return jnp.log(self.probs[..., idx])
+
+
+def test_handlers_with_string_valued_distribution():
+    # Base-class return types stay ``ArrayLike`` so special distributions may emit
+    # non-jax values; seed/trace/plate/log_density must pass them through.
+    probs = jnp.array([0.2, 0.3, 0.5])
+
+    def model():
+        z = numpyro.sample("z", _StringCategorical(probs))
+        with numpyro.plate("n", 4):
+            # plate wraps the distribution in ExpandedDistribution
+            numpyro.sample("w", _StringCategorical(probs))
+        numpyro.sample("x", dist.Normal(jnp.where(z == "A", 0.0, 1.0), 1.0), obs=0.3)
+
+    tr = handlers.trace(handlers.seed(model, 0)).get_trace()
+    assert np.asarray(tr["z"]["value"]).dtype.kind == "U"
+    assert tr["w"]["value"].shape == (4,) and tr["w"]["value"].dtype.kind == "U"
+
+    params = {"z": np.array("B"), "w": np.array(["A", "B", "C", "C"])}
+    ld, _ = log_density(model, (), {}, params)
+    expected = (
+        jnp.log(probs[1])
+        + jnp.log(probs[np.array([0, 1, 2, 2])]).sum()
+        + dist.Normal(1.0, 1.0).log_prob(0.3)
+    )
+    assert_allclose(ld, expected, rtol=1e-6)
+
+    d = dist.Delta(np.array("A"))
+    assert d.sample(random.PRNGKey(0)) == "A"
+    assert_allclose(d.log_prob(np.array("A")), 0.0)

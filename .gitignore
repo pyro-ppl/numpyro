@@ -1,8 +1,10 @@
+uv.lock
 numpyro.egg-info
 __pycache__/
 .ipynb_checkpoints/
 build
 .DS_Store
+.coverage
 
 # built / compiled
 *.pyc
@@ -35,3 +37,7 @@ numpyro/examples/.data
 # docs
 docs/build
 docs/.DS_Store
+docs/source/examples
+docs/source/tutorials
+docs/source/getting_started.rst
+docs/source/sg_execution_times.rst

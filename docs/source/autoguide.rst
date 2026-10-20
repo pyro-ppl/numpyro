@@ -11,12 +11,21 @@ We provide a brief overview of the automatically generated guides available in N
 * `AutoSurrogateLikelihoodDAIS <https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoSurrogateLikelihoodDAIS>`_ is a powerful variational inference algorithm that leverages HMC and that supports data subsampling.
 * `AutoSemiDAIS <https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoSemiDAIS>`_ constructs a posterior approximation like `AutoDAIS <https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoDAIS>`_ for local latent variables but provides support for data subsampling during ELBO training by utilizing a parametric guide for global latent variables. 
 * `AutoLaplaceApproximation <https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoLaplaceApproximation>`_ can be used to compute a Laplace approximation.
+* `AutoGuideList <https://num.pyro.ai/en/latest/autoguide.html#numpyro.infer.autoguide.AutoGuideList>`_ can be used to combine multiple automatic guides.
 
 .. automodule:: numpyro.infer.autoguide
 
 AutoGuide
 ---------
 .. autoclass:: numpyro.infer.autoguide.AutoGuide
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AutoGuideList
+-------------
+.. autoclass:: numpyro.infer.autoguide.AutoGuideList
     :members:
     :undoc-members:
     :show-inheritance:
