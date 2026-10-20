@@ -134,17 +134,17 @@ def test_mixture_cdf_with_different_support():
             dist.Categorical(probs=np.ones(3) / 3),
             [
                 dist.Normal(0.0, 1.0),
-                dist.Gamma(params[0], params[1]),
+                dist.LogNormal(params[0], params[1]),
                 dist.Beta(params[2], params[3]),
             ],
             support=dist.constraints.real,
         )
         return mixture.cdf(value)
 
-    params = np.array([2.0, 3.0, 2.0, 3.0])
+    params = np.array([0.0, 0.5, 2.0, 3.0])
     expected = (
         stats.norm.cdf(value)
-        + stats.gamma.cdf(value, 2.0, scale=1 / 3)
+        + stats.lognorm.cdf(value, 0.5, scale=1.0)
         + stats.beta.cdf(value, 2.0, 3.0)
     ) / 3
     np.testing.assert_allclose(cdf(params), expected, rtol=1e-6, atol=1e-7)

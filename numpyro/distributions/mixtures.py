@@ -492,14 +492,20 @@ class MixtureGeneral(_MixtureBase):
         for d in self.component_distributions:
             # components may have different supports, outside of which their cdf
             # need not be 0 below or 1 above (e.g. `HalfNormal(1.0).cdf(-1.0) < 0`);
-            # evaluate it inside the support so that its gradients stay finite
-            lower_bound = getattr(d.support, "lower_bound", None)
-            upper_bound = getattr(d.support, "upper_bound", None)
-            cdf = d.cdf(jnp.clip(samples, lower_bound, upper_bound))
-            if lower_bound is not None:
-                cdf = jnp.where(jnp.less(samples, lower_bound), 0.0, cdf)
-            if upper_bound is not None:
-                cdf = jnp.where(jnp.greater(samples, upper_bound), 1.0, cdf)
+            # evaluate it at a feasible point there so its gradients stay finite
+            support = d.support
+            assert support is not None
+            lower_bound = getattr(support, "lower_bound", -jnp.inf)
+            upper_bound = getattr(support, "upper_bound", jnp.inf)
+            # a continuous cdf is 0 at its lower bound; a discrete one is not
+            below = (jnp.less if support.is_discrete else jnp.less_equal)(
+                samples, lower_bound
+            )
+            above = jnp.greater_equal(samples, upper_bound)
+            shape = jnp.broadcast_shapes(jnp.shape(samples), d.shape())
+            feasible = support.feasible_like(jnp.zeros(shape))
+            cdf = d.cdf(jnp.where(below | above, feasible, samples))
+            cdf = jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
             component_cdfs.append(cdf)
         return jnp.stack(
             jnp.broadcast_arrays(*component_cdfs),
