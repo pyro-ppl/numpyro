@@ -6451,9 +6451,6 @@ def test_zero_inflated_custom_support_without_pytree(logits):
         def __call__(self, x):
             return (x % 2 == 0) & (x >= 0) & (x <= 6)
 
-        def feasible_like(self, prototype):
-            return jnp.zeros_like(prototype)
-
     class EvenUniform(dist.Distribution):
         arg_constraints = {}
         support = EvenSupport()
@@ -6469,3 +6466,84 @@ def test_zero_inflated_custom_support_without_pytree(logits):
     assert not distribution.support(3)
     assert_allclose(jnp.exp(distribution.log_prob(2)), 0.125)
     assert_allclose(jnp.exp(distribution.log_prob(0)), 0.625)
+    assert distribution.support is distribution.base_dist.support
+
+
+@pytest.mark.parametrize("logits", [False, True])
+def test_zero_inflated_scalar_support_mask(logits):
+    class ScalarMask(constraints.Constraint):
+        is_discrete = True
+
+        def __call__(self, value):
+            return jnp.all(jnp.asarray(value) >= 3)
+
+        def feasible_like(self, prototype):
+            return jnp.full_like(prototype, 3)
+
+    class ScalarMaskBase(dist.Distribution):
+        arg_constraints = {}
+        support = ScalarMask()
+
+        def log_prob(self, value):
+            return -jnp.asarray(value, dtype=float)
+
+    kwargs = {"gate_logits": 0.0} if logits else {"gate": 0.5}
+    distribution = dist.ZeroInflatedDistribution(ScalarMaskBase(), **kwargs)
+    values = jnp.array([3, 4, 5])
+    assert_allclose(distribution.log_prob(values), -values - np.log(2), rtol=1e-6)
+
+
+def test_zero_inflated_custom_inhomogeneous_membership():
+    class BatchedSupport(constraints.Constraint):
+        is_discrete = True
+
+        def __call__(self, value):
+            return (value >= np.array([0, 1])) & (value <= np.array([1, 2]))
+
+    class BatchedBase(dist.Distribution):
+        arg_constraints = {}
+        support = BatchedSupport()
+        has_enumerate_support = True
+
+        def __init__(self):
+            super().__init__((2,))
+
+        def enumerate_support(self, expand=True):
+            return jnp.array([[0, 1], [1, 2]])
+
+    distribution = dist.ZeroInflatedProbs(BatchedBase(), gate=0.5)
+    with pytest.raises(NotImplementedError, match="Inhomogeneous zero membership"):
+        distribution.enumerate_support()
+
+
+def test_zero_inflated_traced_membership_enumeration_error():
+    class TracedSupport(constraints.Constraint):
+        is_discrete = True
+
+        def __init__(self, lower):
+            self.lower = lower
+
+        def __call__(self, value):
+            return value >= self.lower
+
+    class TracedBase(dist.Distribution):
+        arg_constraints = {}
+        has_enumerate_support = True
+
+        def __init__(self, lower):
+            self._support = TracedSupport(lower)
+            super().__init__()
+
+        @property
+        def support(self):
+            return self._support
+
+        def enumerate_support(self, expand=True):
+            return jnp.arange(3)
+
+    @jax.jit
+    def enumerate_values(lower):
+        return dist.ZeroInflatedProbs(TracedBase(lower), gate=0.5).enumerate_support()
+
+    with pytest.raises(NotImplementedError, match="Zero membership must be concrete"):
+        enumerate_values(1)

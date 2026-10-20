@@ -1736,25 +1736,29 @@ class Poisson(Distribution):
         return gammaincc(k, self.rate)
 
 
-def _support_contains_zero(support: constraints.Constraint) -> bool:
-    """Whether support is known without tracing to contain zero everywhere."""
+def _support_zero_membership(support: constraints.Constraint) -> np.ndarray | None:
+    """Zero membership when concrete, or None when it depends on traced values."""
     if isinstance(support, constraints._Boolean):
-        return True
+        return np.asarray(True)
     if isinstance(support, constraints._IntegerGreaterThan):
         lower = support.lower_bound
-        return not_jax_tracer(lower) and bool(np.all(np.asarray(lower) <= 0))
+        if not_jax_tracer(lower):
+            return np.asarray(lower) <= 0
+        return None
     if isinstance(support, constraints._IntegerInterval):
         lower, upper = support.lower_bound, support.upper_bound
         if not not_jax_tracer(lower):
-            return False
+            return None
         lower = np.asarray(lower)
         if np.all(lower == 0):
             # A nonempty interval contains its lower bound, even if upper is traced.
-            return True
-        return not_jax_tracer(upper) and bool(
-            np.all((lower <= 0) & (np.asarray(upper) >= 0))
-        )
-    return False
+            return np.asarray(True)
+        if not_jax_tracer(upper):
+            return (lower <= 0) & (np.asarray(upper) >= 0)
+        return None
+    with jax.ensure_compile_time_eval():
+        membership = support(0)
+    return np.asarray(membership) if not_jax_tracer(membership) else None
 
 
 class _ZeroInflatedSupport(constraints.Constraint[NumLike]):
@@ -1855,12 +1859,14 @@ class ZeroInflatedProbs(Distribution):
         samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
         return jnp.where(mask, 0, samples)
 
-    def _base_log_prob(self, value: ArrayLike) -> Array:
+    def _base_log_prob(self, value: ArrayLike) -> ArrayLike:
+        if self._base_has_zero:
+            return self.base_dist.log_prob(value)
         value = jnp.asarray(value)
         support = self.base_dist.support
         assert support is not None
         valid = support(value)
-        value = jnp.broadcast_to(value, jnp.shape(valid))
+        value, valid = jnp.broadcast_arrays(value, valid)
         safe_value = jnp.where(valid, value, support.feasible_like(value))
         return jnp.where(valid, self.base_dist.log_prob(safe_value), -jnp.inf)
 
@@ -1871,9 +1877,23 @@ class ZeroInflatedProbs(Distribution):
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
+        return self._support
+
+    @lazy_property
+    def _zero_membership(self) -> np.ndarray | None:
         support = self.base_dist.support
         assert support is not None
-        if _support_contains_zero(support):
+        return _support_zero_membership(support)
+
+    @lazy_property
+    def _base_has_zero(self) -> bool:
+        return self._zero_membership is not None and bool(np.all(self._zero_membership))
+
+    @lazy_property
+    def _support(self) -> constraints.Constraint:
+        support = self.base_dist.support
+        assert support is not None
+        if self._base_has_zero:
             return support
         return _ZeroInflatedSupport(support)
 
@@ -1898,9 +1918,11 @@ class ZeroInflatedProbs(Distribution):
         different support sizes across batch elements cannot be enumerated.
         """
         values = self.base_dist.enumerate_support(expand=expand)
-        support = self.base_dist.support
-        assert support is not None
-        contains_zero = support(0)
+        contains_zero = self._zero_membership
+        if contains_zero is None:
+            raise NotImplementedError(
+                "Zero membership must be concrete to enumerate a zero-inflated support."
+            )
         if np.all(contains_zero):
             return values
         if np.any(contains_zero):

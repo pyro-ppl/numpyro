@@ -594,10 +594,18 @@ class enum(BaseEnumMessenger):
 
         support = msg["fn"].enumerate_support(expand=False)
         size = support.shape[0]
-        raw_value = support.reshape((size,) + msg["fn"].event_shape)
-        funsor_value = funsor.Tensor(
-            raw_value, OrderedDict([(msg["name"], funsor.Bint[size])]), "real"
+        batch_shape = support.shape[1 : support.ndim - msg["fn"].event_dim]
+        batch_names = NamedMessenger._get_dim_to_name(batch_shape)
+        inputs = OrderedDict([(msg["name"], funsor.Bint[size])])
+        inputs.update(
+            (name, funsor.Bint[batch_shape[dim]]) for dim, name in batch_names.items()
         )
+        raw_value = support.reshape(
+            (size,)
+            + tuple(batch_shape[dim] for dim in batch_names)
+            + msg["fn"].event_shape
+        )
+        funsor_value = funsor.Tensor(raw_value, inputs, "real")
 
         msg["value"] = to_data(funsor_value)
         msg["done"] = True

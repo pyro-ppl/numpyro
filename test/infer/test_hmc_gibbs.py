@@ -29,24 +29,23 @@ from numpyro.infer.util import log_density
 @pytest.mark.parametrize(
     "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
 )
-def test_gibbs_rejects_noncontiguous_zero_inflated_support(kernel_cls, inner_cls):
+@pytest.mark.parametrize("bounds", [(3, 7), (-5, -2)])
+def test_gibbs_samples_noncontiguous_zero_inflated_support(
+    kernel_cls, inner_cls, bounds
+):
+    distribution = dist.ZeroInflatedDistribution(
+        dist.DiscreteUniform(*bounds), gate=0.4
+    )
+
     def model():
-        numpyro.sample(
-            "x", dist.ZeroInflatedDistribution(dist.DiscreteUniform(3, 7), gate=0.4)
-        )
+        numpyro.sample("z", dist.Normal())
+        numpyro.sample("x", distribution)
 
     kernel = kernel_cls(inner_cls(model))
-    with pytest.raises(
-        NotImplementedError,
-        match="unsupported support _ZeroInflatedSupport at site 'x'",
-    ):
-        kernel.init(
-            random.key(0),
-            num_warmup=1,
-            init_params=None,
-            model_args=(),
-            model_kwargs={},
-        )
+    mcmc = MCMC(kernel, num_warmup=5, num_samples=20, progress_bar=False)
+    mcmc.run(random.key(0))
+    samples = mcmc.get_samples()["x"]
+    assert jnp.all(distribution.support(samples))
 
 
 @pytest.mark.parametrize(
@@ -87,7 +86,7 @@ def test_gibbs_accepts_zero_inflated_contiguous_support(
 @pytest.mark.parametrize(
     "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
 )
-def test_gibbs_zero_inflated_binomial_pmf(kernel_cls, inner_cls):
+def test_gibbs_zero_inflated_binomial_conditionals(kernel_cls, inner_cls):
     distribution = dist.ZeroInflatedDistribution(
         dist.Binomial(total_count=5, probs=0.6), gate=0.4
     )
@@ -96,16 +95,17 @@ def test_gibbs_zero_inflated_binomial_pmf(kernel_cls, inner_cls):
         numpyro.sample("z", dist.Normal(0.0, 1.0))
         numpyro.sample("x", distribution)
 
-    mcmc = MCMC(
-        kernel_cls(inner_cls(model)),
-        num_warmup=100,
-        num_samples=3000,
-        progress_bar=False,
-    )
-    mcmc.run(random.key(1))
-    counts = np.bincount(np.asarray(mcmc.get_samples()["x"], dtype=int), minlength=6)
+    kernel = kernel_cls(inner_cls(model))
+    kernel.init(random.key(0), 1, None, (), {})
+
+    def conditional_energy(x):
+        return -log_density(model, (), {}, {"z": jnp.array(0.0), "x": x})[0]
+
+    energies = vmap(conditional_energy)(jnp.arange(6))
+    probabilities = jnp.exp(-energies - jnp.max(-energies))
+    probabilities = probabilities / probabilities.sum()
     assert_allclose(
-        counts / counts.sum(), jnp.exp(distribution.log_prob(jnp.arange(6))), atol=0.04
+        probabilities, jnp.exp(distribution.log_prob(jnp.arange(6))), rtol=1e-6
     )
 
 

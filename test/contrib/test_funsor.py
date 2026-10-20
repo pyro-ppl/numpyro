@@ -611,6 +611,45 @@ def test_shifted_discrete_uniform_enumeration():
     assert_allclose(infer_discrete(model, first_available_dim=-1, temperature=0)(), 7)
 
 
+@pytest.mark.parametrize("temperature", [0, 1])
+def test_custom_expanded_support_enumeration(temperature):
+    values = np.arange(5)[:, None] + np.array([3, 10, 20])
+
+    class ExpandedUniform(dist.Distribution):
+        arg_constraints = {}
+        support = dist.constraints.positive_integer
+        has_enumerate_support = True
+
+        def __init__(self):
+            super().__init__((3,))
+
+        def enumerate_support(self, expand=True):
+            return jnp.asarray(values)
+
+        def log_prob(self, value):
+            valid = jnp.any(value[..., None] == jnp.asarray(values.T), axis=-1)
+            return jnp.where(valid, -jnp.log(5.0), -jnp.inf)
+
+    @config_enumerate
+    def model():
+        with numpyro.plate("batch", 3):
+            x = numpyro.sample("x", ExpandedUniform())
+            numpyro.sample(
+                "y", dist.Bernoulli(jnp.where(x == values[-1], 0.9, 0.1)), obs=1
+            )
+        return x
+
+    actual = log_density(enum(model, first_available_dim=-2), (), {}, {})[0]
+    assert_allclose(actual, 3 * np.log(0.26), rtol=1e-6)
+    result = infer_discrete(
+        model, first_available_dim=-2, temperature=temperature, rng_key=random.key(0)
+    )()
+    assert result.shape == (3,)
+    assert jnp.all(jnp.any(result[None, :] == values, axis=0))
+    if temperature == 0:
+        assert_allclose(result, values[-1])
+
+
 @pytest.mark.parametrize("logits", [False, True])
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_zero_inflated_shifted_support_enumeration(logits, batch_size):
