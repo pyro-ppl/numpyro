@@ -1487,9 +1487,12 @@ class DoublyTruncatedPowerLaw(Distribution):
 
     .. math::
         f(x; \alpha, a, b) = \frac{x^{\alpha}}{Z(\alpha, a, b)},
+        \qquad a \leq x \leq b,
 
     where, :math:`a` and :math:`b` are the lower and upper bounds respectively,
-    and :math:`Z(\alpha, a, b)` is the normalization constant. It is defined as,
+    with :math:`0 \leq a < b` (and :math:`a > 0` when :math:`\alpha \leq -1`,
+    otherwise :math:`Z` diverges), and :math:`Z(\alpha, a, b)` is the normalization
+    constant. It is defined as,
 
     .. math::
         Z(\alpha, a, b) = \begin{cases}
@@ -1497,9 +1500,45 @@ class DoublyTruncatedPowerLaw(Distribution):
             \frac{b^{1 + \alpha} - a^{1 + \alpha}}{1 + \alpha} & \text{otherwise}.
         \end{cases}
 
-    :param alpha: index of the power law distribution
-    :param low: lower bound of the distribution
-    :param high: upper bound of the distribution
+    The cdf is
+
+    .. math::
+        F(x) = \begin{cases}
+            \dfrac{\log(x / a)}{\log(b / a)} & \text{if } \alpha = -1, \\
+            \dfrac{x^{1 + \alpha} - a^{1 + \alpha}}{b^{1 + \alpha} - a^{1 + \alpha}}
+            & \text{otherwise},
+        \end{cases}
+
+    and the quantile function is
+
+    .. math::
+        F^{-1}(q) = \begin{cases}
+            a \, (b / a)^{q} & \text{if } \alpha = -1, \\
+            \big(a^{1 + \alpha} + q \, [b^{1 + \alpha} - a^{1 + \alpha}]\big)
+            ^{1 / (1 + \alpha)} & \text{otherwise}.
+        \end{cases}
+
+    Samples are drawn by inverse-cdf sampling. The raw moments are
+
+    .. math::
+        \mathbb{E}[X^k] = \begin{cases}
+            \dfrac{\log(b / a)}{Z(\alpha, a, b)} & \text{if } 1 + \alpha + k = 0, \\
+            \dfrac{1}{Z(\alpha, a, b)} \cdot
+            \dfrac{b^{1 + \alpha + k} - a^{1 + \alpha + k}}{1 + \alpha + k}
+            & \text{otherwise}.
+        \end{cases}
+
+    :param alpha: index :math:`\alpha` of the power law distribution
+    :param low: lower bound :math:`a` of the distribution
+    :param high: upper bound :math:`b` of the distribution
+
+    .. note::
+        The :math:`\alpha = -1` branch is selected by exact floating-point equality.
+        ``log_prob``, ``cdf`` and ``icdf`` carry custom JVP rules; at exactly
+        :math:`\alpha = -1` the :math:`\alpha`-derivative is approximated by the
+        average of the :math:`\alpha \ne -1` closed form evaluated at
+        :math:`\alpha \pm 10^{-3}`. ``cdf`` is clipped to :math:`[0, 1]`. ``mean``
+        and ``variance`` are not implemented (use the moment formula above).
     """
 
     arg_constraints = {
@@ -1970,14 +2009,26 @@ class LowerTruncatedPowerLaw(Distribution):
 
     .. math::
         f(x; \alpha, a) = (-\alpha-1)a^{-\alpha - 1}x^{\alpha},
-        \qquad x \geq a > 0, \qquad \alpha < -1,
+        \qquad x > a > 0, \qquad \alpha < -1,
 
-    where, :math:`a` is the lower bound. The cdf of the distribution is given by,
+    where, :math:`a` is the lower bound, so that
 
     .. math::
-        F(x; \alpha, a) = 1 - \left(\frac{x}{a}\right)^{1+\alpha}.
+        \log f(x; \alpha, a) = \alpha \log x + \log(-\alpha - 1)
+        - (1 + \alpha) \log a.
 
-    The k-th moment of the distribution is given by,
+    The cdf of the distribution is given by,
+
+    .. math::
+        F(x; \alpha, a) = 1 - \left(\frac{x}{a}\right)^{1+\alpha},
+
+    and the quantile function by
+
+    .. math::
+        F^{-1}(q; \alpha, a) = a \, (1 - q)^{1 / (1 + \alpha)},
+
+    which is used for inverse-cdf sampling. The k-th moment of the distribution is
+    given by,
 
     .. math::
         E[X^k] = \begin{cases}
@@ -1985,8 +2036,17 @@ class LowerTruncatedPowerLaw(Distribution):
             \infty & \text{otherwise}.
         \end{cases}
 
-    :param alpha: index of the power law distribution
-    :param low: lower bound of the distribution
+    This is the same law as
+    :class:`~numpyro.distributions.continuous.Pareto` with ``scale`` :math:`= a`
+    and ``alpha`` :math:`= -\alpha - 1`.
+
+    :param alpha: index :math:`\alpha < -1` of the power law distribution
+    :param low: lower bound :math:`a > 0` of the distribution
+
+    .. note::
+        ``cdf`` returns :math:`0` for :math:`x \leq a`; ``icdf`` returns ``nan``
+        outside :math:`[0, 1]`. ``mean`` and ``variance`` are not implemented even
+        though the moment formula above is available.
     """
 
     arg_constraints = {
