@@ -234,15 +234,32 @@ def test_softmax_logits(logits, expected):
         (constraints.simplex, constraints.real_vector, None),
         (constraints.real, constraints.simplex, None),
         (constraints.corr_matrix, constraints.corr_matrix, True),
+        (constraints.simplex, constraints.unit_interval, None),
+        (constraints.real, constraints.extended_real, True),
+        # end points are ignored
+        (constraints.nonnegative, constraints.positive, True),
+        (constraints.interval(0.0, 1.0), constraints.open_interval(0.0, 1.0), True),
+        # a continuous constraint is never within a discrete one
+        (constraints.positive, constraints.nonnegative_integer, None),
+        (constraints.unit_interval, constraints.integer_interval(0, 1), None),
     ],
 )
-def test_is_subset(constraint, other, expected):
-    assert constraint.is_subset(other) is expected
+def test_bounds_within(constraint, other, expected):
+    assert constraint._bounds_within(other) is expected
 
 
-def test_is_subset_traced_bounds():
+def test_bounds_within_traced_bounds():
     @jit
-    def is_subset(lower):
-        return constraints.greater_than(lower).is_subset(constraints.positive)
+    def bounds_within(lower):
+        return constraints.greater_than(lower)._bounds_within(constraints.positive)
 
-    assert is_subset(1.0) is None
+    assert bounds_within(1.0) is None
+
+    @jit
+    def bounds_within_strict(lower):
+        return constraints.greater_than(lower)._bounds_within(
+            constraints.positive, strict=True
+        )
+
+    with pytest.raises(RuntimeError, match="inside jitted code"):
+        bounds_within_strict(1.0)

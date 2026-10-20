@@ -1228,7 +1228,8 @@ class TransformedDistribution(Distribution):
     :param validate_args: Whether to enable validation of distribution
         parameters and arguments to `.log_prob` method. If enabled, a
         `ValueError` is also raised when the support of the base distribution
-        is known to extend beyond the domain of the first transform.
+        is known to extend beyond the domain of the first transform. Only the
+        bounds are compared, so end points are not checked.
     """
 
     arg_constraints = {}
@@ -1303,7 +1304,10 @@ class TransformedDistribution(Distribution):
         domain = ComposeTransform(self.transforms).domain
         support = self.base_dist.support
         with jax.ensure_compile_time_eval():
-            if support is not None and support.is_subset(domain) is False:
+            if (
+                support is not None
+                and support._bounds_within(domain, strict=strict) is False
+            ):
                 raise ValueError(
                     f"The support {support} of the base distribution is not "
                     f"contained in the domain {domain} of the first transform."

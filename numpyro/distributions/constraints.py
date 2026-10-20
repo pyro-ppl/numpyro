@@ -125,11 +125,21 @@ class Constraint(Generic[NumLikeT]):
     def __eq__(self, other: object) -> bool:
         return bool(self.eq(other, static=True))
 
-    def is_subset(self, other: "Constraint") -> Optional[bool]:
+    def _bounds_within(
+        self, other: "Constraint", strict: bool = False
+    ) -> Optional[bool]:
         """
-        Returns `True` if every value satisfying this constraint also satisfies
-        `other`, `False` if some value does not, and `None` if this cannot be
-        decided, e.g. for unrelated constraints or bounds traced under `jit`.
+        Compares the bounds of this constraint with the bounds of `other`.
+
+        Returns `True` if the closure of the feasible set of this constraint is
+        contained in the closure of the feasible set of `other`, `False` if it is
+        not, and `None` if this cannot be decided, e.g. for constraints that are
+        not intervals of the real line. End points and integrality are ignored,
+        so `nonnegative` is within `positive`, but a continuous constraint is
+        never reported as within a discrete one.
+
+        :param strict: Raise a `RuntimeError` instead of returning `None` when
+            the bounds are traced inside jitted code.
         """
         if self == other:
             return True
@@ -139,7 +149,13 @@ class Constraint(Generic[NumLikeT]):
         other_bounds = other._interval_bounds()
         if bounds is None or other_bounds is None:
             return None
+        if other.is_discrete and not self.is_discrete:
+            return None
         if not all(not_jax_tracer(b) for b in bounds + other_bounds):
+            if strict:
+                raise RuntimeError(
+                    "Cannot compare constraint bounds inside jitted code."
+                )
             return None
         lower, upper = bounds
         other_lower, other_upper = other_bounds
@@ -453,8 +469,8 @@ class _IndependentConstraint(Constraint[NumLikeT]):
     def feasible_like(self, prototype: NumLikeT) -> NumLikeT:
         return self.base_constraint.feasible_like(prototype)
 
-    def is_subset(self, other: Constraint) -> Optional[bool]:
-        return self.base_constraint.is_subset(other)
+    def _bounds_within(self, other: Constraint, strict: bool = False) -> Optional[bool]:
+        return self.base_constraint._bounds_within(other, strict=strict)
 
     def tree_flatten(self):
         return (self.base_constraint,), (
@@ -962,6 +978,9 @@ class _ExtendedReal(_SingletonConstraint[NumLike]):
 
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.zeros_like(prototype)
+
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return -np.inf, np.inf
 
 
 class _Simplex(_SingletonConstraint[NonScalarArray]):

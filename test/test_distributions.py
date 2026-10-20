@@ -3780,7 +3780,9 @@ def test_transformed_transformed_distribution():
 )
 def test_transformed_distribution_support_in_domain(base_dist, transform):
     d = dist.TransformedDistribution(base_dist(), transform(), validate_args=True)
-    d.sample(random.key(0))
+    x = d.sample(random.key(0), (100,))
+    assert jnp.isfinite(x).all()
+    assert jnp.isfinite(d.log_prob(x)).all()
 
 
 @pytest.mark.parametrize(
@@ -3856,6 +3858,19 @@ def test_transformed_distribution_support_in_domain_jit():
         return d.log_prob(-0.5)
 
     jax.jit(f)(-1.0)
+
+
+def test_transformed_distribution_support_in_domain_strict():
+    # `strict=True` raises inside jitted code, as for the parameter checks.
+    def f(low):
+        d = dist.TransformedDistribution(
+            dist.Uniform(low, 1.0), transforms.ExpTransform().inv
+        )
+        d.validate_args(strict=True)
+        return d.log_prob(0.5)
+
+    with pytest.raises(RuntimeError, match="inside jitted code"):
+        jax.jit(f)(0.0)
 
 
 def _make_iaf(input_dim, hidden_dims, rng_key):
