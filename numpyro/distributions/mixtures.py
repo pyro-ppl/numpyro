@@ -23,8 +23,21 @@ def Mixture(
     *,
     validate_args: Optional[bool] = None,
 ):
-    """
+    r"""
     A marginalized finite mixture of component distributions
+
+    With mixing weights :math:`\pi_k` and component distributions :math:`p_k` for
+    :math:`k = 1, \dots, K`, the density (or mass function) of the mixture is
+
+    .. math::
+        p(x) = \sum_{k=1}^{K} \pi_k \, p_k(x),
+
+    with mean and variance
+
+    .. math::
+        \mathbb{E}[X] = \sum_{k=1}^{K} \pi_k \, \mathbb{E}[X_k], \qquad
+        \mathrm{Var}[X] = \sum_{k=1}^{K} \pi_k \, \mathrm{Var}[X_k]
+        + \sum_{k=1}^{K} \pi_k \left(\mathbb{E}[X_k] - \mathbb{E}[X]\right)^2.
 
     The returned distribution will be either a:
 
@@ -33,8 +46,11 @@ def Mixture(
     2. :class:`~numpyro.distributions.MixtureSameFamily`, when
        ``component_distributions`` is a single distribution.
 
-    and more details can be found in the documentation for each of these
-    classes.
+    Both classes document how ``log_prob`` is evaluated;
+    :class:`~numpyro.distributions.mixtures.MixtureGeneral` also describes ``cdf``
+    and sampling. ``Mixture`` has no ``support`` argument; construct
+    :class:`~numpyro.distributions.mixtures.MixtureGeneral` directly to override the
+    inferred support.
 
     :param mixing_distribution: A :class:`~numpyro.distributions.Categorical`
         specifying the weights for each mixture components. The size of this
@@ -330,12 +346,43 @@ class MixtureSameFamily(_MixtureBase):
 
 
 class MixtureGeneral(_MixtureBase):
-    """
+    r"""
     A finite mixture of component distributions from different families
 
     If all of the component distributions are from the same family, the more
     specific implementation in :class:`~numpyro.distributions.MixtureSameFamily`
     will be somewhat more efficient.
+
+    With mixing weights :math:`\pi_k` (``mixing_distribution.probs``) and component
+    distributions :math:`p_k` for :math:`k = 1, \dots, K`, where :math:`K` is the
+    ``mixture_size``, the density (or mass function) of the mixture is
+
+    .. math::
+        p(x) = \sum_{k=1}^{K} \pi_k \, p_k(x).
+
+    ``log_prob`` evaluates this density in log space:
+
+    .. math::
+        \log p(x) = \log \sum_{k=1}^{K} \exp\left(\log \pi_k + \log p_k(x)\right).
+
+    The mean and variance follow from the mixture weights and the component moments:
+
+    .. math::
+        \mathbb{E}[X] = \sum_{k=1}^{K} \pi_k \, \mathbb{E}[X_k], \qquad
+        \mathrm{Var}[X] = \sum_{k=1}^{K} \pi_k \, \mathrm{Var}[X_k]
+        + \sum_{k=1}^{K} \pi_k \left(\mathbb{E}[X_k] - \mathbb{E}[X]\right)^2.
+
+    For multivariate components, the mean and variance are computed elementwise;
+    the variance is the per-dimension marginal variance, not a covariance matrix.
+    For scalar events the cumulative distribution function is the weighted sum of
+    the component cdfs :math:`F_k`,
+
+    .. math::
+        F(x) = \sum_{k=1}^{K} \pi_k \, F_k(x).
+
+    Sampling draws one value from every component and keeps the one selected by
+    a component index :math:`k \sim \mathrm{Categorical}(\boldsymbol\pi)`;
+    :meth:`sample_with_intermediates` also returns this index.
 
     :param mixing_distribution: A :class:`~numpyro.distributions.Categorical`
         specifying the weights for each mixture components. The size of this
@@ -346,6 +393,18 @@ class MixtureGeneral(_MixtureBase):
     :param support: A :class:`~numpyro.distributions.constraints.Constraint`
         object specifying the support of the mixture distribution. If not
         provided, the support will be inferred from the component distributions.
+
+    .. note::
+        ``log_prob`` uses :math:`\log \pi_k = \mathrm{log\_softmax}(\text{logits})_k`
+        and ``logsumexp``; component terms equal to :math:`-\infty` (e.g. at zero
+        mixing weights) are stopped from propagating gradients. When ``support``
+        is passed explicitly, the log density of each component with
+        ``validate_args`` disabled is set to :math:`-\infty` outside that
+        component's own support before mixing, so components with different
+        supports can be combined. All components must share the same
+        ``event_shape`` and, unless ``support`` is given, the same support *type*.
+        ``cdf`` raises ``NotImplementedError`` if a component does not implement
+        it. ``has_rsample`` is ``False``.
 
     **Example**
 

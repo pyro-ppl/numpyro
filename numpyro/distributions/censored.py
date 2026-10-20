@@ -20,11 +20,37 @@ from numpyro.util import find_stack_level, not_jax_tracer
 
 
 class LeftCensoredDistribution(Distribution):
-    """
+    r"""
     Distribution wrapper for left-censored outcomes.
 
     This distribution augments a base distribution with left-censoring,
     so that the likelihood contribution depends on the censoring indicator.
+
+    Let :math:`f` and :math:`F` be the density and cumulative distribution
+    function of ``base_dist``. For a reported value :math:`y` with censoring
+    indicator :math:`c \in \{0, 1\}` (``censored``), the likelihood is
+
+    .. math::
+        p(y \mid c) = f(y)^{1 - c} \, F(y)^{c},
+
+    so that ``log_prob`` evaluates
+
+    .. math::
+        \log p(y \mid c) = (1 - c) \log f(y) + c \log F(y).
+
+    When :math:`c = 1` the latent event time :math:`T` is only known to satisfy
+    :math:`T \le y`, and the contribution is :math:`P(T \le y) = F(y)`.
+
+    .. note::
+        ``log_prob`` evaluates :math:`\log F(y)` as
+        ``log(clip(base_dist.cdf(y), 100 * tiny, 1))``, where ``tiny`` is the
+        smallest positive normal number of the value dtype, to avoid
+        :math:`\log 0`. ``sample`` draws from the *uncensored* base distribution
+        and ignores ``censored``. ``mean`` and ``variance`` are not implemented.
+        ``support`` is the support of ``base_dist``. ``validate_args`` defaults
+        to ``False``; when ``True``, the constructor evaluates ``base_dist.cdf``
+        once on a feasible value and raises ``TypeError`` if it is not
+        implemented.
 
     :param base_dist: Parametric distribution for the *uncensored* values
             (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
@@ -138,11 +164,37 @@ class LeftCensoredDistribution(Distribution):
 
 
 class RightCensoredDistribution(Distribution):
-    """
+    r"""
     Distribution wrapper for right-censored outcomes.
 
     This distribution augments a base distribution with right-censoring,
     so that the likelihood contribution depends on the censoring indicator.
+
+    Let :math:`f` and :math:`F` be the density and cumulative distribution
+    function of ``base_dist``, with survival function :math:`S = 1 - F`. For a
+    reported value :math:`y` with censoring indicator :math:`c \in \{0, 1\}`
+    (``censored``), the likelihood is
+
+    .. math::
+        p(y \mid c) = f(y)^{1 - c} \, S(y)^{c},
+
+    so that ``log_prob`` evaluates
+
+    .. math::
+        \log p(y \mid c) = (1 - c) \log f(y) + c \log\big(1 - F(y)\big).
+
+    When :math:`c = 1` the latent event time :math:`T` is only known to satisfy
+    :math:`T \ge y`, and the contribution is :math:`P(T \ge y) = 1 - F(y)`.
+
+    .. note::
+        ``log_prob`` evaluates :math:`\log(1 - F(y))` as
+        ``log1p(-clip(base_dist.cdf(y), 0, 1 - eps))``, where ``eps`` is the
+        machine epsilon of the value dtype, to avoid :math:`\log 0`. ``sample``
+        draws from the *uncensored* base distribution and ignores ``censored``.
+        ``mean`` and ``variance`` are not implemented. ``support`` is the
+        support of ``base_dist``. ``validate_args`` defaults to ``False``; when
+        ``True``, the constructor evaluates ``base_dist.cdf`` once on a feasible
+        value and raises ``TypeError`` if it is not implemented.
 
     :param base_dist: Parametric distribution for the *uncensored* values
             (e.g., Exponential, Weibull, LogNormal, Normal, etc.).
@@ -282,15 +334,26 @@ class IntervalCensoredDistribution(Distribution):
     .. note::
             The ``log_prob(value)`` method expects ``value`` to be a two-dimensional array
             of shape ``(batch_size, 2)``, where each row is ``(lower, upper)``.
-            The contribution to the log-likelihood is determined as follows:
+            The contribution to the log-likelihood is determined as follows. With
+            value :math:`(l, u)` and indicators :math:`\ell` (``left_censored``) and
+            :math:`r` (``right_censored``),
 
-                    log F(upper)                   if left_censored == 1 and right_censored == 0
-                    log (1 - F(lower))             if right_censored == 1 and left_censored == 0
-                    log (F(upper) - F(lower))      if both == 0  (interval-censored)
-                    log (1 - (F(upper) - F(lower))) if both == 1  (doubly-censored)
-                    log f(value)                   if lower ≈ upper (point interval)
+            .. math::
+                \log p(l, u \mid \ell, r) =
+                \begin{cases}
+                    \log F(u) & \ell = 1,\ r = 0 \\
+                    \log\big(1 - F(l)\big) & \ell = 0,\ r = 1 \\
+                    \log\big(F(u) - F(l)\big) & \ell = 0,\ r = 0,\ l < u \\
+                    \log f(l) & \ell = 0,\ r = 0,\ l = u \\
+                    \log\big(1 - [F(u) - F(l)]\big) & \ell = 1,\ r = 1
+                \end{cases}
 
-            where f is the density and F the cumulative distribution function of ``base_dist``.
+            where :math:`f` is the density and :math:`F` the cumulative distribution
+            function of ``base_dist``. The five rows correspond to the event lying in
+            :math:`(-\infty, u]` (left-censored), in :math:`[l, \infty)`
+            (right-censored), in :math:`(l, u]` (interval-censored), exactly at
+            :math:`l` (point observation), or outside :math:`(l, u]`
+            (doubly-censored).
 
             This is commonly used in survival analysis, where event times are positive,
             but the approach is general and can be applied to any distribution
@@ -308,6 +371,22 @@ class IntervalCensoredDistribution(Distribution):
                     subject 1 had an event in (2, 5]
                     subject 2 was right-censored at 4
                     subject 3 had an event in (6, 9]
+
+    .. note::
+        For numerical stability, :math:`F(l)` and :math:`F(u)` are clipped to
+        :math:`[100\,\text{tiny}, 1 - \epsilon]` (``tiny`` the smallest positive
+        normal number and ``eps`` the machine epsilon of the value dtype) after
+        substituting :math:`F(l) = 0` on left-censored rows and :math:`F(u) = 1`
+        on right-censored rows. The interval term is evaluated as
+        :math:`\log F(u) + \log\big(1 - e^{\log F(l) - \log F(u)}\big)`, and the
+        doubly-censored row applies ``log1mexp`` to it. The point case is detected
+        with ``jnp.isclose(l, u)`` and only when neither indicator is set.
+        ``event_shape`` is ``(2,)``. ``sample`` draws uncensored scalar values from
+        ``base_dist`` (one per batch element, without the interval structure) and
+        ignores the censoring indicators. ``mean`` and ``variance`` are not
+        implemented. ``validate_args`` defaults to ``False``; when ``True``, the
+        constructor evaluates ``base_dist.cdf`` once on a feasible value and
+        raises ``TypeError`` if it is not implemented.
 
     **Example:**
 
