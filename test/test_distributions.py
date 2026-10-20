@@ -6454,12 +6454,14 @@ def test_zero_inflated_support_array_type(logits, array_module):
         (np.array([-2, 3]), np.array([3, 7]), False),
     ],
 )
-def test_zero_inflated_interval_support_identity(logits, lower, upper, contains_zero):
+def test_zero_inflated_interval_support_type(logits, lower, upper, contains_zero):
     kwargs = {"gate_logits": 0.0} if logits else {"gate": 0.5}
     distribution = dist.ZeroInflatedDistribution(
         dist.DiscreteUniform(lower, upper), **kwargs
     )
-    assert (distribution.support is distribution.base_dist.support) == contains_zero
+    assert (
+        type(distribution.support) is type(distribution.base_dist.support)
+    ) == contains_zero
     assert np.all(distribution.support(np.zeros(distribution.batch_shape)))
 
 
