@@ -5856,15 +5856,17 @@ class InverseWishart(TransformedDistribution):
 
     @lazy_property
     def variance(self) -> Array:
-        # Variance of entry (i,j) for nu > p + 3
-        # Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
+        # Variance of entry (i,j) for nu > p + 3, see
+        # https://en.wikipedia.org/wiki/Inverse-Wishart_distribution#Moments
+        # Var(X_ij) = ((nu - p + 1) Psi_ij^2 + (nu - p - 1) Psi_ii Psi_jj)
+        #             / ((nu - p) (nu - p - 1)^2 (nu - p - 3))
         p = self.scale_matrix.shape[-1]
         nu = jnp.expand_dims(self.concentration, axis=(-1, -2))
         psi = self.scale_matrix
-        denom = (nu - p - 1) ** 2 * (nu - p - 3)
+        denom = (nu - p) * (nu - p - 1) ** 2 * (nu - p - 3)
         psi_ii = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., :, None]
         psi_jj = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., None, :]
-        var = (psi**2 + psi_ii * psi_jj) / denom
+        var = ((nu - p + 1) * psi**2 + (nu - p - 1) * psi_ii * psi_jj) / denom
         return jnp.where(nu > p + 3, var, jnp.full_like(var, jnp.nan))
 
     @classmethod
