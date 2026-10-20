@@ -212,8 +212,9 @@ def _binomial(key, p, n, shape):
     # reshape to map over axis 0
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
-    # the samplers below count trials with integers, so integer-valued float
-    # counts are sampled as integers and returned in their own dtype
+    # the samplers below count trials in the default integer dtype, so counts of
+    # any other dtype (integer-valued floats, or integers such as int16 or uint8)
+    # are cast to it for sampling and the draws are returned in the dtype of `n`
     dtype = n.dtype
     n = n.astype(jnp.result_type(int))
     key = random.split(key, jnp.size(p))

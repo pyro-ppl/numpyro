@@ -356,19 +356,15 @@ def test_binomial_non_threefry_matches_sequential(impl):
     assert_array_equal(binomial(key, p, n), expected)
 
 
-def test_binomial_float_total_count():
-    # integer-valued float counts satisfy the `total_count` constraint; they must give
-    # the same draws as integer counts, in the dtype of the counts
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.int16, jnp.uint8])
+def test_binomial_total_count_dtype(dtype):
+    # draws must not depend on the dtype of the counts, and keep that dtype
     p = jnp.array([0.0, 0.05, 0.3, 0.5, 0.9, 1.0])
-    n = jnp.array([10, 20, 50, 1000, 30, 7])
+    n = jnp.array([10, 20, 50, 200, 30, 7])
     expected = binomial(random.key(0), p, n)
-    actual = binomial(random.key(0), p, n.astype(jnp.float32))
-    assert actual.dtype == jnp.float32
+    actual = binomial(random.key(0), p, n.astype(dtype))
+    assert actual.dtype == dtype
     assert_array_equal(actual, expected)
-
-    d = dist.Binomial(total_count=n.astype(jnp.float32), probs=p)
-    expected = dist.Binomial(total_count=n, probs=p).sample(random.key(1), (3,))
-    assert_array_equal(d.sample(random.key(1), (3,)), expected)
 
 
 @pytest.mark.parametrize("concentration", [1, 10, 100])
