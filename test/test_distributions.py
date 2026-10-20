@@ -5344,6 +5344,41 @@ def test_censored_broadcasting():
     assert dist_obj.batch_shape == (2, 3)
 
 
+@pytest.mark.parametrize(
+    "censored_class, censoring",
+    [
+        (dist.LeftCensoredDistribution, ([0, 1, 0],)),
+        (dist.RightCensoredDistribution, ([0, 1, 0],)),
+        (dist.IntervalCensoredDistribution, ([0, 1, 0], [0, 0, 1])),
+    ],
+)
+def test_censored_validate_args_array_bounds(censored_class, censoring):
+    base_dist = dist.Uniform(jnp.array([0.5, 1.0, 2.0]), jnp.array([3.0, 4.0, 5.0]))
+    censoring = [jnp.array(c) for c in censoring]
+    censored_dist = censored_class(base_dist, *censoring, validate_args=True)
+    assert censored_dist.batch_shape == (3,)
+
+
+def test_interval_censored_logprob_array_bounds():
+    low, high = jnp.array([0.5, 1.0, 2.0]), jnp.array([3.0, 4.0, 5.0])
+    left_censored, right_censored = jnp.array([0, 1, 0]), jnp.array([0, 0, 1])
+    censored_dist = dist.IntervalCensoredDistribution(
+        dist.Uniform(low, high), left_censored, right_censored
+    )
+
+    # one (lower, upper) pair is evaluated against every member of the batch
+    cdf_lower = osp.uniform.cdf(2.1, low, high - low)
+    cdf_upper = osp.uniform.cdf(2.5, low, high - low)
+    expected = np.where(
+        left_censored,
+        np.log(cdf_upper),
+        np.where(right_censored, np.log1p(-cdf_lower), np.log(cdf_upper - cdf_lower)),
+    )
+    value = jnp.array([2.1, 2.5])
+    assert_allclose(censored_dist.log_prob(value), expected, rtol=1e-5)
+    assert censored_dist.log_prob(jnp.broadcast_to(value, (4, 1, 2))).shape == (4, 3)
+
+
 @param_left_censored
 @param_right_censored
 def test_censored_gradient(left_censored, right_censored):
