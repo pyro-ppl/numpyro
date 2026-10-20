@@ -1188,56 +1188,6 @@ class MaskedDistribution(Distribution):
         return cast(MaskedDistribution, d)
 
 
-def _interval_bounds(
-    constraint: constraints.Constraint,
-) -> Optional[tuple[ArrayLike, ArrayLike]]:
-    """
-    Returns the ``(lower, upper)`` bounds of an elementwise constraint whose
-    feasible set is an interval of the real line (ignoring whether the end
-    points are included), or ``None`` if the bounds are unknown.
-    """
-    if isinstance(constraint, constraints._IndependentConstraint):
-        constraint = constraint.base_constraint
-    if isinstance(constraint, constraints._Real):
-        return -np.inf, np.inf
-    if isinstance(constraint, (constraints._Interval, constraints._IntegerInterval)):
-        return constraint.lower_bound, constraint.upper_bound
-    if isinstance(
-        constraint, (constraints._GreaterThan, constraints._IntegerGreaterThan)
-    ):
-        return constraint.lower_bound, np.inf
-    if isinstance(constraint, constraints._LessThan):
-        return -np.inf, constraint.upper_bound
-    return None
-
-
-def _is_support_outside_domain(
-    support: Optional[constraints.Constraint], domain: constraints.Constraint
-) -> bool:
-    """
-    Returns ``True`` if ``support`` provably contains points outside ``domain``.
-    Returns ``False`` if they are compatible or if compatibility cannot be
-    decided (e.g. unknown constraints or traced bounds).
-    """
-    if support is None or support == domain:
-        return False
-    domain_bounds = _interval_bounds(domain)
-    support_bounds = _interval_bounds(support)
-    if domain_bounds is None or support_bounds is None:
-        return False
-    bounds = support_bounds + domain_bounds
-    if not all(not_jax_tracer(b) for b in bounds):
-        return False
-    support_lower, support_upper, domain_lower, domain_upper = bounds
-    try:
-        return bool(
-            np.any(np.less(support_lower, domain_lower))
-            or np.any(np.greater(support_upper, domain_upper))
-        )
-    except ValueError:  # bounds with incompatible shapes
-        return False
-
-
 class TransformedDistribution(Distribution):
     r"""
     Returns a distribution instance obtained as a result of applying
@@ -1353,7 +1303,7 @@ class TransformedDistribution(Distribution):
         domain = ComposeTransform(self.transforms).domain
         support = self.base_dist.support
         with jax.ensure_compile_time_eval():
-            if _is_support_outside_domain(support, domain):
+            if support is not None and support.is_subset(domain) is False:
                 raise ValueError(
                     f"The support {support} of the base distribution is not "
                     f"contained in the domain {domain} of the first transform."
