@@ -488,10 +488,21 @@ class MixtureGeneral(_MixtureBase):
         )
 
     def component_cdf(self, samples: ArrayLike) -> Array:
+        component_cdfs = []
+        for d in self.component_distributions:
+            # components may have different supports, outside of which their cdf
+            # need not be 0 below or 1 above (e.g. `HalfNormal(1.0).cdf(-1.0) < 0`);
+            # evaluate it inside the support so that its gradients stay finite
+            lower_bound = getattr(d.support, "lower_bound", None)
+            upper_bound = getattr(d.support, "upper_bound", None)
+            cdf = d.cdf(jnp.clip(samples, lower_bound, upper_bound))
+            if lower_bound is not None:
+                cdf = jnp.where(jnp.less(samples, lower_bound), 0.0, cdf)
+            if upper_bound is not None:
+                cdf = jnp.where(jnp.greater(samples, upper_bound), 1.0, cdf)
+            component_cdfs.append(cdf)
         return jnp.stack(
-            jnp.broadcast_arrays(
-                *[d.cdf(samples) for d in self.component_distributions]
-            ),
+            jnp.broadcast_arrays(*component_cdfs),
             axis=self.mixture_dim,
         )
 
