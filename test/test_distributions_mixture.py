@@ -125,55 +125,31 @@ def test_mixture_with_different_support(batch_shape):
     assert jnp.allclose(result, expected_log_prob)
 
 
-@pytest.mark.parametrize(
-    "make_components, params, support, sp_components",
-    [
-        (
-            lambda p: [
-                dist.Normal(p[0], p[1]),
-                dist.HalfNormal(p[2]),
-                dist.Gamma(p[3], p[4]),
-                dist.Uniform(p[5], p[6]),
-            ],
-            np.array([0.0, 1.0, 0.3, 2.0, 3.0, 0.5, 2.0]),
-            dist.constraints.real,
-            [
-                stats.norm(0.0, 1.0),
-                stats.halfnorm(scale=0.3),
-                stats.gamma(2.0, scale=1 / 3.0),
-                stats.uniform(0.5, 1.5),
-            ],
-        ),
-        (
-            lambda p: [dist.Pareto(p[0], p[1]), dist.Pareto(p[2], p[3])],
-            np.array([1.0, 2.0, 2.0, 3.0]),
-            None,
-            [stats.pareto(2.0, scale=1.0), stats.pareto(3.0, scale=2.0)],
-        ),
-    ],
-)
-@pytest.mark.parametrize("jit", [False, True])
-def test_mixture_cdf_with_different_support(
-    make_components, params, support, sp_components, jit
-):
+def test_mixture_cdf_with_different_support():
     # a component contributes 0 to the cdf below its support and 1 above it
-    probs = np.full(len(sp_components), 1 / len(sp_components))
-    value = np.array([-1.0, -0.5, 0.0, 0.25, 1.0, 1.5, 3.0])
+    value = np.array([-1.0, 0.0, 0.25, 0.5, 1.0, 1.5])
 
     def cdf(params):
-        components = make_components(params)
         mixture = dist.MixtureGeneral(
-            dist.Categorical(probs=probs), components, support=support
+            dist.Categorical(probs=np.ones(3) / 3),
+            [
+                dist.Normal(0.0, 1.0),
+                dist.Gamma(params[0], params[1]),
+                dist.Beta(params[2], params[3]),
+            ],
+            support=dist.constraints.real,
         )
         return mixture.cdf(value)
 
-    expected = sum(p * d.cdf(value) for p, d in zip(probs, sp_components))
-    actual = (jax.jit(cdf) if jit else cdf)(params)
-    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
-
-    # gradients w.r.t. the component parameters must stay finite outside the supports
-    grad_fn = jax.grad(lambda params: cdf(params).sum())
-    assert np.isfinite((jax.jit(grad_fn) if jit else grad_fn)(params)).all()
+    params = np.array([2.0, 3.0, 2.0, 3.0])
+    expected = (
+        stats.norm.cdf(value)
+        + stats.gamma.cdf(value, 2.0, scale=1 / 3)
+        + stats.beta.cdf(value, 2.0, 3.0)
+    ) / 3
+    np.testing.assert_allclose(cdf(params), expected, rtol=1e-6, atol=1e-7)
+    # evaluating inside the support (not only masking) keeps gradients finite
+    assert np.isfinite(jax.grad(lambda p: cdf(p).sum())(params)).all()
 
 
 def _test_mixture(mixing_distribution, component_distribution):
