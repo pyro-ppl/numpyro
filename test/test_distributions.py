@@ -1999,7 +1999,7 @@ def test_mixture_log_prob():
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params",
     # TODO: add more complete pattern for Discrete.cdf
-    CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0])), T(dist.BernoulliProbs, 0.2)],
+    CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, np.array([2.0, 3.0, 5.0]))],
 )
 @pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
@@ -2038,15 +2038,8 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
                 atol=1e-5,
                 rtol=rtol,
             )
-        if jax_dist is dist.BernoulliProbs:
-            assert pytest.approx(d.icdf(quantiles).mean(), abs=0.1) == d.probs
-            prop_of_ones = (d.cdf(d.icdf(quantiles)) == 1).mean()
-            prop_of_zeros = (d.cdf(d.icdf(quantiles)) == (1 - d.probs)).mean()
-            assert pytest.approx(prop_of_ones, abs=0.1) == d.probs
-            assert pytest.approx(prop_of_zeros, abs=0.1) == (1 - d.probs)
-        else:
-            assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
-            assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
+        assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
+        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=rtol)
     except NotImplementedError:
         pytest.skip("cdf/icdf not implemented")
 
@@ -2077,6 +2070,52 @@ def test_discrete_uniform_icdf(low, high):
     assert_allclose(actual, osp.randint(low, high + 1).ppf(quantiles))
     assert np.all(np.isin(actual, support))
     assert_allclose(d.icdf(d.cdf(support)), support)
+
+
+@pytest.mark.parametrize(
+    "probs",
+    [0.0, 0.3, 1.0, np.array([0.0, 0.2, 0.5, 0.9, 1.0])],
+    ids=["0.0", "0.3", "1.0", "batch"],
+)
+@pytest.mark.parametrize("parametrization", ["probs", "logits"])
+def test_bernoulli_cdf_icdf(parametrization, probs):
+    if parametrization == "probs":
+        d = dist.BernoulliProbs(probs)
+    else:
+        d = dist.BernoulliLogits(scipy.special.logit(probs))
+    sp_dist = osp.bernoulli(probs)
+    batch_dims = (1,) * np.ndim(probs)
+
+    x = np.array([-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]).reshape((-1,) + batch_dims)
+    assert_allclose(d.cdf(x), sp_dist.cdf(x), rtol=1e-5)
+    # levels away from the jump at P(X = 0)
+    quantiles = np.linspace(0.005, 0.995, 100).reshape((-1,) + batch_dims)
+    assert_array_equal(d.icdf(quantiles), sp_dist.ppf(quantiles))
+
+    # the level P(X = 0) itself is the largest one mapped to 0
+    prob_zero = np.asarray(d.cdf(0.0))
+    assert_array_equal(d.icdf(prob_zero), 0.0)
+    above = np.where(
+        prob_zero > 0, np.nextafter(prob_zero, 2), np.finfo(prob_zero.dtype).tiny
+    )
+    assert_array_equal(d.icdf(above), 1.0)
+
+    support = np.stack([np.zeros(np.shape(probs)), np.ones(np.shape(probs))])
+    pmf = np.stack([1 - np.asarray(probs), np.asarray(probs)])
+    roundtrip = d.icdf(d.cdf(support))
+    assert_array_equal(np.where(pmf > 0, roundtrip, support), support)
+
+    assert np.isnan(d.cdf(np.nan)).all()
+    assert np.isnan(d.icdf(np.nan)).all()
+
+
+@pytest.mark.parametrize("logits", [20.0, 30.0, 50.0])
+def test_bernoulli_logits_cdf_icdf_saturated(logits):
+    # 1 - expit(logits) rounds to 0 here, so P(X = 0) must come from expit(-logits)
+    d = dist.BernoulliLogits(logits)
+    prob_zero = scipy.special.expit(-logits)
+    assert_allclose(d.cdf(0.0), prob_zero, rtol=1e-5)
+    assert_array_equal(d.icdf(np.array([0.5, 2.0]) * prob_zero), [0.0, 1.0])
 
 
 @pytest.mark.parametrize(
