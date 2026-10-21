@@ -5,6 +5,7 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
+import inspect
 from typing import Callable, NamedTuple, Optional
 import warnings
 
@@ -375,6 +376,25 @@ def _init_to_unconstrained_value(site=None, values={}):
         return partial(_init_to_unconstrained_value, values=values)
 
 
+def _normalize_init_strategy(init_strategy):
+    if isinstance(init_strategy, partial):
+        return init_strategy
+    try:
+        signature = inspect.signature(init_strategy)
+    except (TypeError, ValueError):
+        return init_strategy()
+    try:
+        signature.bind()
+    except TypeError:
+        try:
+            signature.bind(None)
+        except TypeError:
+            pass
+        else:
+            return partial(init_strategy)
+    return init_strategy()
+
+
 def find_valid_initial_params(
     rng_key,
     model,
@@ -413,9 +433,7 @@ def find_valid_initial_params(
         containing the initial params, their potential energy, and their gradients.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    init_strategy = (
-        init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    )
+    init_strategy = _normalize_init_strategy(init_strategy)
     # handle those init strategies differently to save computation
     if init_strategy.func is init_to_uniform:
         radius = init_strategy.keywords.get("radius")
@@ -830,9 +848,7 @@ def initialize_model(
         model_kwargs=model_kwargs,
     )
 
-    init_strategy = (
-        init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    )
+    init_strategy = _normalize_init_strategy(init_strategy)
     if (init_strategy.func is init_to_value) and not replay_model:
         init_values = init_strategy.keywords.get("values")
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
