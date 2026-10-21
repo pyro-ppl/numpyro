@@ -100,7 +100,7 @@ class BernoulliProbs(Distribution):
         :param probs: Success probability in the interval :math:`[0, 1]`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.probs = probs
+        self.probs = promote_to_inexact(probs)
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -121,7 +121,7 @@ class BernoulliProbs(Distribution):
         assert is_prng_key(key)
         assert key is not None
         samples = random.bernoulli(
-            key, promote_to_inexact(self.probs), shape=sample_shape + self.batch_shape
+            key, self.probs, shape=sample_shape + self.batch_shape
         )
         return samples.astype(jnp.result_type(samples, int))
 
@@ -1810,6 +1810,7 @@ class ZeroInflatedProbs(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
+        gate = promote_to_inexact(gate)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
         support = base_dist.support
@@ -1835,7 +1836,7 @@ class ZeroInflatedProbs(Distribution):
         assert key is not None
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
-        mask = random.bernoulli(key_bern, promote_to_inexact(self.gate), shape)
+        mask = random.bernoulli(key_bern, self.gate, shape)
         samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
         return jnp.where(mask, 0, samples)
 
@@ -2010,7 +2011,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(jnp.asarray(gate), rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -2075,6 +2076,7 @@ class HurdleProbs(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        gate = promote_to_inexact(gate)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
         if base_dist.event_shape:
@@ -2118,7 +2120,7 @@ class HurdleProbs(Distribution):
         assert key is not None
         key_bern, key_base = random.split(key)
         shape = sample_shape + self.batch_shape
-        zero_mask = random.bernoulli(key_bern, promote_to_inexact(self.gate), shape)
+        zero_mask = random.bernoulli(key_bern, self.gate, shape)
         if self._is_discrete:
             samples = self._sample_truncated(key_base, sample_shape)
         else:
@@ -2327,7 +2329,7 @@ class HurdlePoisson(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(jnp.asarray(gate), rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -2357,7 +2359,7 @@ class GeometricProbs(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.probs = probs
+        self.probs = promote_to_inexact(probs)
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -2382,7 +2384,7 @@ class GeometricProbs(Distribution):
         """
         assert is_prng_key(key)
         assert key is not None
-        probs = promote_to_inexact(self.probs)
+        probs = self.probs
         dtype = probs.dtype
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
@@ -2469,7 +2471,7 @@ class GeometricLogits(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.logits = logits
+        self.logits = promote_to_inexact(logits)
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
@@ -2499,7 +2501,7 @@ class GeometricLogits(Distribution):
         """
         assert is_prng_key(key)
         assert key is not None
-        logits = promote_to_inexact(self.logits)
+        logits = self.logits
         dtype = logits.dtype
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
@@ -2538,7 +2540,7 @@ class GeometricLogits(Distribution):
         where :math:`p=\sigma(\ell)`. Computed directly as
         :math:`\exp(-\ell)` to avoid cancellation when :math:`p` rounds to one.
         """
-        return jnp.exp(-promote_to_inexact(self.logits))
+        return jnp.exp(-self.logits)
 
     @property
     def variance(self) -> Array:

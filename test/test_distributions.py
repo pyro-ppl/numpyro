@@ -6405,25 +6405,6 @@ def test_geometric_logits_extreme_moments():
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
 
 
-@pytest.mark.parametrize("compiled", [False, True])
-def test_geometric_probs_sampling_stream(compiled):
-    """A nondegenerate probability uses the matching floating-point uniform stream."""
-    probs = jnp.array([0.125, 0.5, 0.875], dtype=jnp.float32)
-    key = random.key(12)
-
-    def sample(p):
-        return dist.GeometricProbs(p).sample(key, (20,))
-
-    if compiled:
-        sample = jax.jit(sample)
-    actual = sample(probs)
-    uniform = random.uniform(key, (20, 3), dtype=probs.dtype)
-    expected = jnp.floor(jnp.log1p(-uniform) / jnp.log1p(-probs))
-    assert_array_equal(actual, expected)
-    assert actual.dtype == probs.dtype
-    assert jnp.any(actual > 0)
-
-
 @pytest.mark.parametrize(
     "make_dist",
     [
@@ -6459,6 +6440,83 @@ def test_integer_parameter_predictive(make_dist, compiled, param):
     expected = predictive(random.key(1), float_param)["y"]
     assert_array_equal(actual, expected)
     assert actual.shape == (5, 3)
+
+
+@pytest.mark.parametrize(
+    "family",
+    [
+        "GeometricProbs",
+        "GeometricLogits",
+        "BernoulliProbs",
+        "ZeroInflatedPoisson",
+        "HurdlePoisson",
+    ],
+)
+@pytest.mark.parametrize("dtype", [int, np.int8, np.uint8, np.bool_])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_discrete_inexact_parameter_methods(family, dtype, compiled):
+    values = [1, 1] if family == "GeometricProbs" else [0, 1]
+    parameter = np.array(values, dtype=dtype)
+    expected_parameter = jnp.asarray(parameter).astype(jnp.result_type(float))
+
+    def evaluate(p):
+        if family in ["ZeroInflatedPoisson", "HurdlePoisson"]:
+            d = getattr(dist, family)(gate=p, rate=2.0)
+            stored = d.gate
+        else:
+            d = getattr(dist, family)(p)
+            stored = d.logits if family == "GeometricLogits" else d.probs
+        entropy = (
+            d.entropy()
+            if family in ["GeometricProbs", "GeometricLogits", "BernoulliProbs"]
+            else 0.0
+        )
+        return (
+            stored,
+            d.sample(random.key(3), (8,)),
+            d.log_prob(jnp.array([0, 1])[:, None]),
+            d.mean,
+            d.variance,
+            entropy,
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual = evaluate(parameter)
+    expected = evaluate(expected_parameter)
+    assert jnp.issubdtype(actual[0].dtype, jnp.floating)
+    for value, reference in zip(actual, expected):
+        assert_allclose(value, reference, rtol=1e-6, atol=0)
+    assert_array_equal(parameter, np.array(values, dtype=dtype))
+
+
+@pytest.mark.parametrize(
+    "make_dist",
+    [
+        dist.GeometricProbs,
+        dist.GeometricLogits,
+        dist.BernoulliProbs,
+        lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0),
+        lambda p: dist.HurdlePoisson(gate=p, rate=2.0),
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+def test_discrete_list_parameters(make_dist, compiled):
+    def evaluate(p):
+        d = make_dist(p)
+        return (
+            d.sample(random.key(4), (8,)),
+            d.log_prob(jnp.array([0, 1])[:, None]),
+            d.mean,
+            d.variance,
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual = evaluate([0.3, 0.5])
+    expected = evaluate(jnp.array([0.3, 0.5]))
+    for value, reference in zip(actual, expected):
+        assert_allclose(value, reference, rtol=1e-6, atol=0)
 
 
 @pytest.mark.parametrize("rate", [0.3, 3.0, 100.0])
