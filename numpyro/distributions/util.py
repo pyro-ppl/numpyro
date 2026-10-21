@@ -354,11 +354,17 @@ def _reshape(x, shape):
         return jnp.reshape(x, shape)
 
 
-def promote_to_inexact(value: ArrayLike) -> Array:
-    """Promote integer parameters to floating point, preserving inexact dtypes."""
+def promote_to_inexact(value: ArrayLike) -> ArrayLike:
+    """Promote integer and boolean parameters, preserving inexact inputs."""
     with jax.ensure_compile_time_eval():
-        value = jnp.asarray(value)
-        return value.astype(jnp.result_type(value, float))
+        if isinstance(value, (list, tuple)):
+            value = jnp.asarray(value)
+        if jnp.issubdtype(jnp.result_type(value), jnp.inexact):
+            return value
+        dtype = jnp.result_type(value, float)
+        if isinstance(value, (int, np.ndarray, np.generic)):
+            return np.asarray(value, dtype=dtype)
+        return jnp.asarray(value).astype(dtype)
 
 
 def promote_shapes(*args, shape=(), return_shapes: bool = False):

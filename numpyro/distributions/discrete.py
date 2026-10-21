@@ -2384,8 +2384,8 @@ class GeometricProbs(Distribution):
         """
         assert is_prng_key(key)
         assert key is not None
-        probs = self.probs
-        dtype = probs.dtype
+        probs = jnp.asarray(self.probs)
+        dtype = jnp.result_type(probs)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
         return jnp.floor(jnp.log1p(-u) / jnp.log1p(-probs))
@@ -2502,7 +2502,7 @@ class GeometricLogits(Distribution):
         assert is_prng_key(key)
         assert key is not None
         logits = self.logits
-        dtype = logits.dtype
+        dtype = jnp.result_type(logits)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
         return jnp.floor(jnp.log1p(-u) / -softplus(logits))
@@ -2540,7 +2540,7 @@ class GeometricLogits(Distribution):
         where :math:`p=\sigma(\ell)`. Computed directly as
         :math:`\exp(-\ell)` to avoid cancellation when :math:`p` rounds to one.
         """
-        return jnp.exp(-self.logits)
+        return jnp.exp(-jnp.asarray(self.logits))
 
     @property
     def variance(self) -> Array:

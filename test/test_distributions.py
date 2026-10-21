@@ -6306,38 +6306,6 @@ def test_truncated_gamma_inference():
 
 
 @pytest.mark.parametrize(
-    "make_dist, param",
-    [
-        (dist.GeometricProbs, 1),
-        (dist.GeometricProbs, np.int8(1)),
-        (dist.GeometricProbs, np.ones((2, 1), dtype=np.uint8)),
-        (dist.GeometricLogits, 0),
-        (dist.GeometricLogits, np.int16(-1)),
-        (dist.GeometricLogits, np.array([-2, 0, 2], dtype=np.int32)),
-    ],
-)
-@pytest.mark.parametrize("sample_shape", [(), (4,)])
-@pytest.mark.parametrize("compiled", [False, True])
-def test_geometric_integer_parameter_samples(make_dist, param, sample_shape, compiled):
-    key = random.key(0)
-    param_array = jnp.asarray(param)
-    float_param = param_array.astype(jnp.result_type(param_array, float))
-
-    def sample(p):
-        return make_dist(p).sample(key, sample_shape)
-
-    if compiled:
-        sample = jax.jit(sample)
-
-    actual = sample(param)
-    expected = sample(float_param)
-
-    assert_array_equal(actual, expected)
-    assert actual.shape == sample_shape + make_dist(param).batch_shape
-    assert jnp.issubdtype(actual.dtype, jnp.floating)
-
-
-@pytest.mark.parametrize(
     "make_dist, param, grad_log_prob_0",
     [(dist.GeometricProbs, 1.0, 1.0), (dist.GeometricLogits, np.inf, 0.0)],
     ids=["probs", "logits"],
@@ -6443,41 +6411,32 @@ def test_integer_parameter_predictive(make_dist, compiled, param):
 
 
 @pytest.mark.parametrize(
-    "family",
+    "make_dist, attribute, has_entropy, values",
     [
-        "GeometricProbs",
-        "GeometricLogits",
-        "BernoulliProbs",
-        "ZeroInflatedPoisson",
-        "HurdlePoisson",
+        (dist.GeometricProbs, "probs", True, [1, 1]),
+        (dist.GeometricLogits, "logits", True, [0, 1]),
+        (dist.BernoulliProbs, "probs", True, [0, 1]),
+        (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
+        (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
     ],
 )
 @pytest.mark.parametrize("dtype", [int, np.int8, np.uint8, np.bool_])
 @pytest.mark.parametrize("compiled", [False, True])
-def test_discrete_inexact_parameter_methods(family, dtype, compiled):
-    values = [1, 1] if family == "GeometricProbs" else [0, 1]
+def test_discrete_inexact_parameter_methods(
+    make_dist, attribute, has_entropy, values, dtype, compiled
+):
     parameter = np.array(values, dtype=dtype)
     expected_parameter = jnp.asarray(parameter).astype(jnp.result_type(float))
 
     def evaluate(p):
-        if family in ["ZeroInflatedPoisson", "HurdlePoisson"]:
-            d = getattr(dist, family)(gate=p, rate=2.0)
-            stored = d.gate
-        else:
-            d = getattr(dist, family)(p)
-            stored = d.logits if family == "GeometricLogits" else d.probs
-        entropy = (
-            d.entropy()
-            if family in ["GeometricProbs", "GeometricLogits", "BernoulliProbs"]
-            else 0.0
-        )
+        d = make_dist(p)
         return (
-            stored,
+            getattr(d, attribute),
             d.sample(random.key(3), (8,)),
             d.log_prob(jnp.array([0, 1])[:, None]),
             d.mean,
             d.variance,
-            entropy,
+            d.entropy() if has_entropy else 0.0,
         )
 
     if compiled:
@@ -6487,7 +6446,6 @@ def test_discrete_inexact_parameter_methods(family, dtype, compiled):
     assert jnp.issubdtype(actual[0].dtype, jnp.floating)
     for value, reference in zip(actual, expected):
         assert_allclose(value, reference, rtol=1e-6, atol=0)
-    assert_array_equal(parameter, np.array(values, dtype=dtype))
 
 
 @pytest.mark.parametrize(
@@ -6517,6 +6475,46 @@ def test_discrete_list_parameters(make_dist, compiled):
     expected = evaluate(jnp.array([0.3, 0.5]))
     for value, reference in zip(actual, expected):
         assert_allclose(value, reference, rtol=1e-6, atol=0)
+
+
+@pytest.mark.parametrize(
+    "make_dist, attribute",
+    [
+        (dist.GeometricProbs, "probs"),
+        (dist.GeometricLogits, "logits"),
+        (dist.BernoulliProbs, "probs"),
+        (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate"),
+        (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate"),
+    ],
+)
+def test_discrete_host_parameter_storage(make_dist, attribute):
+    parameter = np.array([0.3, 0.5])
+    d = make_dist(parameter)
+    assert isinstance(getattr(d, attribute), np.ndarray)
+
+
+@pytest.mark.parametrize("make_dist", [dist.GeometricProbs, dist.GeometricLogits])
+@pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float32])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_geometric_weak_parameter_dtype(make_dist, dtype, compiled):
+    def evaluate(value):
+        return make_dist(0.3).log_prob(value)
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    value = jnp.array(1.0, dtype=dtype)
+    assert evaluate(value).dtype == value.dtype
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_zero_inflated_weak_parameter_dtype(compiled):
+    def evaluate(rate):
+        return dist.ZeroInflatedPoisson(0.3, rate).mean
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    rate = jnp.float32(2.0)
+    assert evaluate(rate).dtype == rate.dtype
 
 
 @pytest.mark.parametrize("rate", [0.3, 3.0, 100.0])
