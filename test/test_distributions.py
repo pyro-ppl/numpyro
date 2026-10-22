@@ -2442,36 +2442,22 @@ def test_gamma_poisson_mixed_finite_and_infinite_rates():
     assert_allclose(distribution.cdf(jnp.zeros(2)), jnp.array([2 / 3, 1.0]), atol=1e-6)
 
 
-@pytest.mark.parametrize("conc", [15.0, 20.0, 30.0])
+@pytest.mark.parametrize("conc", [6.5, 8.0, 20.0])
 def test_inverse_wishart_variance(conc):
-    """Test InverseWishart variance formula against Monte Carlo samples.
-
-    The variance formula is:
-    Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
-    """
-    # Use a non-trivial scale matrix
-    scale = np.array([[2.0, 0.5], [0.5, 1.0]])
-    p = scale.shape[0]
-
-    # conc must be > p + 3 for variance to exist
-    assert conc > p + 3
-
-    # Create distribution
+    # Off-diagonal entries differ from the diagonal pattern; compare against the
+    # closed form in scipy rather than against Monte Carlo samples.
+    scale = np.array([[2.0, 0.5, 0.1], [0.5, 1.0, -0.3], [0.1, -0.3, 1.5]])
     iw = dist.InverseWishart(conc, scale_matrix=scale)
+    expected = osp.invwishart(df=conc, scale=scale).var()
+    assert_allclose(iw.variance, expected, rtol=1e-5)
 
-    # Sample and compute empirical variance
-    key = random.key(42)
-    num_samples = 200000
-    samples = iw.sample(key, sample_shape=(num_samples,))
-    empirical_var = jnp.var(samples, axis=0)
 
-    # Get analytical variance
-    analytical_var = iw.variance
-
-    # Check that variance formula matches empirical variance
-    # Use larger tolerance for smaller conc (more variance in estimates)
-    rtol = 0.15 if conc < 20 else 0.10
-    assert_allclose(analytical_var, empirical_var, rtol=rtol)
+def test_inverse_wishart_variance_undefined_below_threshold():
+    scale = np.eye(2)
+    conc = np.array([4.5, 5.0, 5.5])  # variance needs conc > p + 3 = 5
+    variance = dist.InverseWishart(conc, scale_matrix=scale).variance
+    assert jnp.isnan(variance[:2]).all()
+    assert jnp.isfinite(variance[2]).all()
 
 
 @pytest.mark.parametrize(
@@ -3985,6 +3971,15 @@ def test_mask(batch_shape, event_shape, mask_shape):
     )
 
 
+@pytest.mark.parametrize("value_shape", [(), (4, 1)])
+def test_mask_array_bounds(value_shape):
+    base_dist = dist.Uniform(jnp.array([0.5, 1.0, 2.0]), jnp.array([3.0, 4.0, 5.0]))
+    mask = jnp.array([True, False, True])
+    value = jnp.full(value_shape, 2.2)
+    expected = jnp.where(mask, base_dist.log_prob(value), 0.0)
+    assert_allclose(base_dist.mask(mask).log_prob(value), expected)
+
+
 @pytest.mark.parametrize("event_shape", [(), (4,), (2, 4)])
 def test_mask_grad(event_shape):
     def f(x, data):
@@ -5335,6 +5330,41 @@ def test_censored_broadcasting():
     assert dist_obj.batch_shape == (2, 3)
 
 
+@pytest.mark.parametrize(
+    "censored_class, censoring",
+    [
+        (dist.LeftCensoredDistribution, ([0, 1, 0],)),
+        (dist.RightCensoredDistribution, ([0, 1, 0],)),
+        (dist.IntervalCensoredDistribution, ([0, 1, 0], [0, 0, 1])),
+    ],
+)
+def test_censored_validate_args_array_bounds(censored_class, censoring):
+    base_dist = dist.Uniform(jnp.array([0.5, 1.0, 2.0]), jnp.array([3.0, 4.0, 5.0]))
+    censoring = [jnp.array(c) for c in censoring]
+    censored_dist = censored_class(base_dist, *censoring, validate_args=True)
+    assert censored_dist.batch_shape == (3,)
+
+
+def test_interval_censored_logprob_array_bounds():
+    low, high = jnp.array([0.5, 1.0, 2.0]), jnp.array([3.0, 4.0, 5.0])
+    left_censored, right_censored = jnp.array([0, 1, 0]), jnp.array([0, 0, 1])
+    censored_dist = dist.IntervalCensoredDistribution(
+        dist.Uniform(low, high), left_censored, right_censored
+    )
+
+    # one (lower, upper) pair is evaluated against every member of the batch
+    cdf_lower = osp.uniform.cdf(2.1, low, high - low)
+    cdf_upper = osp.uniform.cdf(2.5, low, high - low)
+    expected = np.where(
+        left_censored,
+        np.log(cdf_upper),
+        np.where(right_censored, np.log1p(-cdf_lower), np.log(cdf_upper - cdf_lower)),
+    )
+    value = jnp.array([2.1, 2.5])
+    assert_allclose(censored_dist.log_prob(value), expected, rtol=1e-5)
+    assert censored_dist.log_prob(jnp.broadcast_to(value, (4, 1, 2))).shape == (4, 3)
+
+
 @param_left_censored
 @param_right_censored
 def test_censored_gradient(left_censored, right_censored):
@@ -6603,3 +6633,23 @@ def test_zero_inflated_traced_membership_enumeration_error():
 
     with pytest.raises(NotImplementedError, match="Zero membership must be concrete"):
         enumerate_values(1)
+
+
+@pytest.mark.parametrize("rate", [0.3, 3.0, 100.0])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_poisson_cdf_support_limits(rate, compiled):
+    values = jnp.array([-jnp.inf, -3.0, -1.5, -1.0, -0.5, 0.0, 2.5, jnp.inf])
+
+    def evaluate(r):
+        return dist.Poisson(r).cdf(values)
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual = evaluate(rate)
+    assert_allclose(actual, osp.poisson.cdf(np.asarray(values), rate), atol=1e-6)
+    derivative = jax.jacfwd(evaluate)(rate)
+    finite = np.isfinite(np.asarray(values))
+    expected = np.zeros(values.shape)
+    expected[finite] = -osp.poisson.pmf(np.floor(np.asarray(values)[finite]), rate)
+    assert_allclose(derivative, expected, atol=1e-6)
+    assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))

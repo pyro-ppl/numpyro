@@ -166,6 +166,12 @@ with open("../../README.md", "rt") as f:
             break
     lines = lines[i:]
     lines[0] = "# Getting Started with NumPyro\n"
+    # drop the closing tag of the README's centered header block,
+    # whose opening <div align="center"> was cut off above
+    for j, line in enumerate(lines):
+        if line.strip() == "</div>":
+            del lines[j]
+            break
     text = "\n".join(lines)
 
 with open("getting_started.rst", "wt") as f:
