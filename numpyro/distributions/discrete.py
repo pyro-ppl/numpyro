@@ -1841,7 +1841,11 @@ class ZeroInflatedProbs(Distribution):
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
         log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
-        return jnp.where(value == 0, jnp.log(self.gate + jnp.exp(log_prob)), log_prob)
+        # Keep the unused zero branch finite for positive observations.
+        zero_log_prob = jnp.where(value == 0, log_prob, 0.0)
+        return jnp.where(
+            value == 0, jnp.log(self.gate + jnp.exp(zero_log_prob)), log_prob
+        )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
