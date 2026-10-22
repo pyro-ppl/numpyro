@@ -1767,9 +1767,61 @@ class Poisson(Distribution):
         return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, cdf))
 
 
+def _support_zero_membership(support: constraints.Constraint) -> np.ndarray | None:
+    """Zero membership when concrete, or None when it depends on traced values."""
+    if isinstance(support, constraints._Boolean):
+        return np.asarray(True)
+    if isinstance(support, constraints._IntegerGreaterThan):
+        lower = support.lower_bound
+        if not_jax_tracer(lower):
+            return np.asarray(lower) <= 0
+        return None
+    if isinstance(support, constraints._IntegerInterval):
+        lower, upper = support.lower_bound, support.upper_bound
+        if not not_jax_tracer(lower):
+            return None
+        lower = np.asarray(lower)
+        if np.all(lower == 0):
+            # A nonempty interval contains its lower bound, even if upper is traced.
+            return np.asarray(True)
+        if not_jax_tracer(upper):
+            return (lower <= 0) & (np.asarray(upper) >= 0)
+        return None
+    with jax.ensure_compile_time_eval():
+        membership = support(0)
+    return np.asarray(membership) if not_jax_tracer(membership) else None
+
+
+class _ZeroInflatedSupport(constraints.Constraint[NumLike]):
+    is_discrete = True
+
+    def __init__(self, base_support: constraints.Constraint):
+        self.base_support = base_support
+
+    def __call__(self, x: NumLike) -> ArrayLike:
+        xp = jnp if isinstance(x, jax.Array) else np
+        return xp.equal(x, 0) | self.base_support(x)
+
+    def feasible_like(self, prototype: NumLike) -> Array:
+        return jnp.zeros_like(prototype)
+
+    def __repr__(self) -> str:
+        return f"ZeroInflatedSupport({self.base_support})"
+
+    def tree_flatten(self):
+        return (self.base_support,), (("base_support",), {})
+
+    def eq(self, other: object, static: bool = False) -> ArrayLike:
+        return isinstance(other, _ZeroInflatedSupport) and self.base_support.eq(
+            other.base_support, static=static
+        )
+
+
 class ZeroInflatedProbs(Distribution):
     r"""
     A generic zero-inflated distribution built from a discrete base distribution.
+
+    Its support is the union of zero and the base distribution's support.
 
     Let :math:`B` be a discrete base distribution with PMF :math:`b(k)` and gate
     :math:`g` (the probability of a structural zero). The zero-inflated PMF is
@@ -1838,16 +1890,43 @@ class ZeroInflatedProbs(Distribution):
         samples = self.base_dist(rng_key=key_base, sample_shape=sample_shape)
         return jnp.where(mask, 0, samples)
 
+    def _base_log_prob(self, value: ArrayLike) -> ArrayLike:
+        if self._base_has_zero:
+            return self.base_dist.log_prob(value)
+        value = jnp.asarray(value)
+        support = self.base_dist.support
+        assert support is not None
+        valid = support(value)
+        value, valid = jnp.broadcast_arrays(value, valid)
+        safe_value = jnp.where(valid, value, support.feasible_like(value))
+        return jnp.where(valid, self.base_dist.log_prob(safe_value), -jnp.inf)
+
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
+        log_prob = jnp.log1p(-self.gate) + self._base_log_prob(value)
         return jnp.where(value == 0, jnp.log(self.gate + jnp.exp(log_prob)), log_prob)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
+        return self._support
+
+    @lazy_property
+    def _zero_membership(self) -> np.ndarray | None:
         support = self.base_dist.support
         assert support is not None
-        return support
+        return _support_zero_membership(support)
+
+    @lazy_property
+    def _base_has_zero(self) -> bool:
+        return self._zero_membership is not None and bool(np.all(self._zero_membership))
+
+    @lazy_property
+    def _support(self) -> constraints.Constraint:
+        support = self.base_dist.support
+        assert support is not None
+        if self._base_has_zero:
+            return support
+        return _ZeroInflatedSupport(support)
 
     @lazy_property
     def mean(self) -> Array:
@@ -1864,7 +1943,24 @@ class ZeroInflatedProbs(Distribution):
         return self.base_dist.has_enumerate_support
 
     def enumerate_support(self, expand: bool = True) -> Array:
-        return self.base_dist.enumerate_support(expand=expand)
+        """Enumerate the base support, adding zero if it is absent.
+
+        Zero membership must be concrete and homogeneous across the batch;
+        different support sizes across batch elements cannot be enumerated.
+        """
+        values = self.base_dist.enumerate_support(expand=expand)
+        contains_zero = self._zero_membership
+        if contains_zero is None:
+            raise NotImplementedError(
+                "Zero membership must be concrete to enumerate a zero-inflated support."
+            )
+        if np.all(contains_zero):
+            return values
+        if np.any(contains_zero):
+            raise NotImplementedError(
+                "Inhomogeneous zero membership cannot be enumerated."
+            )
+        return jnp.concatenate([jnp.zeros_like(values[:1]), values], axis=0)
 
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
@@ -1906,7 +2002,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         # Both branches in terms of the stable log-gates, which are exact at +-inf
         # (-gate_logits + base_log_prob would be inf - inf there).
         log_gate = -softplus(-self.gate_logits)
-        log_prob = -softplus(self.gate_logits) + self.base_dist.log_prob(value)
+        log_prob = -softplus(self.gate_logits) + self._base_log_prob(value)
         return jnp.where(value == 0, jnp.logaddexp(log_gate, log_prob), log_prob)
 
 
@@ -1919,6 +2015,8 @@ def ZeroInflatedDistribution(
 ) -> Union[ZeroInflatedProbs, ZeroInflatedLogits]:
     r"""
     Generic Zero Inflated distribution.
+
+    Its support is the union of zero and the base distribution's support.
 
     Mixes a discrete base distribution with pmf :math:`B` (scalar event) with a
     point mass at zero. With gate :math:`g \in [0, 1]`, the probability of a

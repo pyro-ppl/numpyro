@@ -15,7 +15,14 @@ import jax.numpy as jnp
 from funsor import Bint, Real, Tensor
 import numpyro
 from numpyro.contrib.control_flow import scan
-from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
+from numpyro.contrib.funsor import (
+    config_enumerate,
+    enum,
+    infer_discrete,
+    markov,
+    to_data,
+    to_funsor,
+)
 from numpyro.contrib.funsor.enum_messenger import NamedMessenger, plate as enum_plate
 from numpyro.contrib.funsor.infer_util import log_density
 import numpyro.distributions as dist
@@ -590,3 +597,76 @@ def test_singleton_plate_works(i_size, j_size, k_size):
     model = enum(numpyro.handlers.seed(model, rng_seed=0), first_available_dim=-4)
 
     log_density(model, (), {}, {})
+
+
+def test_shifted_discrete_uniform_enumeration():
+    @config_enumerate
+    def model():
+        x = numpyro.sample("x", dist.DiscreteUniform(3, 7))
+        numpyro.sample("y", dist.Bernoulli(jnp.where(x == 7, 0.9, 0.1)), obs=1)
+        return x
+
+    actual = log_density(enum(model, first_available_dim=-1), (), {}, {})[0]
+    assert_allclose(actual, np.log(0.26), rtol=1e-6)
+    assert_allclose(infer_discrete(model, first_available_dim=-1, temperature=0)(), 7)
+
+
+@pytest.mark.parametrize("temperature", [0, 1])
+def test_custom_expanded_support_enumeration(temperature):
+    values = np.arange(5)[:, None] + np.array([3, 10, 20])
+
+    class ExpandedUniform(dist.Distribution):
+        arg_constraints = {}
+        support = dist.constraints.positive_integer
+        has_enumerate_support = True
+
+        def __init__(self):
+            super().__init__((3,))
+
+        def enumerate_support(self, expand=True):
+            return jnp.asarray(values)
+
+        def log_prob(self, value):
+            valid = jnp.any(value[..., None] == jnp.asarray(values.T), axis=-1)
+            return jnp.where(valid, -jnp.log(5.0), -jnp.inf)
+
+    @config_enumerate
+    def model():
+        with numpyro.plate("batch", 3):
+            x = numpyro.sample("x", ExpandedUniform())
+            numpyro.sample(
+                "y", dist.Bernoulli(jnp.where(x == values[-1], 0.9, 0.1)), obs=1
+            )
+        return x
+
+    actual = log_density(enum(model, first_available_dim=-2), (), {}, {})[0]
+    assert_allclose(actual, 3 * np.log(0.26), rtol=1e-6)
+    result = infer_discrete(
+        model, first_available_dim=-2, temperature=temperature, rng_key=random.key(0)
+    )()
+    assert result.shape == (3,)
+    assert jnp.all(jnp.any(result[None, :] == values, axis=0))
+    if temperature == 0:
+        assert_allclose(result, values[-1])
+
+
+@pytest.mark.parametrize("logits", [False, True])
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_zero_inflated_shifted_support_enumeration(logits, batch_size):
+    gates = np.array([0.4, 0.8])[:batch_size]
+    kwargs = {"gate_logits": np.log(gates / (1 - gates))} if logits else {"gate": gates}
+
+    @config_enumerate
+    def model():
+        with numpyro.plate("batch", batch_size):
+            x = numpyro.sample(
+                "x", dist.ZeroInflatedDistribution(dist.DiscreteUniform(3, 7), **kwargs)
+            )
+            numpyro.sample("y", dist.Bernoulli(jnp.where(x == 7, 0.9, 0.1)), obs=1)
+        return x
+
+    actual = log_density(enum(model, first_available_dim=-2), (), {}, {})[0]
+    expected = np.log(0.1 * gates + 0.26 * (1 - gates)).sum()
+    assert_allclose(actual, expected, rtol=1e-6)
+    actual_map = infer_discrete(model, first_available_dim=-2, temperature=0)()
+    assert_allclose(actual_map, np.array([7, 0])[:batch_size])

@@ -17,6 +17,7 @@ from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
 import numpyro
 from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
+from numpyro.distributions import constraints
 from numpyro.infer import (
     HMC,
     MCMC,
@@ -32,11 +33,10 @@ from numpyro.infer import (
 from numpyro.infer.gibbs import (
     GIBBS_SITES_KWARG,
     GibbsState,
+    _enumerated_proposal,
     any_changed,
     conditioned,
-    discrete_gibbs_sweep,
     discrete_latent_sites,
-    select_discrete_proposal,
     with_conditioning,
 )
 from numpyro.infer.hmc_gibbs import HMCGibbsState
@@ -91,32 +91,70 @@ def test_gibbs_helpers():
     assert not any_changed({}, {})
 
 
-@pytest.mark.parametrize("random_walk", [False, True])
-@pytest.mark.parametrize("modified", [False, True])
-def test_discrete_gibbs_sweep_support_lows(random_walk, modified):
-    # The support of "x" is {3, 4, 5}, while the proposals work with the indices {0, 1, 2}.
+@pytest.mark.parametrize("support", [[3, 4, 5], [0, 3, 7], [0, -5, -2], [2, 5, 9]])
+def test_discrete_proposal_maps_enumerated_values(support):
+    support = jnp.array(support)
     probs = np.array([0.2, 0.5, 0.3])
 
     def potential_fn(z):
-        return -jnp.log(jnp.asarray(probs))[z["x"] - 3]
+        index = jnp.argmax(support == z["x"])
+        return -jnp.log(jnp.asarray(probs))[index]
 
-    proposal_fn = select_discrete_proposal(random_walk, modified)
+    def check_proposal(key, z, pe, index_potential, idx, size):
+        assert_allclose(z["x"], 1)
+        weights = jnp.exp(-vmap(lambda i: index_potential({"x": i}))(jnp.arange(size)))
+        assert_allclose(weights, probs, rtol=1e-6)
+        new = {"x": jnp.array(2)}
+        return key, new, index_potential(new), jnp.array(0.0)
 
-    @jit
-    def sweep(rng_key, z, pe):
-        return discrete_gibbs_sweep(
-            rng_key, z, pe, potential_fn, jnp.array([3]), proposal_fn, np.array([3])
-        )
+    proposal = _enumerated_proposal(check_proposal, lambda z: {"x": support})
+    z = {"x": support[1]}
+    _, new, pe, _ = proposal(
+        random.key(0), z, potential_fn(z), potential_fn, jnp.array(0), jnp.array(3)
+    )
+    assert_allclose(new["x"], support[2])
+    assert_allclose(pe, -np.log(probs[2]), rtol=1e-6)
 
-    z = {"x": jnp.array(3)}
-    pe = potential_fn(z)
-    values = []
-    for rng_key in random.split(random.key(0), 4000):
-        z, pe = sweep(rng_key, z, pe)
-        values.append(int(z["x"]))
-    counts = np.bincount(values, minlength=6)
-    assert counts[:3].sum() == 0
-    assert_allclose(counts[3:] / len(values), probs, atol=0.03)
+
+@pytest.mark.parametrize("stride", [1, 2])
+@pytest.mark.parametrize("kind", ["standalone", "hmc_gibbs", "mixed_hmc"])
+def test_gibbs_custom_enumerable_support(kind, stride):
+    class CustomSupport(constraints.Constraint):
+        is_discrete = True
+
+        def __call__(self, value):
+            return (value % stride == 0) & (value >= 0) & (value <= 3 * stride)
+
+    class CustomUniform(dist.DiscreteUniform):
+        support = CustomSupport()
+
+        def sample(self, key, sample_shape=()):
+            return stride * super().sample(key, sample_shape)
+
+        def enumerate_support(self, expand=True):
+            return stride * super().enumerate_support(expand)
+
+        def log_prob(self, value):
+            return jnp.where(self.support(value), -jnp.log(4.0), -jnp.inf)
+
+    distribution = CustomUniform(0, 3)
+
+    def model():
+        if kind != "standalone":
+            numpyro.sample("z", dist.Normal())
+        numpyro.sample("x", distribution)
+
+    kernel = (
+        DiscreteGibbs(model)
+        if kind == "standalone"
+        else DiscreteHMCGibbs(NUTS(model))
+        if kind == "hmc_gibbs"
+        else MixedHMC(HMC(model))
+    )
+    mcmc = MCMC(kernel, num_warmup=5, num_samples=12, progress_bar=False)
+    mcmc.run(random.key(1))
+    samples = mcmc.get_samples()["x"]
+    assert jnp.all(distribution.support(samples))
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])

@@ -26,6 +26,89 @@ from numpyro.infer import (
 from numpyro.infer.util import log_density
 
 
+@pytest.mark.parametrize(
+    "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
+)
+@pytest.mark.parametrize("bounds", [(3, 7), (-5, -2)])
+def test_gibbs_samples_noncontiguous_zero_inflated_support(
+    kernel_cls, inner_cls, bounds
+):
+    distribution = dist.ZeroInflatedDistribution(
+        dist.DiscreteUniform(*bounds), gate=0.4
+    )
+
+    def model():
+        numpyro.sample("z", dist.Normal())
+        numpyro.sample("x", distribution)
+
+    kernel = kernel_cls(inner_cls(model))
+    mcmc = MCMC(kernel, num_warmup=5, num_samples=20, progress_bar=False)
+    mcmc.run(random.key(0))
+    samples = mcmc.get_samples()["x"]
+    assert jnp.all(distribution.support(samples))
+
+
+@pytest.mark.parametrize(
+    "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
+)
+@pytest.mark.parametrize(
+    "base_factory",
+    [
+        lambda: dist.Binomial(total_count=5, probs=0.6),
+        lambda: dist.BetaBinomial(2.0, 3.0, total_count=5),
+        lambda: dist.Categorical(probs=jnp.array([0.2, 0.3, 0.5])),
+        lambda: dist.OrderedLogistic(0.0, jnp.array([-1.0, 1.0])),
+        lambda: dist.DiscreteUniform(0, 4),
+        lambda: dist.DiscreteUniform(-2, 3),
+    ],
+    ids=[
+        "binomial",
+        "beta_binomial",
+        "categorical",
+        "ordered_logistic",
+        "uniform_zero",
+        "uniform_negative",
+    ],
+)
+def test_gibbs_accepts_zero_inflated_contiguous_support(
+    kernel_cls, inner_cls, base_factory
+):
+    def model():
+        numpyro.sample("z", dist.Normal(0.0, 1.0))
+        numpyro.sample("x", dist.ZeroInflatedDistribution(base_factory(), gate=0.4))
+
+    kernel = kernel_cls(inner_cls(model))
+    kernel.init(
+        random.key(0), num_warmup=1, init_params=None, model_args=(), model_kwargs={}
+    )
+
+
+@pytest.mark.parametrize(
+    "kernel_cls, inner_cls", [(DiscreteHMCGibbs, NUTS), (MixedHMC, HMC)]
+)
+def test_gibbs_zero_inflated_binomial_conditionals(kernel_cls, inner_cls):
+    distribution = dist.ZeroInflatedDistribution(
+        dist.Binomial(total_count=5, probs=0.6), gate=0.4
+    )
+
+    def model():
+        numpyro.sample("z", dist.Normal(0.0, 1.0))
+        numpyro.sample("x", distribution)
+
+    kernel = kernel_cls(inner_cls(model))
+    kernel.init(random.key(0), 1, None, (), {})
+
+    def conditional_energy(x):
+        return -log_density(model, (), {}, {"z": jnp.array(0.0), "x": x})[0]
+
+    energies = vmap(conditional_energy)(jnp.arange(6))
+    probabilities = jnp.exp(-energies - jnp.max(-energies))
+    probabilities = probabilities / probabilities.sum()
+    assert_allclose(
+        probabilities, jnp.exp(distribution.log_prob(jnp.arange(6))), rtol=1e-6
+    )
+
+
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
     N, P = X.shape
 

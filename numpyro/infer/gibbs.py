@@ -205,6 +205,9 @@ def discrete_support_sizes(
     """
     Per-site support sizes broadcast to the site's shape, as static `numpy` arrays.
 
+    Support sizes are read from each distribution's enumeration, including custom
+    discrete distributions.
+
     :param model_trace: a model trace, see :func:`prototype_trace`.
     :param sites: names of discrete sites in `model_trace`.
     :return: `{site_name: support_sizes}`.
@@ -228,24 +231,24 @@ def _flat_support_sizes(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray
     return np.concatenate([np.ravel(leaf) for leaf in jax.tree.leaves(sizes)])
 
 
-def _flat_support_lows(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray:
-    """Smallest support value of each flat coordinate, in :func:`ravel_pytree` leaf order.
-
-    The discrete proposals propose the indices `0, ..., support_size - 1`; this is the
-    offset from an index to a value, e.g. `low` for
-    :class:`~numpyro.distributions.DiscreteUniform`. It is read from `support.lower_bound`
-    (0 for the boolean support) rather than from the values of `enumerate_support`, which
-    are traced when `init` runs under :func:`jax.pmap`; :func:`_flat_support_sizes` only
-    uses the static shape of `enumerate_support`.
-    """
-    lows = {
-        name: np.broadcast_to(
-            np.asarray(getattr(model_trace[name]["fn"].support, "lower_bound", 0)),
-            jnp.shape(model_trace[name]["value"]),
-        )
-        for name in sites
-    }
-    return np.concatenate([np.ravel(leaf) for leaf in jax.tree.leaves(lows)])
+def _discrete_support_values(
+    model: ModelT,
+    z: SiteValues,
+    model_args: ModelArgs,
+    model_kwargs: ModelKwargs | None,
+) -> dict[str, jax.Array]:
+    """Read support values at the current conditioning without caching tracers."""
+    model_trace = prototype_trace(
+        conditioned(model),
+        random.key(0),
+        model_args,
+        with_conditioning(model_kwargs, z),
+    )
+    result = {}
+    for name, value in z.items():
+        support = model_trace[name]["fn"].enumerate_support(False)
+        result[name] = jnp.broadcast_to(support, (support.shape[0],) + jnp.shape(value))
+    return result
 
 
 def subsample_plate_sizes(model_trace: TraceT) -> dict[str, tuple[int, int]]:
@@ -897,9 +900,8 @@ ProposalFn: TypeAlias = Callable[
 ]
 """`(rng_key, z, pe, potential_fn, idx, support_size) -> (rng_key, z_new, pe_new, log_accept_ratio)`.
 
-The proposals work with indices: they propose `z[idx]` in `0, ..., support_size - 1`. For
-supports that do not start at 0, such as `DiscreteUniform(low, high)`, shift the values, e.g.
-with the `support_lows_flat` argument of :func:`discrete_gibbs_sweep`."""
+The proposals work with indices: they propose `z[idx]` in `0, ..., support_size - 1`.
+The kernels map these indices through each distribution's enumerated support."""
 
 
 def _discrete_gibbs_proposal_body_fn(
@@ -1061,17 +1063,13 @@ def select_discrete_proposal(random_walk: bool, modified: bool) -> ProposalFn:
     return _discrete_gibbs_proposal
 
 
-def _offset_proposal(
-    proposal_fn: ProposalFn, support_lows_flat: np.ndarray
+def _enumerated_proposal(
+    proposal_fn: ProposalFn,
+    support_fn: Callable[[SiteValues], dict[str, jax.Array]],
 ) -> ProposalFn:
-    """
-    Wrap `proposal_fn`, which proposes values in `0, ..., support_size - 1`, for supports
-    that start at `support_lows_flat` instead, such as `DiscreteUniform(low, high)`.
-    """
-    if not np.any(support_lows_flat):
-        return proposal_fn
+    """Translate proposals between enumeration indices and actual support values."""
 
-    def offset_proposal_fn(
+    def enumerated_proposal_fn(
         rng_key: jax.Array,
         z: SiteValues,
         pe: jax.Array,
@@ -1080,23 +1078,39 @@ def _offset_proposal(
         support_size: jax.Array,
     ) -> tuple[jax.Array, SiteValues, jax.Array, jax.Array]:
         z_flat, unravel_fn = ravel_pytree(z)
-        lows = jnp.asarray(support_lows_flat, dtype=z_flat.dtype)
+        supports = jax.tree.leaves(support_fn(z))
+        max_size = max(values.shape[0] for values in supports)
+        values = jnp.concatenate(
+            [
+                jnp.pad(
+                    support.reshape((support.shape[0], -1)),
+                    ((0, max_size - support.shape[0]), (0, 0)),
+                    mode="edge",
+                )
+                for support in supports
+            ],
+            axis=1,
+        )
+        indices = jnp.argmax(values == z_flat, axis=0).astype(z_flat.dtype)
 
-        def shifted_potential_fn(z_shifted: SiteValues) -> jax.Array:
-            return potential_fn(unravel_fn(ravel_pytree(z_shifted)[0] + lows))
+        def to_values(z_indices: SiteValues) -> SiteValues:
+            flat_indices = ravel_pytree(z_indices)[0].astype(jnp.int32)
+            return unravel_fn(values[flat_indices, jnp.arange(values.shape[1])])
+
+        def index_potential_fn(z_indices: SiteValues) -> jax.Array:
+            return potential_fn(to_values(z_indices))
 
         rng_key, z_new, pe_new, log_accept_ratio = proposal_fn(
             rng_key,
-            unravel_fn(z_flat - lows),
+            unravel_fn(indices),
             pe,
-            shifted_potential_fn,
+            index_potential_fn,
             idx,
             support_size,
         )
-        z_new = unravel_fn(ravel_pytree(z_new)[0] + lows)
-        return rng_key, z_new, pe_new, log_accept_ratio
+        return rng_key, to_values(z_new), pe_new, log_accept_ratio
 
-    return offset_proposal_fn
+    return enumerated_proposal_fn
 
 
 def discrete_gibbs_sweep(
@@ -1106,7 +1120,6 @@ def discrete_gibbs_sweep(
     potential_fn: PotentialFn,
     support_sizes_flat: jax.Array,
     proposal_fn: ProposalFn,
-    support_lows_flat: np.ndarray | jax.Array | None = None,
 ) -> tuple[SiteValues, jax.Array]:
     """
     One sweep over the flat discrete coordinates of `z` in a random order, each coordinate
@@ -1118,29 +1131,8 @@ def discrete_gibbs_sweep(
     :param potential_fn: potential energy as a function of the discrete values.
     :param support_sizes_flat: support size of each flat coordinate, in `ravel_pytree` order.
     :param proposal_fn: a discrete proposal, see :func:`select_discrete_proposal`.
-    :param support_lows_flat: smallest support value of each flat coordinate, in
-        `ravel_pytree` order. The proposals work with the indices
-        `0, ..., support_size - 1`, so `z` is shifted by these values once per sweep.
-        `None` (default) means that every support starts at 0.
     :return: the new values and their potential energy.
     """
-    if support_lows_flat is not None:
-        z_flat, unravel_fn = ravel_pytree(z)
-        lows = jnp.asarray(support_lows_flat, dtype=z_flat.dtype)
-
-        def index_potential_fn(z_idx: SiteValues) -> jax.Array:
-            return potential_fn(unravel_fn(ravel_pytree(z_idx)[0] + lows))
-
-        z_idx, pe = discrete_gibbs_sweep(
-            rng_key,
-            unravel_fn(z_flat - lows),
-            potential_energy,
-            index_potential_fn,
-            support_sizes_flat,
-            proposal_fn,
-        )
-        return unravel_fn(ravel_pytree(z_idx)[0] + lows), pe
-
     num_discretes = support_sizes_flat.shape[0]
     rng_key, rng_permute = random.split(rng_key)
     idxs = random.permutation(rng_permute, jnp.arange(num_discretes))
@@ -1217,7 +1209,6 @@ class DiscreteGibbs(MCMCKernel):
         # static metadata resolved at `init`
         self._sites: tuple[str, ...] | None = None
         self._support_sizes_flat: np.ndarray | None = None
-        self._support_lows_flat: np.ndarray | None = None
         self._enum = False
         # closes over trace values, rebuilt at every `init`
         self._prepared_model: ModelT | None = None
@@ -1280,7 +1271,6 @@ class DiscreteGibbs(MCMCKernel):
             )
         self._sites = sites
         self._support_sizes_flat = _flat_support_sizes(model_trace, sites)
-        self._support_lows_flat = _flat_support_lows(model_trace, sites)
         self._enum = any(
             site["type"] == "sample"
             and not site["is_observed"]
@@ -1304,18 +1294,26 @@ class DiscreteGibbs(MCMCKernel):
         model_kwargs: ModelKwargs | None,
     ) -> DiscreteGibbsState:
         """One :func:`~numpyro.infer.gibbs.discrete_gibbs_sweep` with the selected proposal."""
-        assert (
-            self._support_sizes_flat is not None and self._support_lows_flat is not None
-        ), "`init` must be called before `sample`."
+        assert self._support_sizes_flat is not None, (
+            "`init` must be called before `sample`."
+        )
         rng_key, key_sweep = random.split(state.rng_key)
+        proposal_fn = _enumerated_proposal(
+            self._proposal_fn,
+            partial(
+                _discrete_support_values,
+                self._model,
+                model_args=model_args,
+                model_kwargs=model_kwargs,
+            ),
+        )
         z, pe = discrete_gibbs_sweep(
             key_sweep,
             state.z,
             state.potential_energy,
             self.get_potential_fn(model_args, model_kwargs),
             jnp.asarray(self._support_sizes_flat),
-            self._proposal_fn,
-            self._support_lows_flat if np.any(self._support_lows_flat) else None,
+            proposal_fn,
         )
         return state._replace(z=z, potential_energy=pe, rng_key=rng_key)
 
@@ -1334,7 +1332,6 @@ class DiscreteGibbs(MCMCKernel):
         kernel._model = wrapper(self._model)
         kernel._sites = None
         kernel._support_sizes_flat = None
-        kernel._support_lows_flat = None
         kernel._prepared_model = None
         return kernel
 

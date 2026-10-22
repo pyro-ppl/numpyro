@@ -4,7 +4,7 @@
 from collections import OrderedDict, defaultdict
 import functools
 
-from jax import random
+from jax import lax, random
 import jax.numpy as jnp
 
 import funsor
@@ -73,9 +73,28 @@ def _sample_posterior(
         if node["infer"].get("enumerate") == "parallel":
             log_measure = approx_factors[log_measures[name]]
             value = _get_support_value(log_measure, name)
-            node["value"] = funsor.to_data(
-                value, name_to_dim=node["infer"]["name_to_dim"]
+            index = funsor.to_data(value, name_to_dim=node["infer"]["name_to_dim"])
+            support = node["fn"].enumerate_support(expand=False)
+            event_shape = node["fn"].event_shape
+            support_batch = support.shape[1 : support.ndim - len(event_shape)]
+            # Enumeration can leave singleton dimensions for latent parents that
+            # have already been eliminated from the posterior index.
+            while len(support_batch) > index.ndim and support_batch[0] == 1:
+                support_batch = support_batch[1:]
+            batch_shape = lax.broadcast_shapes(index.shape, support_batch)
+            support = support.reshape(
+                (support.shape[0],)
+                + (1,) * (len(batch_shape) - len(support_batch))
+                + support_batch
+                + event_shape
             )
+            support = jnp.broadcast_to(
+                support, (support.shape[0],) + batch_shape + event_shape
+            )
+            index = jnp.broadcast_to(index, batch_shape).reshape(
+                (1,) + batch_shape + (1,) * len(event_shape)
+            )
+            node["value"] = jnp.take_along_axis(support, index, axis=0)[0]
 
     data = {
         name: site["value"]
