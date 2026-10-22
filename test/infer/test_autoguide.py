@@ -1390,3 +1390,36 @@ def test_autoguide_forward_mode_differentiation(auto_class):
     guide = auto_class(model, forward_mode_differentiation=True)
     svi = SVI(model, guide, optim.Adam(0.01), loss=Trace_ELBO())
     svi.run(random.key(0), 10, forward_mode_differentiation=True)
+
+
+@pytest.mark.parametrize(
+    "kind", ["function", "lambda", "callable", "partial", "factory"]
+)
+def test_autoguide_per_site_init_strategy(kind):
+    def model():
+        numpyro.sample("x", dist.Normal())
+        numpyro.sample("y", dist.Normal())
+
+    def strategy(site):
+        return 3.0 if site["name"] == "x" else 7.0
+
+    class Strategy:
+        def __call__(self, site):
+            return strategy(site)
+
+    def factory(site=None):
+        if site is None:
+            return partial(strategy)
+        return strategy(site)
+
+    strategies = {
+        "function": strategy,
+        "lambda": lambda site: 3.0 if site["name"] == "x" else 7.0,
+        "callable": Strategy(),
+        "partial": partial(strategy),
+        "factory": factory,
+    }
+    guide = AutoDiagonalNormal(model, init_loc_fn=strategies[kind])
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
+    state = svi.init(random.key(9))
+    assert_allclose(svi.get_params(state)["auto_loc"], jnp.array([3.0, 7.0]))
