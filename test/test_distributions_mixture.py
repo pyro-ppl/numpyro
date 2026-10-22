@@ -125,6 +125,33 @@ def test_mixture_with_different_support(batch_shape):
     assert jnp.allclose(result, expected_log_prob)
 
 
+def test_mixture_cdf_with_different_support():
+    # a component contributes 0 to the cdf below its support and 1 above it
+    value = np.array([-1.0, 0.0, 0.25, 0.5, 1.0, 1.5])
+
+    def cdf(params):
+        mixture = dist.MixtureGeneral(
+            dist.Categorical(probs=np.ones(3) / 3),
+            [
+                dist.Normal(0.0, 1.0),
+                dist.LogNormal(params[0], params[1]),
+                dist.Beta(params[2], params[3]),
+            ],
+            support=dist.constraints.real,
+        )
+        return mixture.cdf(value)
+
+    params = np.array([0.0, 0.5, 2.0, 3.0])
+    expected = (
+        stats.norm.cdf(value)
+        + stats.lognorm.cdf(value, 0.5, scale=1.0)
+        + stats.beta.cdf(value, 2.0, 3.0)
+    ) / 3
+    np.testing.assert_allclose(cdf(params), expected, rtol=1e-6, atol=1e-7)
+    # evaluating inside the support (not only masking) keeps gradients finite
+    assert np.isfinite(jax.grad(lambda p: cdf(p).sum())(params)).all()
+
+
 def _test_mixture(mixing_distribution, component_distribution):
     # Create mixture
     mixture = dist.Mixture(
