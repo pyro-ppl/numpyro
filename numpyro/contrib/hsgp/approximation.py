@@ -15,7 +15,7 @@ import numpyro
 from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_periodic
 from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_matern,
-    log_diag_spectral_density_periodic,
+    _log_diag_spectral_density_periodic,
     diag_spectral_density_rational_quadratic,
     diag_spectral_density_squared_exponential,
 )
@@ -273,6 +273,6 @@ def hsgp_periodic_non_centered(
 
     q = jnp.exp(
         0.5
-        * log_diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
+        * _log_diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
     )
     return cosines @ (q * beta_cos) + sines @ (q * beta_sin)
