@@ -365,7 +365,7 @@ def modified_bessel_first_kind(v, z):
     return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
 
 
-def log_diag_spectral_density_periodic(
+def _log_diag_spectral_density_periodic(
     alpha: ArrayLike, length: ArrayLike, m: int
 ) -> Array:
     """
