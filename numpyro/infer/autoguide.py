@@ -1954,6 +1954,16 @@ class AutoBatchedMixin:
             )
         self._event_shape = (self.latent_dim // batch_size,)
 
+        # The latents are packed site by site, but a batch element needs its own
+        # entries from every site. Record where each packed entry sits once the
+        # entries are grouped by batch element.
+        indices = self._unpack_latent(jnp.arange(self.latent_dim))
+        grouped = jnp.concatenate(
+            [jnp.reshape(i, self._batch_shape + (-1,)) for i in indices.values()],
+            axis=-1,
+        )
+        self._batch_permutation = jnp.argsort(grouped.reshape(-1))
+
     def _get_batched_posterior(self):
         raise NotImplementedError
 
@@ -1963,9 +1973,14 @@ class AutoBatchedMixin:
             self._get_reshape_transform(),
         )
 
-    def _get_reshape_transform(self) -> ReshapeTransform:
-        return ReshapeTransform(
-            (self.latent_dim,), self._batch_shape + self._event_shape
+    def _get_reshape_transform(self) -> ComposeTransform:
+        return ComposeTransform(
+            [
+                ReshapeTransform(
+                    (self.latent_dim,), self._batch_shape + self._event_shape
+                ),
+                PermuteTransform(self._batch_permutation),
+            ]
         )
 
 
@@ -2003,7 +2018,7 @@ class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         )
 
     def _get_batched_posterior(self):
-        init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
+        init_latent = self._get_reshape_transform().inv(self._init_latent)
         loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
         init_scale = (
             jnp.ones(self._batch_shape + (1, 1))
@@ -2139,7 +2154,7 @@ class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         rank = (
             int(round(self._event_shape[0] ** 0.5)) if self.rank is None else self.rank
         )
-        init_latent = self._init_latent.reshape(self._batch_shape + self._event_shape)
+        init_latent = self._get_reshape_transform().inv(self._init_latent)
         loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
         cov_factor = numpyro.param(
             "{}_cov_factor".format(self.prefix),
