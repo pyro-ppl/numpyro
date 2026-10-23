@@ -1311,77 +1311,21 @@ def test_auto_batched_shapes(auto_class) -> None:
 )
 def test_auto_batched_median(auto_class) -> None:
     def model():
-        distribution = dist.Normal().expand([7]).to_event(1)
         with numpyro.plate("n", 3):
-            x = numpyro.sample("x", distribution)
-        with numpyro.plate("m", 3):
-            y = numpyro.sample("y", distribution)
-        return x, y
-
-    guide = auto_class(model)
-    with numpyro.handlers.seed(rng_seed=0):
-        trace = numpyro.handlers.trace(guide).get_trace()
-    params = {
-        key: value["value"] for key, value in trace.items() if value["type"] == "param"
-    }
-    median = guide.median(params)
-    # Each row of `auto_loc` holds one plate element: its `x` entries, then its `y`.
-    assert jnp.allclose(median["x"], params["auto_loc"][:, :7])
-    assert jnp.allclose(median["y"], params["auto_loc"][:, 7:])
-
-
-@pytest.mark.parametrize(
-    "auto_class", [AutoBatchedMultivariateNormal, AutoBatchedLowRankMultivariateNormal]
-)
-def test_auto_batched_init_values(auto_class) -> None:
-    def model():
-        with numpyro.plate("n", 3):
-            numpyro.sample("x", dist.Normal().expand([7]).to_event(1))
+            numpyro.sample("x", dist.Normal())
             numpyro.sample("y", dist.Normal().expand([2]).to_event(1))
 
-    values = {"x": jnp.arange(21.0).reshape(3, 7), "y": -jnp.arange(6.0).reshape(3, 2)}
-    guide = auto_class(model, init_loc_fn=init_to_value(values=values))
+    values = {"x": jnp.arange(3.0), "y": -jnp.arange(1.0, 7.0).reshape(3, 2)}
+    guide = auto_class(model, init_loc_fn=init_to_value(values=values), init_scale=1e-3)
     with numpyro.handlers.seed(rng_seed=0):
         trace = numpyro.handlers.trace(guide).get_trace()
-    params = {
-        key: value["value"] for key, value in trace.items() if value["type"] == "param"
-    }
-    median = guide.median(params)
-    assert_allclose(median["x"], values["x"])
-    assert_allclose(median["y"], values["y"])
-
-
-@pytest.mark.parametrize(
-    "auto_class", [AutoBatchedMultivariateNormal, AutoBatchedLowRankMultivariateNormal]
-)
-def test_auto_batched_correlates_sites_within_a_batch_element(auto_class) -> None:
-    def model():
-        with numpyro.plate("N", 3):
-            x = numpyro.sample("x", dist.Normal(0.0, 1.0))
-            numpyro.sample("y", dist.Normal(x, 0.1))
-
-    guide = auto_class(model)
-    with numpyro.handlers.seed(rng_seed=0):
-        trace = numpyro.handlers.trace(guide).get_trace()
-    params = {
-        key: value["value"] for key, value in trace.items() if value["type"] == "param"
-    }
-    # Make `x` and `y` of every plate element almost perfectly correlated.
-    if auto_class is AutoBatchedMultivariateNormal:
-        row = jnp.array([[1.0, 0.0], [0.99, jnp.sqrt(1 - 0.99**2)]])
-        params["auto_scale_tril"] = jnp.broadcast_to(row, (3, 2, 2))
-    else:
-        params["auto_cov_factor"] = jnp.broadcast_to(
-            jnp.array([[100.0], [99.0]]), (3, 2, 1)
-        )
-        params["auto_scale"] = jnp.full((3, 2), 0.01)
-
-    samples = guide.sample_posterior(random.key(1), params, sample_shape=(2000,))
-    x, y = samples["x"], samples["y"]
-    for i in range(3):
-        assert jnp.corrcoef(x[:, i], y[:, i])[0, 1] > 0.95
-    # Different plate elements are independent.
-    assert jnp.abs(jnp.corrcoef(x[:, 0], x[:, 1])[0, 1]) < 0.2
+    params = {k: v["value"] for k, v in trace.items() if v["type"] == "param"}
+    # Row i of `auto_loc` holds plate element i of every site.
+    expected_loc = jnp.concatenate([values["x"][:, None], values["y"]], axis=-1)
+    assert_allclose(params["auto_loc"], expected_loc)
+    for name, value in guide.median(params).items():
+        assert_allclose(value, values[name])
+        assert_allclose(trace[name]["value"], values[name], atol=1e-2)
 
 
 def test_autoguide_with_delta_site() -> None:

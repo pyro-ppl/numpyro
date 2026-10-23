@@ -1921,6 +1921,7 @@ class AutoBatchedMixin:
     def __init__(self, *args, **kwargs):
         self._batch_shape = None
         self._event_shape = None
+        self._batch_permutation = None
         # Pop the number of batch dimensions and pass the rest to the other constructor.
         self.batch_ndim = kwargs.pop("batch_ndim")
         super().__init__(*args, **kwargs)
@@ -1957,12 +1958,12 @@ class AutoBatchedMixin:
         # The latents are packed site by site, but a batch element needs its own
         # entries from every site. Record where each packed entry sits once the
         # entries are grouped by batch element.
-        indices = self._unpack_latent(jnp.arange(self.latent_dim))
-        grouped = jnp.concatenate(
-            [jnp.reshape(i, self._batch_shape + (-1,)) for i in indices.values()],
+        indices = self._unpack_latent(np.arange(self.latent_dim))
+        grouped = np.concatenate(
+            [np.reshape(i, self._batch_shape + (-1,)) for i in indices.values()],
             axis=-1,
         )
-        self._batch_permutation = jnp.argsort(grouped.reshape(-1))
+        self._batch_permutation = np.argsort(grouped, axis=None)
 
     def _get_batched_posterior(self):
         raise NotImplementedError
@@ -1970,10 +1971,10 @@ class AutoBatchedMixin:
     def _get_posterior(self):
         return dist.TransformedDistribution(
             self._get_batched_posterior(),
-            self._get_reshape_transform(),
+            self._get_batch_transform(),
         )
 
-    def _get_reshape_transform(self) -> ComposeTransform:
+    def _get_batch_transform(self) -> ComposeTransform:
         return ComposeTransform(
             [
                 ReshapeTransform(
@@ -1989,6 +1990,10 @@ class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
     This implementation of :class:`AutoContinuous` uses a batched MultivariateNormal
     distribution to construct a guide over the entire latent space.
     The guide does not depend on the model's ``*args, **kwargs``.
+
+    Row ``i`` of ``auto_loc`` (and of ``auto_scale_tril``) holds the unconstrained
+    latents of batch element ``i``, all sites concatenated in site order. The
+    posterior is independent across batch elements and correlated within one.
 
     Usage::
 
@@ -2018,7 +2023,7 @@ class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         )
 
     def _get_batched_posterior(self):
-        init_latent = self._get_reshape_transform().inv(self._init_latent)
+        init_latent = self._get_batch_transform().inv(self._init_latent)
         loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
         init_scale = (
             jnp.ones(self._batch_shape + (1, 1))
@@ -2033,7 +2038,7 @@ class AutoBatchedMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
     def median(self, params):
-        loc = self._get_reshape_transform()(params["{}_loc".format(self.prefix)])
+        loc = self._get_batch_transform()(params["{}_loc".format(self.prefix)])
         return self._unpack_and_constrain(loc, params)
 
 
@@ -2121,6 +2126,10 @@ class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
     AutoLowRankMultivariateNormal distribution to construct a guide over the entire
     latent space. The guide does not depend on the model's ``*args, **kwargs``.
 
+    Row ``i`` of ``auto_loc`` (and of ``auto_cov_factor`` and ``auto_scale``) holds the
+    unconstrained latents of batch element ``i``, all sites concatenated in site order.
+    The posterior is independent across batch elements and correlated within one.
+
     Usage::
 
         guide = AutoBatchedLowRankMultivariateNormal(model, batch_ndim=1, ...)
@@ -2154,7 +2163,7 @@ class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         rank = (
             int(round(self._event_shape[0] ** 0.5)) if self.rank is None else self.rank
         )
-        init_latent = self._get_reshape_transform().inv(self._init_latent)
+        init_latent = self._get_batch_transform().inv(self._init_latent)
         loc = numpyro.param("{}_loc".format(self.prefix), init_latent)
         cov_factor = numpyro.param(
             "{}_cov_factor".format(self.prefix),
@@ -2170,7 +2179,7 @@ class AutoBatchedLowRankMultivariateNormal(AutoBatchedMixin, AutoContinuous):
         return dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
 
     def median(self, params):
-        loc = self._get_reshape_transform()(params["{}_loc".format(self.prefix)])
+        loc = self._get_batch_transform()(params["{}_loc".format(self.prefix)])
         return self._unpack_and_constrain(loc, params)
 
 
