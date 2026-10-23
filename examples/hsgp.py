@@ -184,7 +184,7 @@ def eigenfunctions(x, L, M):
     return num / den
 
 
-def log_diag_spectral_density_periodic(alpha, length, M):
+def _log_diag_spectral_density_periodic(alpha, length, M):
     a = length ** (-2)
     J = jnp.arange(0, M, dtype=jnp.result_type(a, float))
     c = jnp.where(J > 0, 2, 1)
@@ -198,7 +198,7 @@ def diag_spectral_density_periodic(alpha, length, M):
     way. These are simply the first `M` coefficients of the low rank
     approximation for the periodic kernel.
     """
-    return jnp.exp(log_diag_spectral_density_periodic(alpha, length, M))
+    return jnp.exp(_log_diag_spectral_density_periodic(alpha, length, M))
 
 
 def eigenfunctions_periodic(x, w0, M):
@@ -247,7 +247,7 @@ def approx_periodic_gp_ncp(x, alpha, length, w0, M):
     zero = jnp.array([0.0])
     beta_sin = jnp.concatenate((zero, beta_sin))
 
-    q = jnp.exp(0.5 * log_diag_spectral_density_periodic(alpha, length, M))
+    q = jnp.exp(0.5 * _log_diag_spectral_density_periodic(alpha, length, M))
     f = deterministic("f", cosines @ (q * beta_cos) + sines @ (q * beta_sin))
     return f
 
