@@ -6535,3 +6535,58 @@ def test_poisson_cdf_support_limits(rate, compiled):
     expected[finite] = -osp.poisson.pmf(np.floor(np.asarray(values)[finite]), rate)
     assert_allclose(derivative, expected, atol=1e-6)
     assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))
+
+
+@pytest.mark.parametrize(
+    "jax_dist, params, low, high",
+    [
+        (dist.Beta, (2.0, 3.0), 0.0, 1.0),
+        (dist.BetaProportion, (0.4, 5.0), 0.0, 1.0),
+        (dist.Chi2, (3.0,), 0.0, np.inf),
+        (dist.DoublyTruncatedPowerLaw, (-1.5, 1.0, 5.0), 1.0, 5.0),
+        (dist.DoublyTruncatedPowerLaw, (-1.0, 1.0, 5.0), 1.0, 5.0),
+        (dist.Exponential, (2.0,), 0.0, np.inf),
+        (dist.Gamma, (2.0, 1.5), 0.0, np.inf),
+        (dist.Gompertz, (2.0, 1.5), 0.0, np.inf),
+        (dist.HalfCauchy, (1.0,), 0.0, np.inf),
+        (dist.HalfNormal, (1.0,), 0.0, np.inf),
+        (dist.InverseGamma, (2.0, 1.5), 0.0, np.inf),
+        (dist.Levy, (1.0, 2.0), 1.0, np.inf),
+        (dist.LogNormal, (0.3, 1.0), 0.0, np.inf),
+        (dist.LogUniform, (1.0, 10.0), 1.0, 10.0),
+        (dist.Pareto, (2.0, 3.0), 2.0, np.inf),
+        (dist.Weibull, (2.0, 1.5), 0.0, np.inf),
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+def test_cdf_outside_support(jax_dist, params, low, high, compiled):
+    def evaluate(params, value):
+        return jax_dist(*params).cdf(value)
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    bounded = np.isfinite(high)
+    below = low - np.array([np.inf, 50.0, 0.5])
+    above = high + np.array([0.5, 50.0, np.inf]) if bounded else np.array([])
+    outside = np.concatenate([below, above])
+    expected = np.concatenate([np.zeros(below.shape), np.ones(above.shape)])
+    assert_array_equal(evaluate(params, outside), expected)
+    # The cdf is constant outside the support, so its derivatives vanish there.
+    for derivative in jax.jacfwd(evaluate)(params, outside):
+        assert_array_equal(derivative, 0.0)
+    value_grad = jax.vmap(jax.grad(evaluate, argnums=1), in_axes=(None, 0))
+    assert_array_equal(value_grad(params, outside), 0.0)
+    # The lower bound may be excluded from the support, but gradients stay finite.
+    assert evaluate(params, low) == 0.0
+    assert np.isfinite(jax.grad(evaluate)(params, low)).all()
+
+    inside = low + (
+        (high - low) * np.array([0.25, 0.5, 0.75])
+        if bounded
+        else np.array([0.5, 1.0, 3.0])
+    )
+    sp_dist = get_sp_dist(jax_dist)
+    if sp_dist is not None:
+        expected = sp_dist(*params).cdf(inside)
+        assert_allclose(evaluate(params, inside), expected, atol=1e-6, rtol=1e-5)
+    assert jnp.isnan(evaluate(params, np.nan))

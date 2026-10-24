@@ -1833,7 +1833,13 @@ class DoublyTruncatedPowerLaw(Distribution):
 
             return primal_out, tangent_out
 
-        return f(value, self.alpha, self.low, self.high)
+        below_support = jnp.less(value, self.low)
+        above_support = jnp.greater(value, self.high)
+        safe_value = jnp.where(
+            below_support | above_support, (self.low + self.high) / 2, value
+        )
+        cdf = f(safe_value, self.alpha, self.low, self.high)
+        return jnp.where(below_support, 0.0, jnp.where(above_support, 1.0, cdf))
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function for :math:`0 \leq q \leq 1`.
