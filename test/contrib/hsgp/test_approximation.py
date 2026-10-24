@@ -17,7 +17,7 @@ from sklearn.gaussian_process.kernels import (
 )
 
 import jax
-from jax import Array, random
+from jax import Array, grad, random, vmap
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
@@ -278,6 +278,46 @@ def test_kernel_approx_periodic(
         x1[..., None] / (2 * jnp.pi), x2[..., None] / (2 * jnp.pi)
     )
     assert jnp.isclose(approx, exact, rtol=1e-3)
+
+
+def test_periodic_density_zero_amplitude():
+    q2 = diag_spectral_density_periodic(alpha=0.0, length=1.0, m=10)
+    assert jnp.array_equal(q2, jnp.zeros(10))
+    assert grad(
+        lambda alpha: diag_spectral_density_periodic(
+            alpha=alpha, length=1.0, m=10
+        ).sum()
+    )(0.0) == 0.0
+
+
+def test_periodic_non_centered_gradient_large_m():
+    def f(length):
+        return seed(hsgp_periodic_non_centered, random.key(0))(
+            x=jnp.array([0.0, 0.5, 1.0, 2.0]),
+            alpha=1.0,
+            length=length,
+            w0=1.0,
+            m=100,
+        ).sum()
+
+    assert jnp.isfinite(grad(f)(1.0))
+
+
+def test_periodic_non_centered_prior_covariance():
+    x = jnp.array([0.0, 0.5, 1.0, 2.0])
+    w0, length, alpha, m = 1.0, 1.0, 1.0, 30
+
+    def f_sample(rng_key):
+        return seed(hsgp_periodic_non_centered, rng_key)(
+            x=x, alpha=alpha, length=length, w0=w0, m=m
+        )
+
+    samples = vmap(f_sample)(random.split(random.key(0), 5000))
+    empirical_cov = jnp.cov(samples.T)
+    exact_cov = ExpSineSquared(length_scale=length, periodicity=1 / w0)(
+        (x / (2 * jnp.pi))[:, None]
+    )
+    assert jnp.allclose(empirical_cov, exact_cov, atol=0.04, rtol=0.04)
 
 
 @pytest.mark.parametrize(
