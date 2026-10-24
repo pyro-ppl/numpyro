@@ -1029,7 +1029,9 @@ class Predictive(object):
         + set `batch_ndims=0` to get 1 sample from the guide and parameters (same as `batch_ndims=None` with guide)
 
         + set `batch_ndims=1` to get predictions from a one dimensional batch of the guide and parameters
-          with shapes `(num_samples x batch_size x ...)`
+          with shapes `(num_samples x batch_size x ...)`.
+          Each entry in `params` has a leading dimension of size `batch_size`;
+          model and guide parameters with the same batch index are used together.
     :param condition_deterministic: if True, deterministic sites present in
         `posterior_samples` are conditioned on (substituted into the model)
         when predicting; if False (default), they are ignored and instead
@@ -1203,7 +1205,7 @@ class Predictive(object):
                 model_kwargs=kwargs,
                 exclude_deterministic=not self.condition_deterministic,
             )
-        model = substitute(self.model, self.params)
+        model = substitute(self.model, params)
         return _predictive(
             rng_key,
             model,

@@ -30,9 +30,9 @@ def _non_centered_approximation(phi: Array, spd: Array, m: int) -> Array:
 
 
 def _centered_approximation(phi: Array, spd: Array, m: int) -> Array:
-    # ``spd`` is the square root of the spectral density and can underflow to
-    # exactly 0 for high-frequency basis functions; floor it to a tiny positive
-    # value so the (degenerate) coefficient keeps a valid positive scale.
+    # ``spd`` is the square root of the spectral density; a user-supplied ``spd``
+    # may be exactly 0 for high-frequency basis functions, so floor it to a tiny
+    # positive value to keep a valid positive scale for the (degenerate) coefficient.
     spd = jnp.clip(spd, jnp.finfo(spd.dtype).tiny)
     with numpyro.plate("basis", m):
         beta = numpyro.sample("beta", dist.Normal(loc=0.0, scale=spd))
@@ -52,6 +52,13 @@ def linear_approximation(
 
         1. Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
+
+    .. note::
+
+        For large ``m`` the entries of ``spd`` at high-frequency basis functions are
+        negligibly small. With ``non_centered=False`` these become degenerate
+        ``Normal(0, scale=spd)`` priors, which are hard to initialize and sample;
+        prefer ``non_centered=True`` whenever ``m`` is large.
 
     :param Array phi: laplacian eigenfunctions
     :param Array spd: square root of the diagonal of the spectral density evaluated at square
@@ -192,6 +199,8 @@ def hsgp_rational_quadratic(
         - The spectral density requires ``scale_mixture > dim/2`` for the approximation at
           :math:`\\omega = 0` to be well-defined. For example, ``scale_mixture > 0.5`` for 1D,
           ``scale_mixture > 1`` for 2D, and ``scale_mixture > 1.5`` for 3D.
+        - Gradients with respect to ``scale_mixture`` are not supported, see
+          :func:`~numpyro.contrib.hsgp.spectral_densities.spectral_density_rational_quadratic`.
 
     **References:**
 

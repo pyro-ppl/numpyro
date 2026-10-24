@@ -212,6 +212,11 @@ def _binomial(key, p, n, shape):
     # reshape to map over axis 0
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
+    # the samplers below count trials in the default integer dtype, so counts of
+    # any other dtype (integer-valued floats, or integers such as int16 or uint8)
+    # are cast to it for sampling and the draws are returned in the dtype of `n`
+    dtype = n.dtype
+    n = n.astype(jnp.result_type(int))
     key = random.split(key, jnp.size(p))
     # Like jax.random.gamma: vmapped while loops only reproduce per-key streams for
     # threefry keys; other PRNG implementations take the sequential path.
@@ -219,7 +224,7 @@ def _binomial(key, p, n, shape):
         ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
     else:
         ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
-    return jnp.reshape(ret, shape)
+    return jnp.reshape(ret, shape).astype(dtype)
 
 
 def binomial(key, p, n=1, shape=()):
@@ -347,6 +352,19 @@ def _reshape(x, shape):
         return np.reshape(x, shape)
     else:
         return jnp.reshape(x, shape)
+
+
+def promote_to_inexact(value: ArrayLike) -> ArrayLike:
+    """Promote integer and boolean parameters, preserving inexact inputs."""
+    with jax.ensure_compile_time_eval():
+        if isinstance(value, (list, tuple)):
+            value = jnp.asarray(value)
+        if jnp.issubdtype(jnp.result_type(value), jnp.inexact):
+            return value
+        dtype = jnp.result_type(value, float)
+        if isinstance(value, (int, np.ndarray, np.generic)):
+            return np.asarray(value, dtype=dtype)
+        return jnp.asarray(value).astype(dtype)
 
 
 def promote_shapes(*args, shape=(), return_shapes: bool = False):

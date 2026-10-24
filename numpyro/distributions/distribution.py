@@ -128,7 +128,7 @@ class DistributionMeta(type):
 
 
 class Distribution(metaclass=DistributionMeta):
-    """
+    r"""
     Base class for probability distributions in NumPyro. The design largely
     follows from :mod:`torch.distributions`.
 
@@ -142,6 +142,42 @@ class Distribution(metaclass=DistributionMeta):
         samples using `.log_prob`.
     :param validate_args: Whether to enable validation of distribution
         parameters and arguments to `.log_prob` method.
+
+    This class defines no density of its own; what every subclass honors is the
+    batch/event contract. An instance with ``batch_shape`` :math:`B` and
+    ``event_shape`` :math:`E` represents a family :math:`\{p_b : b \in B\}` of
+    densities (or mass functions) on :math:`\mathbb{R}^{E}`, one per batch index
+    :math:`b`. In terms of this family:
+
+    - ``sample(key, sample_shape=S)`` returns :math:`x` of shape
+      :math:`S + B + E` where, for every :math:`s \in S` and :math:`b \in B`,
+      :math:`x_{s,b} \sim p_b` independently.
+    - ``log_prob(x)`` returns an array of shape
+      :math:`\mathrm{broadcast}(x.\mathrm{shape}[:-|E|], B)` with entries
+      :math:`\log p_b(x_{\ldots,b})`; event dimensions are never broadcast and
+      are summed over inside the density.
+    - ``to_event(k)`` (returning :class:`Independent`) moves the :math:`k`
+      rightmost batch dimensions into the event, so that
+      :math:`\log p(x) = \sum_{i} \log p_{b,i}(x_{b,i})` over the moved indices.
+    - ``expand(B')`` (returning :class:`ExpandedDistribution`, or ``self`` when
+      :math:`B' = B`) broadcasts :math:`p_b` to the larger batch shape
+      :math:`B'`; ``mask(m)`` (returning :class:`MaskedDistribution`, or
+      ``self`` when ``m is True``) replaces :math:`\log p_b` by :math:`0` where
+      :math:`m_b` is ``False``.
+    - ``support`` is a :class:`~numpyro.distributions.constraints.Constraint`
+      describing the set on which :math:`p_b` is positive; ``arg_constraints``
+      gives the domain of each parameter and drives ``validate_args`` and, unless
+      a subclass sets ``pytree_data_fields``, the pytree flattening of the
+      instance.
+    - ``has_rsample`` is by default ``True`` iff the set of
+      ``reparametrized_params`` equals the set of ``arg_constraints`` keys, in
+      which case ``rsample`` returns a pathwise-differentiable draw; wrapper
+      distributions delegate to their base.
+
+    .. note::
+        ``sample``, ``log_prob``, ``mean``, ``variance``, ``mode``, ``cdf``,
+        ``icdf``, ``entropy`` and ``enumerate_support`` raise
+        ``NotImplementedError`` unless a subclass defines them.
 
     As an example:
 
@@ -675,6 +711,45 @@ class Distribution(metaclass=DistributionMeta):
 
 
 class ExpandedDistribution(Distribution):
+    r"""
+    Broadcasts the batch shape of a distribution to a larger ``batch_shape``.
+
+    If the base distribution has batch shape :math:`B_0` (densities
+    :math:`p_{b_0}`) and the target batch shape is :math:`B \supseteq B_0` under
+    NumPy broadcasting, the expanded distribution has density
+    :math:`p_b = p_{\pi(b)}` where :math:`\pi: B \to B_0` maps each batch index
+    to the base index it broadcasts from. Consequently
+
+    .. math::
+        \log p(x)_b = \log p_{\pi(b)}(x_b), \qquad
+        \mathbb{E}[X_b] = \mathbb{E}[X_{\pi(b)}], \qquad
+        \operatorname{Var}[X_b] = \operatorname{Var}[X_{\pi(b)}],
+
+    and ``entropy`` broadcasts the same way. Samples are **independent** draws
+    for every expanded batch index (not tiled copies of one base draw):
+    :math:`x_b \sim p_{\pi(b)}` independently over :math:`b \in B`.
+
+    :param base_dist: The distribution to expand.
+    :param batch_shape: The target batch shape; must be broadcastable from
+        ``base_dist.batch_shape``.
+    :raises ValueError: if ``base_dist.batch_shape`` cannot be broadcast to
+        ``batch_shape``.
+
+    .. note::
+        New leading batch dimensions are recorded as ``_expanded_sizes`` and
+        size-1 base dimensions that are widened as ``_interstitial_sizes``.
+        ``sample`` draws ``sample_shape + expanded + interstitial`` independent
+        base samples and transposes the interstitial axes into place.
+        ``log_prob`` is the base log density broadcast to
+        ``broadcast(batch_shape, value.shape[:-event_dim])``; the value itself
+        is passed to the base unchanged. Expanding an ``ExpandedDistribution``
+        flattens it to its inner base distribution. The constructor takes no
+        ``validate_args`` and ``log_prob`` performs no sample validation.
+        ``support``, ``has_rsample`` and ``has_enumerate_support`` are those of
+        the base distribution. Usually constructed via
+        :meth:`Distribution.expand`.
+    """
+
     arg_constraints = {}
     pytree_data_fields = ("base_dist",)
     pytree_aux_fields = (
@@ -1074,14 +1149,42 @@ class Independent(Distribution):
 
 
 class MaskedDistribution(Distribution):
-    """
+    r"""
     Masks a distribution by a boolean array that is broadcastable to the
     distribution's :attr:`Distribution.batch_shape`.
     In the special case ``mask is False``, computation of :meth:`log_prob` , is skipped,
     and constant zero values are returned instead.
 
+    With a boolean mask :math:`m` broadcastable to the batch shape,
+
+    .. math::
+        \log p(x)_b = \begin{cases}
+            \log p_{\text{base}}(x_b) & m_b = \text{True} \\
+            0 & m_b = \text{False},
+        \end{cases}
+
+    i.e. masked-out batch entries contribute a likelihood factor of :math:`1`.
+    This is the standard device for missing or padded observations: the joint
+    density of the kept entries is unchanged while the rest are marginalized
+    out of the likelihood.
+
     :param mask: A boolean or boolean-valued array.
     :type mask: jnp.ndarray or bool
+
+    .. note::
+        When ``mask is False``, ``log_prob`` returns zeros of the broadcast
+        batch shape without evaluating the base distribution; when
+        ``mask is True`` it returns the base ``log_prob`` unchanged. Otherwise
+        masked-out values are first replaced by ``support.feasible_like(value)``
+        so the base density never sees out-of-support entries (avoiding ``nan``
+        gradients; falls back to the raw value when ``feasible_like`` is
+        unavailable), and the result is ``where(mask, base_log_prob, 0)``. The
+        ``intermediates`` argument is accepted but not forwarded to the base.
+        ``sample``, ``mean``, ``variance``, ``support`` and
+        ``enumerate_support`` are those of the base distribution; the mask does
+        not affect them. A non-scalar mask broadcasts the base distribution to
+        ``broadcast(mask.shape, base.batch_shape)``. Usually constructed via
+        :meth:`Distribution.mask`.
     """
 
     arg_constraints = {}
@@ -1138,7 +1241,11 @@ class MaskedDistribution(Distribution):
             return self.base_dist.log_prob(value)
         try:
             assert self.base_dist.support is not None
-            default_value = self.base_dist.support.feasible_like(value)
+            default_value = self.base_dist.support.feasible_like(
+                jnp.broadcast_to(
+                    value, lax.broadcast_shapes(jnp.shape(value), self.shape())
+                )
+            )
         except NotImplementedError:
             pass
         else:
