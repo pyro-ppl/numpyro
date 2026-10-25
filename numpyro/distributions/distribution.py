@@ -220,10 +220,10 @@ class Distribution(metaclass=DistributionMeta):
     def gather_pytree_data_fields(cls) -> tuple[str, ...]:
         bases = inspect.getmro(cls)
 
-        all_pytree_data_fields: set[str] = set()
+        all_pytree_data_fields: list[str] = []
         for base in bases:
             if issubclass(base, Distribution):
-                all_pytree_data_fields.update(
+                all_pytree_data_fields.extend(
                     base.__dict__.get(
                         "pytree_data_fields",
                         tuple(
@@ -233,7 +233,8 @@ class Distribution(metaclass=DistributionMeta):
                         ),
                     )
                 )
-        return tuple(all_pytree_data_fields)
+        # remove duplicates, keeping declaration order
+        return tuple(dict.fromkeys(all_pytree_data_fields))
 
     @classmethod
     def gather_pytree_aux_fields(cls) -> tuple[str, ...]:
@@ -243,8 +244,8 @@ class Distribution(metaclass=DistributionMeta):
         for base in bases:
             if issubclass(base, Distribution):
                 all_pytree_aux_fields += base.__dict__.get("pytree_aux_fields", ())
-        # remove duplicates
-        all_pytree_aux_fields = tuple(set(all_pytree_aux_fields))
+        # remove duplicates, keeping declaration order
+        all_pytree_aux_fields = tuple(dict.fromkeys(all_pytree_aux_fields))
         return all_pytree_aux_fields
 
     def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
