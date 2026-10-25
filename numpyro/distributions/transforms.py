@@ -242,8 +242,8 @@ class AbsTransform(ParameterFreeTransform[NumLike]):
 
 class AffineTransform(Transform[NumLike]):
     """
-    .. note:: When `scale` is a JAX tracer, we always assume that `scale > 0`
-        when calculating `codomain`.
+    .. note:: For half-bounded domains, when `scale` is a JAX tracer, we
+        assume that `scale > 0` when calculating `codomain`.
     """
 
     def __init__(
@@ -274,14 +274,11 @@ class AffineTransform(Transform[NumLike]):
             else:
                 return constraints.less_than(self(self.domain.upper_bound))
         elif isinstance(self.domain, constraints.interval):
-            if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
-                return constraints.interval(
-                    self(self.domain.upper_bound), self(self.domain.lower_bound)
-                )
-            else:
-                return constraints.interval(
-                    self(self.domain.lower_bound), self(self.domain.upper_bound)
-                )
+            bound1 = self(self.domain.lower_bound)
+            bound2 = self(self.domain.upper_bound)
+            return constraints.interval(
+                jnp.minimum(bound1, bound2), jnp.maximum(bound1, bound2)
+            )
         else:
             raise NotImplementedError
 

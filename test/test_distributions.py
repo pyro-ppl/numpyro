@@ -3545,6 +3545,41 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
         assert_allclose(actual, -inv_expected, atol=1e-5)
 
 
+@pytest.mark.parametrize(
+    "scale, low, high",
+    [
+        ([2.0, 3.0], [-1.0, -5.0], [5.0, 4.0]),
+        ([-2.0, -3.0], [-3.0, -8.0], [3.0, 1.0]),
+        ([-2.0, 3.0], [-3.0, -5.0], [3.0, 4.0]),
+    ],
+    ids=["positive", "negative", "mixed"],
+)
+@pytest.mark.parametrize("compiled", [False, True], ids=["eager", "jit"])
+def test_affine_interval_support(scale, low, high, compiled):
+    def evaluate(scale):
+        base = dist.Uniform(-1.0, 2.0)
+        transform = transforms.AffineTransform(
+            jnp.array([1.0, -2.0]), scale, domain=base.support
+        )
+        transformed = dist.TransformedDistribution(base, transform)
+        # These are valid draws from the transformed distribution by construction.
+        samples = transformed.sample(random.key(42), (4,))
+        return (
+            transformed.support.lower_bound,
+            transformed.support.upper_bound,
+            transformed.support(samples),
+            transformed.log_prob(samples),
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual_low, actual_high, in_support, log_prob = evaluate(jnp.array(scale))
+    assert_allclose(actual_low, low)
+    assert_allclose(actual_high, high)
+    assert_array_equal(in_support, np.ones((4, 2), dtype=bool))
+    assert_allclose(log_prob, np.broadcast_to(-np.log([6.0, 9.0]), (4, 2)))
+
+
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 def test_composed_transform(batch_shape):
     t1 = transforms.AffineTransform(0, 2)
