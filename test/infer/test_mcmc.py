@@ -1280,7 +1280,7 @@ def test_empty_summary():
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
 @pytest.mark.parametrize("chain_method", ["parallel", "sequential", "vectorized"])
 @pytest.mark.parametrize("jit_model_args", [True, False])
-def test_hmc_multiple_runs(kernel_cls, chain_method, jit_model_args):
+def test_hmc_chain_method_multiple_runs(kernel_cls, chain_method, jit_model_args):
     if chain_method == "parallel" and jax.device_count() == 1:
         pytest.skip("parallel method requires device_count greater than 1.")
 
@@ -1308,6 +1308,7 @@ def test_hmc_multiple_runs(kernel_cls, chain_method, jit_model_args):
     assert mean > 9
 
     # pass argument with different value and different dtype
+    # different dtype forces a retrace of the jitted loop body
     mcmc.run(random.key(0), -10)
     mean = jnp.mean(mcmc.get_samples()["x"])
     assert mean < -9
