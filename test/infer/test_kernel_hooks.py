@@ -115,7 +115,13 @@ def test_hmc_wrap_model():
     wrapped = kernel.wrap_model(wrapper)
     assert wrapped is not kernel
     assert wrapped.model is not kernel.model
-    for attr in ("_init_fn", "_sample_fn", "_potential_fn_gen", "_postprocess_fn"):
+    for attr in (
+        "_init_fn",
+        "_sample_fn_base",
+        "_sample_fn",
+        "_potential_fn_gen",
+        "_postprocess_fn",
+    ):
         assert getattr(wrapped, attr) is None
         assert getattr(kernel, attr) is not None
     _init(wrapped, 2.0)

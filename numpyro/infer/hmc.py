@@ -909,6 +909,7 @@ class HMC(MCMCKernel):
             model_kwargs=model_kwargs,
             rng_key=rng_key,
         )
+        assert self._sample_fn_base is not None
         if is_prng_key(rng_key):
             self._sample_fn = self._sample_fn_base
             init_state = hmc_init_fn(init_params, rng_key)
@@ -917,7 +918,6 @@ class HMC(MCMCKernel):
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
-            assert self._sample_fn_base is not None
             sample_fn = vmap(self._sample_fn_base, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
