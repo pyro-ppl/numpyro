@@ -301,6 +301,7 @@ class SA(MCMCKernel):
         self._init_fn = None
         self._potential_fn_gen = None
         self._postprocess_fn = None
+        self._sample_fn_base = None
         self._sample_fn = None
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
@@ -323,8 +324,8 @@ class SA(MCMCKernel):
         else:
             self._init_fn, sample_fn = _sa(potential_fn=self._potential_fn)
 
-        if self._sample_fn is None:
-            self._sample_fn = sample_fn
+        if self._sample_fn_base is None:
+            self._sample_fn_base = sample_fn
         return init_params
 
     def init(
@@ -338,8 +339,6 @@ class SA(MCMCKernel):
             rng_key, rng_key_init_model = jnp.swapaxes(
                 vmap(random.split)(rng_key), 0, 1
             )
-            # we need only a single key for initializing PE / constraints fn
-            rng_key_init_model = rng_key_init_model[0]
         init_params = self._init_state(
             rng_key_init_model, model_args, model_kwargs, init_params
         )
@@ -358,11 +357,13 @@ class SA(MCMCKernel):
             model_args=model_args,
             model_kwargs=model_kwargs,
         )
+        assert self._sample_fn_base is not None
         if is_prng_key(rng_key):
+            self._sample_fn = self._sample_fn_base
             init_state = sa_init_fn(init_params, rng_key)
         else:
             init_state = vmap(sa_init_fn)(init_params, rng_key)
-            sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
+            sample_fn = vmap(self._sample_fn_base, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
 
@@ -401,5 +402,6 @@ class SA(MCMCKernel):
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_sample_fn"] = None
+        state["_sample_fn_base"] = None
         state["_init_fn"] = None
         return state
