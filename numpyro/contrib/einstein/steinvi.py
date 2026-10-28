@@ -92,7 +92,7 @@ class SteinVI:
     :param Float loss_temperature: Scaling factor of the attractive force. Default is `1`.
     :param Float repulsion_temperature: Scaling factor of the repulsive force [`2 <steinvi-class-ref-2_>`__].
         We recommend not scaling the repulsion. Default is `1`.
-    :param Callable non_mixture_guide_param_fn: Predicate on names of parameters in the guide which should be optimized
+    :param Callable non_mixture_guide_params_fn: Predicate on names of parameters in the guide which should be optimized
         using one particle. This could be parameters for large normal networks or other transformation.
         Default excludes all parameters from this option.
     :param static_kwargs: Static keyword arguments for the model and guide. These arguments cannot change
@@ -610,7 +610,6 @@ class SVGD(SteinVI):
         >>> samples = predictive(random.key(1), data=None)
 
     :param Callable model: Python callable with NumPyro primitives for the model.
-    :param Callable guide: Python callable with NumPyro primitives for the guide.
     :param _NumPyroOptim optim: An instance of :class:`~numpyro.optim._NumpyroOptim`.
         Adagrad should be preferred over Adam [`1 <svgd-ref-1_>`__].
     :param SteinKernel kernel_fn: Function that computes the reproducing kernel to use with SVGD.
@@ -707,7 +706,6 @@ class ASVGD(SVGD):
         >>> samples = predictive(random.key(1), data=None)
 
     :param Callable model: Python callable with NumPyro primitives for the model.
-    :param Callable guide: Python callable with NumPyro primitives for the guide.
     :param _NumPyroOptim optim: An instance of :class:`~numpyro.optim._NumpyroOptim`.
         Adagrad should be preferred over Adam [`1 <asvgd-ref-1_>`__].
     :param SteinKernel kernel_fn: Function that computes the reproducing kernel to use with ASVGD.
@@ -718,8 +716,8 @@ class ASVGD(SVGD):
     :param num_cycles: The total number of cycles during inference. This corresponds to :math:`C` in eq. 4 of [`1
         <asvgd-ref-1_>`__].
         Default is `10`.
-    :param trans_speed: Speed of transition between two phases during inference. This corresponds to :math:`p` in eq. 4
-        of [`1 <asvgd-ref-1_>`__]. Default is `10`.
+    :param transition_speed: Speed of transition between two phases during inference. This corresponds to :math:`p` in
+        eq. 4 of [`1 <asvgd-ref-1_>`__]. Default is `10`.
     :param Dict guide_kwargs: Keyword arguments for :class:`~numpyro.infer.autoguide.AutoDelta`.
         Default behaviour is the same as the default for :class:`~numpyro.infer.autoguide.AutoDelta`.
 
