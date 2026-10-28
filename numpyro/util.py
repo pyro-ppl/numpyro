@@ -45,15 +45,7 @@ def enable_x64(use_x64: bool = True) -> None:
         else 32 bits.
     """
     if not use_x64:
-        # parse the env var like JAX does, so e.g. JAX_ENABLE_X64=0 stays disabled
-        use_x64 = os.getenv("JAX_ENABLE_X64", "0").lower() in (
-            "y",
-            "yes",
-            "t",
-            "true",
-            "on",
-            "1",
-        )
+        use_x64 = os.getenv("JAX_ENABLE_X64", "0").lower() in ("true", "1")
     jax.config.update("jax_enable_x64", use_x64)
 
 

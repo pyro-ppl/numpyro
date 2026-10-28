@@ -381,7 +381,15 @@ def test_missing_plate_in_model():
 
 @pytest.mark.parametrize(
     "env_value, expected",
-    [("0", False), ("false", False), ("", False), ("1", True), ("True", True)],
+    [
+        ("0", False),
+        ("false", False),
+        ("", False),
+        ("yes", False),
+        ("1", True),
+        ("true", True),
+        ("True", True),
+    ],
 )
 def test_enable_x64_false_respects_env_var(monkeypatch, env_value, expected):
     original = jax.config.read("jax_enable_x64")
