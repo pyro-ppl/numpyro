@@ -384,8 +384,7 @@ def test_missing_plate_in_model():
     [
         ("0", False),
         ("false", False),
-        ("", False),
-        ("yes", False),
+        ("False", False),
         ("1", True),
         ("true", True),
         ("True", True),
@@ -397,5 +396,17 @@ def test_enable_x64_false_respects_env_var(monkeypatch, env_value, expected):
     try:
         enable_x64(False)
         assert jax.config.read("jax_enable_x64") is expected
+    finally:
+        jax.config.update("jax_enable_x64", original)
+
+
+@pytest.mark.parametrize("env_value", ["", "yes", "2", "on"])
+def test_enable_x64_invalid_env_var(monkeypatch, env_value):
+    original = jax.config.read("jax_enable_x64")
+    monkeypatch.setenv("JAX_ENABLE_X64", env_value)
+    try:
+        with pytest.raises(ValueError, match="JAX_ENABLE_X64 must be one of"):
+            enable_x64(False)
+        assert jax.config.read("jax_enable_x64") is original
     finally:
         jax.config.update("jax_enable_x64", original)
