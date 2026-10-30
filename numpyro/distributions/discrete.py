@@ -226,7 +226,7 @@ class BernoulliLogits(Distribution):
             :math:`\mp\infty` denote :math:`p = 0` and :math:`p = 1`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.logits = logits
+        self.logits = promote_to_inexact(logits)
         super(BernoulliLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
@@ -1898,6 +1898,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         *,
         validate_args: Optional[bool] = None,
     ):
+        gate_logits = promote_to_inexact(gate_logits)
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
@@ -2221,6 +2222,7 @@ class HurdleLogits(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        gate_logits = promote_to_inexact(gate_logits)
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
