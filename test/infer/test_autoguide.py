@@ -1311,23 +1311,21 @@ def test_auto_batched_shapes(auto_class) -> None:
 )
 def test_auto_batched_median(auto_class) -> None:
     def model():
-        distribution = dist.Normal().expand([7]).to_event(1)
         with numpyro.plate("n", 3):
-            x = numpyro.sample("x", distribution)
-        with numpyro.plate("m", 3):
-            y = numpyro.sample("y", distribution)
-        return x, y
+            numpyro.sample("x", dist.Normal())
+            numpyro.sample("y", dist.Normal().expand([2]).to_event(1))
 
-    guide = auto_class(model)
+    values = {"x": jnp.arange(3.0), "y": -jnp.arange(1.0, 7.0).reshape(3, 2)}
+    guide = auto_class(model, init_loc_fn=init_to_value(values=values), init_scale=1e-3)
     with numpyro.handlers.seed(rng_seed=0):
         trace = numpyro.handlers.trace(guide).get_trace()
-    params = {
-        key: value["value"] for key, value in trace.items() if value["type"] == "param"
-    }
-    median = guide.median(params)
-    assert jnp.allclose(
-        jnp.stack(list(median.values())).ravel(), params["auto_loc"].ravel()
-    )
+    params = {k: v["value"] for k, v in trace.items() if v["type"] == "param"}
+    # Row i of `auto_loc` holds plate element i of every site.
+    expected_loc = jnp.concatenate([values["x"][:, None], values["y"]], axis=-1)
+    assert_allclose(params["auto_loc"], expected_loc)
+    for name, value in guide.median(params).items():
+        assert_allclose(value, values[name])
+        assert_allclose(trace[name]["value"], values[name], atol=1e-2)
 
 
 def test_autoguide_with_delta_site() -> None:
