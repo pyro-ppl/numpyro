@@ -15,7 +15,7 @@ import numpyro
 from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_periodic
 from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_matern,
-    diag_spectral_density_periodic,
+    _log_diag_spectral_density_periodic,
     diag_spectral_density_rational_quadratic,
     diag_spectral_density_squared_exponential,
 )
@@ -266,7 +266,6 @@ def hsgp_periodic_non_centered(
     :return: the low-rank approximation linear model
     :rtype: Array
     """
-    q2 = diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
     cosines, sines = eigenfunctions_periodic(x=x, w0=w0, m=m)
 
     with numpyro.plate("cos_basis", m):
@@ -281,4 +280,8 @@ def hsgp_periodic_non_centered(
     zero = jnp.array([0.0])
     beta_sin = jnp.concatenate((zero, beta_sin))
 
-    return cosines @ (q2 * beta_cos) + sines @ (q2 * beta_sin)
+    q = jnp.exp(
+        0.5
+        * _log_diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
+    )
+    return cosines @ (q * beta_cos) + sines @ (q * beta_sin)

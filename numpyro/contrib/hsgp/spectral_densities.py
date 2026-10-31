@@ -396,6 +396,31 @@ def diag_spectral_density_rational_quadratic(
     return _eval_at_sqrt_eigenvalues(_spectral_density, ell=ell, m=m, dim=dim)
 
 
+def _log_diag_spectral_density_periodic(
+    alpha: ArrayLike, length: ArrayLike, m: int
+) -> Array:
+    """
+    Log of the periodic kernel variance coefficients.
+
+    Computes the coefficients in log space to avoid underflow in the modified
+    Bessel function for large basis sizes.
+    """
+    try:
+        from tensorflow_probability.substrates import jax as tfp
+    except ImportError as e:
+        raise ImportError(
+            "TensorFlow Probability is required for the periodic kernel spectral density."
+        ) from e
+
+    a = length ** (-2)
+    j = jnp.arange(0, m, dtype=jnp.result_type(a, float))
+    c = jnp.where(j > 0, 2, 1)
+    alpha_nonzero = alpha != 0
+    safe_alpha2 = jnp.where(alpha_nonzero, alpha**2, 1)
+    log_alpha2 = jnp.where(alpha_nonzero, jnp.log(safe_alpha2), -jnp.inf)
+    return jnp.log(c) + log_alpha2 + tfp.math.log_bessel_ive(j, a)
+
+
 def diag_spectral_density_periodic(
     alpha: ArrayLike, length: ArrayLike, m: int
 ) -> Array:
