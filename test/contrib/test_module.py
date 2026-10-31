@@ -56,8 +56,9 @@ def flax_model_by_kwargs(x, y):
 def make_batchnorm():
     import equinox as eqx
     from equinox import __version__
+    from packaging.version import Version
 
-    if __version__ >= "0.13":
+    if Version(__version__) >= Version("0.13"):
         return eqx.nn.BatchNorm(3, axis_name="batch", mode="batch")
 
     return eqx.nn.BatchNorm(3, axis_name="batch")
