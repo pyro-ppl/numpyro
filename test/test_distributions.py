@@ -2367,6 +2367,43 @@ def test_gamma_poisson_log_prob(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
+def test_gamma_poisson_cdf_real_thresholds():
+    value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, np.inf])
+    actual = dist.GammaPoisson(2.0, 3.0).cdf(value)
+    assert_allclose(actual, osp.nbinom.cdf(value, 2.0, 0.75), rtol=1e-5, atol=1e-7)
+    # Differentiate the finite sums for P(X <= 0) and P(X <= 1) at rate=3.
+    grad_cdf = jax.vmap(
+        jax.grad(lambda r, x: dist.GammaPoisson(2.0, r).cdf(x)), (None, 0)
+    )
+    expected = np.array([0.0, 0.0, 3 / 32, 3 / 32, 9 / 128, 0.0])
+    assert_allclose(grad_cdf(3.0, value), expected, rtol=1e-5, atol=1e-7)
+
+
+@pytest.mark.parametrize(
+    "jax_dist", [dist.GammaPoisson, dist.NegativeBinomial2, dist.NegativeBinomialLogits]
+)
+@pytest.mark.parametrize("integer_values", [False, True])
+def test_gamma_poisson_cdf_batched(jax_dist, integer_values):
+    # rate=inf puts all mass at zero; NegativeBinomialLogits reaches it with logits=-inf.
+    concentration = np.array([0.5, 2.0, 5.0])
+    rate = np.array([0.25, 3.0, np.inf])
+    conc, r = jnp.asarray(concentration), jnp.asarray(rate)
+    if jax_dist is dist.GammaPoisson:
+        d = jax_dist(conc, r)
+    elif jax_dist is dist.NegativeBinomial2:
+        d = jax_dist(conc / r, conc)
+    else:
+        d = jax_dist(conc, -jnp.log(r))
+    if integer_values:
+        value = np.array([-2, -1, 0, 1, 2, 7], dtype=np.int32)
+    else:
+        # Large finite thresholds are common as censoring bounds.
+        big = np.finfo(np.float32).max
+        value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, 1e30, big, np.inf], np.float32)
+    expected = osp.nbinom.cdf(value[:, None], concentration, 1 / (1 + 1 / rate))
+    assert_allclose(d.cdf(value[:, None]), expected, rtol=1e-5, atol=1e-7)
+
+
 @pytest.mark.parametrize(
     "distribution_type",
     [
