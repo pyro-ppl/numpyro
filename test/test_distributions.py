@@ -4743,6 +4743,20 @@ def test_consistent_pytree() -> None:
     jax.lax.scan(lambda *_: (make_dist(), None), init, jnp.arange(7))
 
 
+def test_pytree_fields_follow_declaration_order():
+    """Pytree fields keep declaration order.
+
+    A distribution then flattens identically in every process, so JAX's
+    persistent compilation cache can reuse the programs jit lowers from it.
+    """
+    assert dist.Normal.gather_pytree_data_fields() == ("loc", "scale")
+    assert dist.Normal.gather_pytree_aux_fields() == (
+        "_validate_args",
+        "_batch_shape",
+        "_event_shape",
+    )
+
+
 def test_distribution_repr():
     result = repr(dist.Wishart(7, jnp.eye(5)).expand([3, 4]).to_event(1))
     assert "batch shape (3,)" in result
