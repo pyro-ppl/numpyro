@@ -2287,6 +2287,31 @@ def test_zero_inflated_zero_observation_gradients(family, rate, gate, values, co
     assert_allclose(derivatives[1], expected_gate, rtol=2e-5, atol=1e-6)
 
 
+@pytest.mark.parametrize("rate", [2.0, 200.0])
+@pytest.mark.parametrize("gate", [0.0, 0.25, 1.0])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_zero_inflated_fixed_gate_rate_derivatives(rate, gate, compiled):
+    def score(r):
+        return dist.ZeroInflatedPoisson(rate=r, gate=gate).log_prob(0.0)
+
+    def evaluate(r):
+        return (
+            jax.grad(score)(r),
+            jax.jvp(score, (r,), (jnp.ones_like(r),))[1],
+            jax.jacfwd(score)(r),
+            jax.hessian(score)(r),
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    mass = np.exp(-rate)
+    weight = (1 - gate) * mass / (gate + (1 - gate) * mass)
+    actual = evaluate(jnp.asarray(rate))
+    assert_allclose(
+        actual, [-weight, -weight, -weight, weight * (1 - weight)], atol=1e-6
+    )
+
+
 @pytest.mark.parametrize("gate", [0.0, 0.25, 1.0])
 def test_zero_inflated_zero_observation_hessian(gate):
     rate = 2.0

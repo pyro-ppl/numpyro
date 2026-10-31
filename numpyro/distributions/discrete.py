@@ -26,12 +26,14 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
+from functools import partial
 from typing import Optional, Union
 
 import numpy as np
 
 import jax
 from jax import Array, lax
+from jax.custom_derivatives import SymbolicZero
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
@@ -1775,10 +1777,21 @@ def _zero_inflated_zero_log_prob(gate: Array, log_prob: Array) -> Array:
 
 # Differentiate the mixture rather than the endpoint logarithms. This keeps
 # d/dgate = (1 - exp(log_prob)) / exp(result) at gate=0 and gate=1.
-_zero_inflated_zero_log_prob.defjvps(
-    lambda t, result, gate, log_prob: -t * jnp.expm1(log_prob) * jnp.exp(-result),
-    lambda t, result, gate, log_prob: t * (1 - gate) * jnp.exp(log_prob - result),
-)
+@partial(_zero_inflated_zero_log_prob.defjvp, symbolic_zeros=True)
+def _zero_inflated_zero_log_prob_jvp(
+    primals: tuple[Array, Array],
+    tangents: tuple[Union[Array, SymbolicZero], Union[Array, SymbolicZero]],
+) -> tuple[Array, Array]:
+    gate, log_prob = primals
+    gate_tangent, log_prob_tangent = tangents
+    result = _zero_inflated_zero_log_prob(gate, log_prob)
+    tangent = jnp.zeros_like(result)
+    # A constant gate must not contribute 0 * inf when its derivative overflows.
+    if not isinstance(gate_tangent, SymbolicZero):
+        tangent -= gate_tangent * jnp.expm1(log_prob) * jnp.exp(-result)
+    if not isinstance(log_prob_tangent, SymbolicZero):
+        tangent += log_prob_tangent * (1 - gate) * jnp.exp(log_prob - result)
+    return result, tangent
 
 
 class ZeroInflatedProbs(Distribution):
