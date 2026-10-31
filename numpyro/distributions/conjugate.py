@@ -21,7 +21,11 @@ from numpyro.distributions.discrete import (
     ZeroInflatedDistribution,
 )
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import promote_shapes, validate_sample
+from numpyro.distributions.util import (
+    promote_shapes,
+    promote_to_inexact,
+    validate_sample,
+)
 from numpyro.util import is_prng_key
 
 
@@ -716,6 +720,7 @@ class NegativeBinomialLogits(GammaPoisson):
         *,
         validate_args: Optional[bool] = None,
     ):
+        logits = promote_to_inexact(logits)
         self.total_count, self.logits = promote_shapes(total_count, logits)
         concentration = total_count
         rate = jnp.exp(jnp.negative(logits))
