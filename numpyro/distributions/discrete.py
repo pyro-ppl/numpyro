@@ -828,8 +828,6 @@ class CategoricalLogits(Distribution):
             category; :math:`+\infty` is rejected since the softmax is then undefined.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        # Lists must become arrays for the sampler; NumPy inputs stay NumPy.
-        logits = logits if isinstance(logits, jax.Array) else np.asarray(logits)
         logits = promote_to_inexact(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
