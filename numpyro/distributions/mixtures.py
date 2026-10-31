@@ -326,8 +326,8 @@ class MixtureSameFamily(_MixtureBase):
         return self.component_distribution.variance
 
     def component_cdf(self, samples: ArrayLike) -> Array:
-        return self.component_distribution.cdf(
-            jnp.expand_dims(samples, axis=self.mixture_dim)
+        return _component_cdf(
+            self.component_distribution, jnp.expand_dims(samples, axis=self.mixture_dim)
         )
 
     def component_sample(
@@ -379,6 +379,10 @@ class MixtureGeneral(_MixtureBase):
 
     .. math::
         F(x) = \sum_{k=1}^{K} \pi_k \, F_k(x).
+
+    Each :math:`F_k` is taken as 0 below and 1 above the component's own support.
+    At a closed lower bound, the component's own cdf is used, preserving any
+    point mass and its boundary-gradient behavior.
 
     Sampling draws one value from every component and keeps the one selected by
     a component index :math:`k \sim \mathrm{Categorical}(\boldsymbol\pi)`;
@@ -547,30 +551,9 @@ class MixtureGeneral(_MixtureBase):
         )
 
     def component_cdf(self, samples: ArrayLike) -> Array:
-        component_cdfs = []
-        for d in self.component_distributions:
-            support = d.support
-            lower_bound = getattr(support, "lower_bound", None)
-            upper_bound = getattr(support, "upper_bound", None)
-            if support is None or (lower_bound is None and upper_bound is None):
-                # no bounds to apply, e.g. `real` or a TFP distribution's support
-                component_cdfs.append(d.cdf(samples))
-                continue
-            # components may have different supports, outside of which their cdf
-            # need not be 0 below or 1 above (e.g. `HalfNormal(1.0).cdf(-1.0) < 0`);
-            # evaluate it at a feasible point there so its gradients stay finite
-            # a continuous cdf is 0 at its lower bound; a discrete one is not
-            below = (jnp.less if support.is_discrete else jnp.less_equal)(
-                samples, -jnp.inf if lower_bound is None else lower_bound
-            )
-            above = jnp.greater_equal(
-                samples, jnp.inf if upper_bound is None else upper_bound
-            )
-            shape = jnp.broadcast_shapes(jnp.shape(samples), d.shape())
-            feasible = support.feasible_like(jnp.zeros(shape))
-            cdf = d.cdf(jnp.where(below | above, feasible, samples))
-            cdf = jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
-            component_cdfs.append(cdf)
+        component_cdfs = [
+            _component_cdf(d, samples) for d in self.component_distributions
+        ]
         return jnp.stack(
             jnp.broadcast_arrays(*component_cdfs),
             axis=self.mixture_dim,
@@ -599,6 +582,31 @@ class MixtureGeneral(_MixtureBase):
             jnp.broadcast_arrays(*component_log_probs), axis=-1
         )
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
+
+
+def _component_cdf(d: Distribution, samples: ArrayLike) -> Array:
+    support = d.support
+    lower_bound = getattr(support, "lower_bound", None)
+    upper_bound = getattr(support, "upper_bound", None)
+    if support is None or (lower_bound is None and upper_bound is None):
+        # No bounds to apply, e.g. `real` or a TFP distribution's support.
+        return d.cdf(samples)
+
+    # Evaluate outside-support samples at a feasible point to avoid NaN gradients.
+    # A closed lower bound may carry an atom, so retain the component's own cdf.
+    if lower_bound is None:
+        below = jnp.zeros(jnp.shape(samples), dtype=bool)
+    else:
+        below = jnp.where(
+            support(lower_bound),
+            jnp.less(samples, lower_bound),
+            jnp.less_equal(samples, lower_bound),
+        )
+    above = jnp.greater_equal(samples, jnp.inf if upper_bound is None else upper_bound)
+    shape = jnp.broadcast_shapes(jnp.shape(samples), d.shape())
+    feasible = support.feasible_like(jnp.zeros(shape))
+    cdf = d.cdf(jnp.where(below | above, feasible, samples))
+    return jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
 
 
 def _check_mixing_distribution(mixing_distribution: Distribution) -> None:
