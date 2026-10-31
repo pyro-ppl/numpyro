@@ -195,7 +195,7 @@ def test_mixture_cdf_common_support(same_family):
     scales = np.array([0.3, 1.0])
 
     def cdf(scales):
-        components = (
+        components: dist.Distribution | list[dist.Distribution] = (
             dist.HalfNormal(scales)
             if same_family
             else [dist.HalfNormal(scales[0]), dist.HalfNormal(scales[1])]
