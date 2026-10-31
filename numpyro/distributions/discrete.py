@@ -1767,6 +1767,19 @@ class Poisson(Distribution):
         return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, cdf))
 
 
+@jax.custom_jvp
+def _zero_inflated_zero_log_prob(gate: ArrayLike, log_prob: ArrayLike) -> Array:
+    return jnp.logaddexp(jnp.log(gate), jnp.log1p(-gate) + log_prob)
+
+
+# Differentiate the mixture rather than the endpoint logarithms. This keeps
+# d/dgate = (1 - exp(log_prob)) / exp(result) at gate=0 and gate=1.
+_zero_inflated_zero_log_prob.defjvps(
+    lambda t, result, gate, log_prob: -t * jnp.expm1(log_prob) * jnp.exp(-result),
+    lambda t, result, gate, log_prob: t * (1 - gate) * jnp.exp(log_prob - result),
+)
+
+
 class ZeroInflatedProbs(Distribution):
     r"""
     A generic zero-inflated distribution built from a discrete base distribution.
@@ -1840,12 +1853,15 @@ class ZeroInflatedProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
-        # Keep the unused zero branch finite for positive observations.
-        zero_log_prob = jnp.where(value == 0, log_prob, 0.0)
-        return jnp.where(
-            value == 0, jnp.log(self.gate + jnp.exp(zero_log_prob)), log_prob
+        base_log_prob = self.base_dist.log_prob(value)
+        # Mask inputs of both branches: an unused endpoint log or overflowing
+        # gate derivative must not contaminate the selected branch's gradient.
+        log_prob = jnp.log1p(-jnp.where(value == 0, 0.0, self.gate)) + base_log_prob
+        zero_log_prob = _zero_inflated_zero_log_prob(
+            jnp.where(value == 0, self.gate, 0.5),
+            jnp.where(value == 0, base_log_prob, 0.0),
         )
+        return jnp.where(value == 0, zero_log_prob, log_prob)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:

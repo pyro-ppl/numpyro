@@ -2187,6 +2187,124 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=2e-6)
 
 
+@pytest.mark.parametrize("family", ["poisson", "geometric"])
+@pytest.mark.parametrize("gate", [0.0, 0.25])
+@pytest.mark.parametrize("value", [0.0, 5.0, 50.0, 100.0, 300.0])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_zero_inflated_positive_observation_gradients(family, gate, value, compiled):
+    # Explicit float32 also exercises the underflow path with x64 enabled.
+    parameter = jnp.array(2.0 if family == "poisson" else 0.0, dtype=jnp.float32)
+    probability = jnp.array(gate, dtype=jnp.float32)
+    observation = jnp.array(value, dtype=jnp.float32)
+
+    def score(p, g):
+        base = dist.Poisson(p) if family == "poisson" else dist.GeometricLogits(p)
+        return dist.ZeroInflatedProbs(base, g).log_prob(observation)
+
+    evaluate = jax.value_and_grad(score, argnums=(0, 1))
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual, derivatives = evaluate(parameter, probability)
+    if family == "poisson":
+        base_log_prob = osp.poisson.logpmf(value, 2.0)
+        base_derivative = value / 2.0 - 1.0
+    else:
+        base_log_prob = osp.geom.logpmf(value + 1, 0.5)
+        base_derivative = (1.0 - value) / 2.0
+    if value == 0:
+        mass = np.exp(base_log_prob)
+        total = gate + (1 - gate) * mass
+        expected = np.log(total)
+        expected_derivatives = (
+            (1 - gate) * mass * base_derivative / total,
+            (1 - mass) / total,
+        )
+    else:
+        expected = np.log1p(-gate) + base_log_prob
+        expected_derivatives = (base_derivative, -1 / (1 - gate))
+    assert_allclose(actual, expected, rtol=2e-5, atol=1e-6)
+    assert_allclose(derivatives, expected_derivatives, rtol=1e-6, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "family", ["generic", "factory", "poisson", "negative_binomial"]
+)
+@pytest.mark.parametrize(
+    "rate, gate, values",
+    [
+        (200.0, 0.0, [0.0, 1.0, 0.0, 100.0]),
+        (200.0, 1e-5, [0.0, 1.0, 0.0, 100.0]),
+        (2.0, 1.0, [0.0, 0.0]),
+        (2.0, 0.0, [0.0, 100.0]),
+        (2.0, 0.25, [0.0, 1.0, 50.0]),
+        (1e-6, 1.0, [0.0]),
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+def test_zero_inflated_zero_observation_gradients(family, rate, gate, values, compiled):
+    observation = jnp.asarray(values)
+    parameter = jnp.full(observation.shape, rate)
+    probability = jnp.full(observation.shape, gate)
+
+    def score(p, g):
+        if family == "negative_binomial":
+            d = dist.ZeroInflatedNegativeBinomial2(mean=p, concentration=3.0, gate=g)
+        elif family == "poisson":
+            d = dist.ZeroInflatedPoisson(rate=p, gate=g)
+        elif family == "factory":
+            d = dist.ZeroInflatedDistribution(dist.Poisson(p), gate=g)
+        else:
+            d = dist.ZeroInflatedProbs(dist.Poisson(p), gate=g)
+        return d.log_prob(observation).sum()
+
+    evaluate = jax.value_and_grad(score, argnums=(0, 1))
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual, derivatives = evaluate(parameter, probability)
+    values = np.asarray(values)
+    if family == "negative_binomial":
+        base_log_prob = osp.nbinom.logpmf(values, 3.0, 3.0 / (3.0 + rate))
+        base_derivative = values / rate - (3.0 + values) / (3.0 + rate)
+    else:
+        base_log_prob = osp.poisson.logpmf(values, rate)
+        base_derivative = values / rate - 1.0
+    with np.errstate(divide="ignore", over="ignore"):
+        zero_log_prob = np.logaddexp(np.log(gate), np.log1p(-gate) + base_log_prob)
+        expected = np.where(values == 0, zero_log_prob, np.log1p(-gate) + base_log_prob)
+        weight = (1 - gate) * np.exp(base_log_prob - zero_log_prob)
+        gate_derivative = -np.expm1(base_log_prob) * np.exp(-zero_log_prob)
+        gate_derivative = np.where(
+            gate_derivative > np.finfo(probability.dtype).max, np.inf, gate_derivative
+        )
+        expected_gate = np.where(
+            values == 0, gate_derivative, -np.divide(1.0, 1 - gate)
+        )
+    expected_parameter = np.where(
+        values == 0, weight * base_derivative, base_derivative
+    )
+    assert_allclose(actual, expected.sum(), rtol=2e-5, atol=1e-6)
+    assert_allclose(derivatives[0], expected_parameter, rtol=2e-5, atol=1e-6)
+    assert_allclose(derivatives[1], expected_gate, rtol=2e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("gate", [0.0, 0.25, 1.0])
+def test_zero_inflated_zero_observation_hessian(gate):
+    rate = 2.0
+
+    def score(parameters):
+        return dist.ZeroInflatedPoisson(
+            gate=parameters[0], rate=parameters[1]
+        ).log_prob(0)
+
+    actual = jax.jit(jax.hessian(score))(jnp.array([gate, rate]))
+    p = np.exp(-rate)
+    total = gate + (1 - gate) * p
+    gradient = np.array([(1 - p) / total, -(1 - gate) * p / total])
+    expected = np.array([[0.0, p], [p, (1 - gate) * p]]) / total
+    expected -= np.outer(gradient, gradient)
+    assert_allclose(actual, expected, rtol=2e-5, atol=1e-6)
+
+
 def test_zero_inflated_logits_probs_agree():
     concentration = np.exp(np.random.normal(1))
     rate = np.exp(np.random.normal(1))
@@ -6391,42 +6509,3 @@ def test_poisson_cdf_support_limits(rate, compiled):
     expected[finite] = -osp.poisson.pmf(np.floor(np.asarray(values)[finite]), rate)
     assert_allclose(derivative, expected, atol=1e-6)
     assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))
-
-
-@pytest.mark.parametrize("family", ["poisson", "geometric"])
-@pytest.mark.parametrize("gate", [0.0, 0.25])
-@pytest.mark.parametrize("value", [0.0, 5.0, 50.0, 100.0, 300.0])
-@pytest.mark.parametrize("compiled", [False, True])
-def test_zero_inflated_positive_observation_gradients(family, gate, value, compiled):
-    # Explicit float32 also exercises the underflow path with x64 enabled.
-    parameter = jnp.array(2.0 if family == "poisson" else 0.0, dtype=jnp.float32)
-    probability = jnp.array(gate, dtype=jnp.float32)
-    observation = jnp.array(value, dtype=jnp.float32)
-
-    def score(p, g):
-        base = dist.Poisson(p) if family == "poisson" else dist.GeometricLogits(p)
-        return dist.ZeroInflatedProbs(base, g).log_prob(observation)
-
-    evaluate = jax.value_and_grad(score, argnums=(0, 1))
-    if compiled:
-        evaluate = jax.jit(evaluate)
-    actual, derivatives = evaluate(parameter, probability)
-    if family == "poisson":
-        base_log_prob = osp.poisson.logpmf(value, 2.0)
-        base_derivative = value / 2.0 - 1.0
-    else:
-        base_log_prob = osp.geom.logpmf(value + 1, 0.5)
-        base_derivative = (1.0 - value) / 2.0
-    if value == 0:
-        mass = np.exp(base_log_prob)
-        total = gate + (1 - gate) * mass
-        expected = np.log(total)
-        expected_derivatives = (
-            (1 - gate) * mass * base_derivative / total,
-            (1 - mass) / total,
-        )
-    else:
-        expected = np.log1p(-gate) + base_log_prob
-        expected_derivatives = (base_derivative, -1 / (1 - gate))
-    assert_allclose(actual, expected, rtol=2e-5, atol=1e-6)
-    assert_allclose(derivatives, expected_derivatives, rtol=1e-6, atol=1e-6)
