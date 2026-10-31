@@ -534,6 +534,7 @@ class BinomialLogits(Distribution):
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
+        logits = promote_to_inexact(logits)
         self.logits, self.total_count = promote_shapes(logits, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
@@ -829,6 +830,7 @@ class CategoricalLogits(Distribution):
         """
         # Lists must become arrays for the sampler; NumPy inputs stay NumPy.
         logits = logits if isinstance(logits, jax.Array) else np.asarray(logits)
+        logits = promote_to_inexact(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
