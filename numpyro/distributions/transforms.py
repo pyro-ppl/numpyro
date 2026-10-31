@@ -242,8 +242,11 @@ class AbsTransform(ParameterFreeTransform[NumLike]):
 
 class AffineTransform(Transform[NumLike]):
     """
-    .. note:: For half-bounded domains, when `scale` is a JAX tracer, we
-        assume that `scale > 0` when calculating `codomain`.
+    .. note:: For half-bounded domains, `codomain` is a single
+        `greater_than` or `less_than` constraint, so all elements of `scale`
+        must have the same sign. A concrete `scale` with mixed signs raises a
+        `ValueError`. When `scale` is a JAX tracer, its sign is unknown and we
+        assume that `scale > 0`.
     """
 
     def __init__(
@@ -257,28 +260,52 @@ class AffineTransform(Transform[NumLike]):
     def domain(self) -> Constraint:
         return self._domain
 
+    def _flips_half_bounded_domain(self) -> bool:
+        # we suppose scale > 0 for any tracer
+        if not not_jax_tracer(self.scale):
+            return False
+        negative = np.less(self.scale, 0)
+        if np.all(negative):
+            return True
+        if np.any(negative):
+            raise ValueError(
+                "AffineTransform with a half-bounded domain requires all elements"
+                " of `scale` to have the same sign, but got mixed signs."
+            )
+        return False
+
     @property
     def codomain(self) -> Constraint:
         if self.domain is constraints.real:
             return constraints.real
         elif isinstance(self.domain, constraints.greater_than):
-            if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
-                return constraints.less_than(self(self.domain.lower_bound))
-            # we suppose scale > 0 for any tracer
-            else:
-                return constraints.greater_than(self(self.domain.lower_bound))
+            bound = self(self.domain.lower_bound)
+            closed = isinstance(self.domain, constraints.greater_than_eq)
+            if self._flips_half_bounded_domain():
+                if closed:
+                    return constraints.less_than_eq(bound)
+                return constraints.less_than(bound)
+            if closed:
+                return constraints.greater_than_eq(bound)
+            return constraints.greater_than(bound)
         elif isinstance(self.domain, constraints.less_than):
-            if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
-                return constraints.greater_than(self(self.domain.upper_bound))
-            # we suppose scale > 0 for any tracer
-            else:
-                return constraints.less_than(self(self.domain.upper_bound))
+            bound = self(self.domain.upper_bound)
+            closed = isinstance(self.domain, constraints.less_than_eq)
+            if self._flips_half_bounded_domain():
+                if closed:
+                    return constraints.greater_than_eq(bound)
+                return constraints.greater_than(bound)
+            if closed:
+                return constraints.less_than_eq(bound)
+            return constraints.less_than(bound)
         elif isinstance(self.domain, constraints.interval):
             bound1 = self(self.domain.lower_bound)
             bound2 = self(self.domain.upper_bound)
-            return constraints.interval(
-                jnp.minimum(bound1, bound2), jnp.maximum(bound1, bound2)
-            )
+            lower = jnp.minimum(bound1, bound2)
+            upper = jnp.maximum(bound1, bound2)
+            if isinstance(self.domain, constraints.open_interval):
+                return constraints.open_interval(lower, upper)
+            return constraints.interval(lower, upper)
         else:
             raise NotImplementedError
 

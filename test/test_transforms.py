@@ -6,12 +6,14 @@ from functools import partial
 import math
 
 import numpy as np
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
 import jax
 from jax import jacfwd, jit, random, vmap
 import jax.numpy as jnp
 
+import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,
@@ -520,6 +522,148 @@ def test_compose_sequence_domain_codomain():
         assert y.ndim == event_dim
         assert composed.codomain.event_dim == event_dim
         assert composed.domain.event_dim == 1
+
+
+@pytest.mark.parametrize(
+    "scale, low, high",
+    [
+        ([2.0, 3.0], [-1.0, -5.0], [5.0, 4.0]),
+        ([-2.0, -3.0], [-3.0, -8.0], [3.0, 1.0]),
+        ([-2.0, 3.0], [-3.0, -5.0], [3.0, 4.0]),
+    ],
+    ids=["positive", "negative", "mixed"],
+)
+@pytest.mark.parametrize("compiled", [False, True], ids=["eager", "jit"])
+def test_affine_interval_support(scale, low, high, compiled):
+    def evaluate(scale):
+        base = dist.Uniform(-1.0, 2.0)
+        transform = AffineTransform(jnp.array([1.0, -2.0]), scale, domain=base.support)
+        transformed = dist.TransformedDistribution(base, transform)
+        # These are valid draws from the transformed distribution by construction.
+        samples = transformed.sample(random.key(42), (4,))
+        return (
+            transformed.support.lower_bound,
+            transformed.support.upper_bound,
+            transformed.support(samples),
+            transformed.log_prob(samples),
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual_low, actual_high, in_support, log_prob = evaluate(jnp.array(scale))
+    assert_allclose(actual_low, low)
+    assert_allclose(actual_high, high)
+    assert_array_equal(in_support, np.ones((4, 2), dtype=bool))
+    assert_allclose(log_prob, np.broadcast_to(-np.log([6.0, 9.0]), (4, 2)))
+
+
+@pytest.mark.parametrize(
+    "scale", [2.0, -2.0, [2.0, -3.0]], ids=["positive", "negative", "mixed"]
+)
+@pytest.mark.parametrize("compiled", [False, True], ids=["eager", "jit"])
+def test_affine_open_interval_codomain(scale, compiled):
+    def evaluate(scale):
+        transform = AffineTransform(
+            1.0, scale, domain=constraints.open_interval(0.0, 1.0)
+        )
+        codomain = transform.codomain
+        assert isinstance(codomain, constraints.open_interval)
+        return [codomain(transform(x)) for x in (0.0, 0.5, 1.0)]
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    at_lower, inside, at_upper = evaluate(jnp.array(scale))
+    assert not jnp.any(at_lower)
+    assert jnp.all(inside)
+    assert not jnp.any(at_upper)
+
+
+@pytest.mark.parametrize(
+    "domain, codomain_cls, scale",
+    [
+        (constraints.positive, constraints.greater_than, 2.0),
+        (constraints.positive, constraints.less_than, -2.0),
+        (constraints.positive, constraints.less_than, [-2.0, -3.0]),
+        (constraints.nonnegative, constraints.greater_than_eq, 2.0),
+        (constraints.nonnegative, constraints.less_than_eq, -2.0),
+        (constraints.less_than(1.0), constraints.less_than, 2.0),
+        (constraints.less_than(1.0), constraints.greater_than, -2.0),
+        (constraints.less_than_eq(1.0), constraints.greater_than_eq, -2.0),
+    ],
+    ids=[
+        "positive-pos",
+        "positive-neg",
+        "positive-neg_batch",
+        "nonnegative-pos",
+        "nonnegative-neg",
+        "less_than-pos",
+        "less_than-neg",
+        "less_than_eq-neg",
+    ],
+)
+def test_affine_half_bounded_codomain(domain, codomain_cls, scale):
+    transform = AffineTransform(1.0, np.array(scale), domain=domain)
+    codomain = transform.codomain
+    assert type(codomain) is codomain_cls
+    if isinstance(domain, constraints.greater_than):
+        bound, step = domain.lower_bound, 0.5
+    else:
+        bound, step = domain.upper_bound, -0.5
+    closed = isinstance(domain, (constraints.greater_than_eq, constraints.less_than_eq))
+    assert jnp.all(codomain(transform(bound + step)))
+    assert jnp.all(codomain(transform(bound)) == closed)
+    assert not jnp.any(codomain(transform(bound - step)))
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [constraints.positive, constraints.nonnegative, constraints.less_than(1.0)],
+    ids=["positive", "nonnegative", "less_than"],
+)
+def test_affine_half_bounded_mixed_sign_scale_raises(domain):
+    transform = AffineTransform(0.0, np.array([-2.0, 3.0]), domain=domain)
+    with pytest.raises(ValueError, match="same sign"):
+        transform.codomain
+
+
+def test_affine_half_bounded_mixed_sign_scale_distribution_raises():
+    transform = AffineTransform(
+        0.0, jnp.array([-2.0, 3.0]), domain=constraints.positive
+    )
+    with pytest.raises(ValueError, match="same sign"):
+        dist.TransformedDistribution(dist.Exponential(jnp.ones(2)), transform)
+
+
+@pytest.mark.parametrize(
+    "scale",
+    [
+        2.0,
+        pytest.param(
+            -2.0,
+            marks=pytest.mark.xfail(
+                raises=AssertionError,
+                strict=True,
+                reason="a traced scale is assumed positive for half-bounded domains",
+            ),
+        ),
+    ],
+    ids=["positive", "negative"],
+)
+@pytest.mark.parametrize("batched", [False, True], ids=["jit", "vmap"])
+def test_affine_half_bounded_traced_scale(scale, batched):
+    def in_support(scale):
+        transformed = dist.TransformedDistribution(
+            dist.Exponential(1.0),
+            AffineTransform(0.0, scale, domain=constraints.positive),
+        )
+        return transformed.support(transformed.sample(random.key(0), (3,)))
+
+    assert jnp.all(in_support(jnp.array(scale)))
+    if batched:
+        traced = vmap(in_support)(jnp.full((2,), scale))
+    else:
+        traced = jit(in_support)(jnp.array(scale))
+    assert jnp.all(traced)
 
 
 @pytest.mark.parametrize("T", [1, 2, 3, 4, 5, 8, 10, 16, 17])
