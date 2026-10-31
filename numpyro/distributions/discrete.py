@@ -50,6 +50,7 @@ from numpyro.distributions.util import (
     lazy_property,
     multinomial,
     promote_shapes,
+    promote_to_inexact,
     validate_sample,
 )
 from numpyro.util import is_prng_key, not_jax_tracer
@@ -99,7 +100,7 @@ class BernoulliProbs(Distribution):
         :param probs: Success probability in the interval :math:`[0, 1]`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.probs = probs
+        self.probs = promote_to_inexact(probs)
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -1822,6 +1823,7 @@ class ZeroInflatedProbs(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
+        gate = promote_to_inexact(gate)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
         support = base_dist.support
@@ -2029,7 +2031,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(jnp.asarray(gate), rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -2094,6 +2096,7 @@ class HurdleProbs(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        gate = promote_to_inexact(gate)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
         if base_dist.event_shape:
@@ -2346,7 +2349,7 @@ class HurdlePoisson(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(jnp.asarray(gate), rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -2376,7 +2379,7 @@ class GeometricProbs(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.probs = probs
+        self.probs = promote_to_inexact(probs)
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -2488,7 +2491,7 @@ class GeometricLogits(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.logits = logits
+        self.logits = promote_to_inexact(logits)
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
@@ -2557,8 +2560,7 @@ class GeometricLogits(Distribution):
         where :math:`p=\sigma(\ell)`. Computed directly as
         :math:`\exp(-\ell)` to avoid cancellation when :math:`p` rounds to one.
         """
-        logits = jnp.asarray(self.logits)
-        return jnp.exp(-logits.astype(jnp.result_type(logits, float)))
+        return jnp.exp(-jnp.asarray(self.logits))
 
     @property
     def variance(self) -> Array:

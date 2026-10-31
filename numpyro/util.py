@@ -42,10 +42,19 @@ def enable_x64(use_x64: bool = True) -> None:
     Changes the default array type to use 64 bit precision as in NumPy.
 
     :param bool use_x64: when `True`, JAX arrays will use 64 bits by default;
-        else 32 bits.
+        else 32 bits, unless the `JAX_ENABLE_X64` environment variable is set
+        to `"1"` or `"true"` (case-insensitive).
+    :raises ValueError: if `JAX_ENABLE_X64` is set to anything other than
+        `"0"`, `"1"`, `"false"` or `"true"` (case-insensitive).
     """
     if not use_x64:
-        use_x64 = bool(os.getenv("JAX_ENABLE_X64", 0))
+        env_value = os.getenv("JAX_ENABLE_X64", "0")
+        if env_value.lower() not in ("0", "1", "false", "true"):
+            raise ValueError(
+                "JAX_ENABLE_X64 must be one of '0', '1', 'false' or 'true', "
+                f"got {env_value!r}."
+            )
+        use_x64 = env_value.lower() in ("1", "true")
     jax.config.update("jax_enable_x64", use_x64)
 
 
