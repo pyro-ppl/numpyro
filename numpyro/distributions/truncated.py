@@ -26,6 +26,7 @@ from numpyro.distributions.continuous import (
 )
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
+    _cdf_within_support,
     clamp_probs,
     lazy_property,
     promote_shapes,
@@ -1833,13 +1834,12 @@ class DoublyTruncatedPowerLaw(Distribution):
 
             return primal_out, tangent_out
 
-        below_support = jnp.less(value, self.low)
-        above_support = jnp.greater(value, self.high)
-        safe_value = jnp.where(
-            below_support | above_support, (self.low + self.high) / 2, value
+        return _cdf_within_support(
+            lambda x: f(x, self.alpha, self.low, self.high),
+            value,
+            self.support.lower_bound,
+            self.support.upper_bound,
         )
-        cdf = f(safe_value, self.alpha, self.low, self.high)
-        return jnp.where(below_support, 0.0, jnp.where(above_support, 1.0, cdf))
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function for :math:`0 \leq q \leq 1`.

@@ -6,7 +6,7 @@ from collections import namedtuple
 import functools as ft
 from functools import partial, update_wrapper
 import math
-from typing import Any
+from typing import Any, Callable, Optional
 import warnings
 
 import numpy as np
@@ -557,6 +557,36 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> Array:
 def clamp_probs(probs: ArrayLike) -> Array:
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
+
+
+def _cdf_within_support(
+    cdf_fn: Callable[[ArrayLike], ArrayLike],
+    value: ArrayLike,
+    low: ArrayLike,
+    high: Optional[ArrayLike] = None,
+    include_low: bool = True,
+) -> Array:
+    """
+    Evaluate ``cdf_fn`` on the support and return 0 below and 1 above it.
+
+    Values outside the support are replaced by a point strictly inside it before
+    ``cdf_fn`` is called, so that out-of-support evaluations cannot leak NaNs into
+    the result or its gradients.
+
+    :param cdf_fn: Cumulative distribution function, valid on the support.
+    :param value: Value to evaluate.
+    :param low: Lower bound of the support.
+    :param high: Upper bound of the support, or ``None`` if it is unbounded above.
+    :param include_low: Whether ``cdf_fn`` is evaluated at ``value == low``. Set to
+        ``False`` if its gradients are not finite at the lower bound.
+    :return: The cumulative distribution function evaluated at ``value``.
+    """
+    below = jnp.less(value, low) if include_low else jnp.less_equal(value, low)
+    above = False if high is None else jnp.greater(value, high)
+    # Strictly interior points, matching feasible_like of greater_than and interval.
+    safe_value = low + 1 if high is None else (low + high) / 2
+    cdf = cdf_fn(jnp.where(below | above, safe_value, value))
+    return jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
 
 
 def betainc(a, b, x):

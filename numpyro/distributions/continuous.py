@@ -76,6 +76,7 @@ from numpyro.distributions.transforms import (
     ZeroSumTransform,
 )
 from numpyro.distributions.util import (
+    _cdf_within_support,
     _reshape,
     add_diag,
     assert_one_of,
@@ -427,12 +428,12 @@ class Beta(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        # Evaluate outside the support at a safe point so gradients stay finite.
-        below_support = jnp.less(value, 0)
-        above_support = jnp.greater(value, 1)
-        safe_value = jnp.where(below_support | above_support, 0.5, value)
-        cdf = betainc(self.concentration1, self.concentration0, safe_value)
-        return jnp.where(below_support, 0.0, jnp.where(above_support, 1.0, cdf))
+        return _cdf_within_support(
+            lambda x: betainc(self.concentration1, self.concentration0, x),
+            value,
+            self.support.lower_bound,
+            self.support.upper_bound,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -1003,10 +1004,11 @@ class Exponential(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        below_support = jnp.less(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        cdf = -jnp.expm1(jnp.negative(self.rate) * safe_value)
-        return jnp.where(below_support, 0.0, cdf)
+        return _cdf_within_support(
+            lambda x: -jnp.expm1(jnp.negative(self.rate) * x),
+            value,
+            self.support.lower_bound,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -1119,10 +1121,11 @@ class Gamma(Distribution):
         This method uses regularized incomplete gamma function,
         which is implemented as :func:`~jax.scipy.special.gammainc`.
         """
-        below_support = jnp.less(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        cdf = gammainc(self.concentration, self.rate * safe_value)
-        return jnp.where(below_support, 0.0, cdf)
+        return _cdf_within_support(
+            lambda x: gammainc(self.concentration, self.rate * x),
+            value,
+            self.support.lower_bound,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
@@ -1615,9 +1618,9 @@ class HalfCauchy(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        below_support = jnp.less(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        return jnp.where(below_support, 0.0, self._cauchy.cdf(safe_value) * 2 - 1)
+        return _cdf_within_support(
+            lambda x: self._cauchy.cdf(x) * 2 - 1, value, self.support.lower_bound
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -1730,9 +1733,9 @@ class HalfNormal(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        below_support = jnp.less(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        return jnp.where(below_support, 0.0, self._normal.cdf(safe_value) * 2 - 1)
+        return _cdf_within_support(
+            lambda x: self._normal.cdf(x) * 2 - 1, value, self.support.lower_bound
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -1857,9 +1860,9 @@ class InverseGamma(TransformedDistribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        below_support = jnp.less_equal(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        return jnp.where(below_support, 0.0, super().cdf(safe_value))
+        return _cdf_within_support(
+            super().cdf, value, self.support.lower_bound, include_low=False
+        )
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Inverse-Gamma distribution:
@@ -1977,10 +1980,11 @@ class Gompertz(Distribution):
         :param value: Positive point :math:`x` at which to evaluate the CDF.
         :return: Probability that a Gompertz random variable is at most ``value``.
         """
-        below_support = jnp.less(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        cdf = -jnp.expm1(-self.concentration * jnp.expm1(safe_value * self.rate))
-        return jnp.where(below_support, 0.0, cdf)
+        return _cdf_within_support(
+            lambda x: -jnp.expm1(-self.concentration * jnp.expm1(x * self.rate)),
+            value,
+            self.support.lower_bound,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse Cumulative Distribution Function (quantile function),
@@ -2791,9 +2795,9 @@ class LogNormal(TransformedDistribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        below_support = jnp.less_equal(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        return jnp.where(below_support, 0.0, super().cdf(safe_value))
+        return _cdf_within_support(
+            super().cdf, value, self.support.lower_bound, include_low=False
+        )
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Normal distribution:
@@ -3012,13 +3016,9 @@ class LogUniform(TransformedDistribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        below_support = jnp.less(value, self.low)
-        above_support = jnp.greater(value, self.high)
-        safe_value = jnp.where(
-            below_support | above_support, (self.low + self.high) / 2, value
+        return _cdf_within_support(
+            super().cdf, value, self.support.lower_bound, self.support.upper_bound
         )
-        cdf = super().cdf(safe_value)
-        return jnp.where(below_support, 0.0, jnp.where(above_support, 1.0, cdf))
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Uniform distribution:
@@ -4439,9 +4439,12 @@ class Pareto(TransformedDistribution):
         return jnp.where(self.alpha <= 2, jnp.inf, a)
 
     def cdf(self, value: ArrayLike) -> Array:
-        below_support = jnp.less(value, self.scale)
-        safe_value = jnp.where(below_support, self.scale + 1, value)
-        return jnp.where(below_support, 0.0, super().cdf(safe_value))
+        r"""Cumulative distribution function, which is zero for :math:`x < x_m`.
+
+        :param value: Value to evaluate.
+        :type value: ArrayLike
+        """
+        return _cdf_within_support(super().cdf, value, self.support.lower_bound)
 
     # override the default behaviour to save computations
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -5082,17 +5085,17 @@ class Weibull(Distribution):
         return ll
 
     def cdf(self, value: ArrayLike) -> Array:
-        below_support = jnp.less(value, 0)
-        safe_value = jnp.where(below_support, 1.0, value)
-        scaled_value = (safe_value / self.scale) ** self.concentration
-        # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
-        # Use exp there to retain its derivative, and expm1 near zero.
-        cdf = jnp.where(
-            scaled_value < jnp.log(2),
-            -jnp.expm1(-scaled_value),
-            1 - jnp.exp(-scaled_value),
-        )
-        return jnp.where(below_support, 0.0, cdf)
+        def _cdf(value: ArrayLike) -> Array:
+            scaled_value = (value / self.scale) ** self.concentration
+            # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
+            # Use exp there to retain its derivative, and expm1 near zero.
+            return jnp.where(
+                scaled_value < jnp.log(2),
+                -jnp.expm1(-scaled_value),
+                1 - jnp.exp(-scaled_value),
+            )
+
+        return _cdf_within_support(_cdf, value, self.support.lower_bound)
 
     @property
     def mean(self) -> Array:
@@ -6260,12 +6263,12 @@ class Levy(Distribution):
         :param value: samples from Lévy distribution.
         :return: output of the cumulative distribution function evaluated at `value`.
         """
-        shifted_value = value - self.loc
-        below_support = jnp.less_equal(shifted_value, 0)
-        safe_shifted_value = jnp.where(below_support, self.scale, shifted_value)
-        inv_standardized = self.scale / safe_shifted_value
-        cdf = 2.0 - 2.0 * ndtr(jnp.sqrt(inv_standardized))
-        return jnp.where(below_support, 0.0, cdf)
+        return _cdf_within_support(
+            lambda x: 2.0 - 2.0 * ndtr(jnp.sqrt(self.scale / (x - self.loc))),
+            value,
+            self.support.lower_bound,
+            include_low=False,
+        )
 
     @property
     def mean(self) -> Array:

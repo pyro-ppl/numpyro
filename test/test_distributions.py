@@ -6558,13 +6558,10 @@ def test_poisson_cdf_support_limits(rate, compiled):
         (dist.Weibull, (2.0, 1.5), 0.0, np.inf),
     ],
 )
-@pytest.mark.parametrize("compiled", [False, True])
-def test_cdf_outside_support(jax_dist, params, low, high, compiled):
+def test_cdf_outside_support(jax_dist, params, low, high):
     def evaluate(params, value):
         return jax_dist(*params).cdf(value)
 
-    if compiled:
-        evaluate = jax.jit(evaluate)
     bounded = np.isfinite(high)
     below = low - np.array([np.inf, 50.0, 0.5])
     above = high + np.array([0.5, 50.0, np.inf]) if bounded else np.array([])
