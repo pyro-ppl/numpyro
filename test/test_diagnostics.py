@@ -13,6 +13,7 @@ from numpyro.diagnostics import (
     effective_sample_size,
     gelman_rubin,
     hpdi,
+    print_summary,
     split_gelman_rubin,
     summary,
 )
@@ -122,3 +123,75 @@ def test_summary_median_propagates_nan():
     stats = summary({"x": x})["x"]
     assert np.isnan(stats["median"][1])
     assert not np.isnan(stats["median"][[0, 2]]).any()
+
+
+@pytest.mark.parametrize("group_by_chain", [True, False])
+@pytest.mark.parametrize("num_draws", [500, 501])
+def test_summary_equal_log_weights_match_unweighted(group_by_chain, num_draws):
+    rng = np.random.RandomState(0)
+    shape = (2, num_draws) if group_by_chain else (num_draws,)
+    x = rng.randn(*shape, 3)
+    log_weights = np.full(shape, 123.4)
+    kwargs = {"group_by_chain": group_by_chain}
+    expected = summary({"x": x}, **kwargs)["x"]
+    actual = summary({"x": x}, log_weights=log_weights, **kwargs)["x"]
+    assert "r_hat" not in actual
+    for key in ["mean", "std", "median", "5.0%", "95.0%"]:
+        assert_allclose(actual[key], expected[key], rtol=1e-6)
+    assert_allclose(actual["n_eff"], np.full(3, x.size // 3))
+
+
+def test_summary_integer_weights_match_repeated_draws():
+    # weighting draws by integer counts is the same as repeating them
+    rng = np.random.RandomState(1)
+    x = rng.randn(1, 200, 2)
+    counts = rng.randint(1, 6, size=200)
+    repeated = np.repeat(x, counts, axis=1)
+    actual = summary({"x": x}, prob=0.8, log_weights=np.log(counts)[None])["x"]
+    expected = summary({"x": repeated}, prob=0.8)["x"]
+    for key in ["mean", "median", "10.0%", "90.0%"]:
+        assert_allclose(actual[key], expected[key], rtol=1e-6)
+    expected_std = np.sqrt(np.diag(np.cov(x[0].T, aweights=counts, ddof=1)))
+    assert_allclose(actual["std"], expected_std, rtol=1e-6)
+    assert_allclose(actual["n_eff"], counts.sum() ** 2 / (counts**2).sum())
+
+
+def test_summary_log_weights_importance_sampling():
+    # self-normalized importance sampling of N(1, 0.5) with a N(0, 2) proposal
+    rng = np.random.RandomState(2)
+    x = 2.0 * rng.randn(200_000)
+    log_weights = -0.5 * ((x - 1.0) / 0.5) ** 2 + 0.5 * (x / 2.0) ** 2 + 700.0
+    stats = summary(x, group_by_chain=False, log_weights=log_weights)["Param:0"]
+    assert_allclose(stats["mean"], 1.0, atol=0.01)
+    assert_allclose(stats["std"], 0.5, atol=0.01)
+    assert_allclose(stats["median"], 1.0, atol=0.01)
+    # equal-tailed and highest density 90% intervals agree for a normal
+    assert_allclose(stats["5.0%"], 1.0 - 1.6449 * 0.5, atol=0.02)
+    assert_allclose(stats["95.0%"], 1.0 + 1.6449 * 0.5, atol=0.02)
+    assert 0 < stats["n_eff"] < x.shape[0]
+
+
+def test_summary_log_weights_ignore_zero_weight_draws():
+    rng = np.random.RandomState(3)
+    x = rng.randn(1, 300)
+    log_weights = np.zeros((1, 300))
+    log_weights[0, ::3] = -np.inf
+    x_kept = x[:, np.isfinite(log_weights[0])]
+    actual = summary({"x": x}, log_weights=log_weights)["x"]
+    expected = summary({"x": x_kept})["x"]
+    for key in ["mean", "std", "median", "5.0%", "95.0%"]:
+        assert_allclose(actual[key], expected[key], rtol=1e-6)
+    assert_allclose(actual["n_eff"], 200)
+
+
+def test_summary_log_weights_bad_shape():
+    with pytest.raises(ValueError, match="log_weights"):
+        summary({"x": np.zeros((2, 10))}, log_weights=np.zeros(10))
+
+
+def test_print_summary_log_weights(capsys):
+    x = np.random.RandomState(4).randn(100, 2)
+    print_summary({"x": x}, group_by_chain=False, log_weights=np.zeros(100))
+    out = capsys.readouterr().out
+    assert "n_eff" in out and "r_hat" not in out
+    assert "x[0]" in out and "x[1]" in out
