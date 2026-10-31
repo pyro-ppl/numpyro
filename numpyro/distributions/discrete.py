@@ -1769,7 +1769,7 @@ class Poisson(Distribution):
 
 
 @jax.custom_jvp
-def _zero_inflated_zero_log_prob(gate: ArrayLike, log_prob: ArrayLike) -> Array:
+def _zero_inflated_zero_log_prob(gate: Array, log_prob: Array) -> Array:
     return jnp.logaddexp(jnp.log(gate), jnp.log1p(-gate) + log_prob)
 
 
