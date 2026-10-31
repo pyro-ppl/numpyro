@@ -547,10 +547,32 @@ class MixtureGeneral(_MixtureBase):
         )
 
     def component_cdf(self, samples: ArrayLike) -> Array:
+        component_cdfs = []
+        for d in self.component_distributions:
+            support = d.support
+            lower_bound = getattr(support, "lower_bound", None)
+            upper_bound = getattr(support, "upper_bound", None)
+            if support is None or (lower_bound is None and upper_bound is None):
+                # no bounds to apply, e.g. `real` or a TFP distribution's support
+                component_cdfs.append(d.cdf(samples))
+                continue
+            # components may have different supports, outside of which their cdf
+            # need not be 0 below or 1 above (e.g. `HalfNormal(1.0).cdf(-1.0) < 0`);
+            # evaluate it at a feasible point there so its gradients stay finite
+            # a continuous cdf is 0 at its lower bound; a discrete one is not
+            below = (jnp.less if support.is_discrete else jnp.less_equal)(
+                samples, -jnp.inf if lower_bound is None else lower_bound
+            )
+            above = jnp.greater_equal(
+                samples, jnp.inf if upper_bound is None else upper_bound
+            )
+            shape = jnp.broadcast_shapes(jnp.shape(samples), d.shape())
+            feasible = support.feasible_like(jnp.zeros(shape))
+            cdf = d.cdf(jnp.where(below | above, feasible, samples))
+            cdf = jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
+            component_cdfs.append(cdf)
         return jnp.stack(
-            jnp.broadcast_arrays(
-                *[d.cdf(samples) for d in self.component_distributions]
-            ),
+            jnp.broadcast_arrays(*component_cdfs),
             axis=self.mixture_dim,
         )
 
