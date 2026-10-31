@@ -84,6 +84,8 @@ class EnsembleSampler(MCMCKernel, ABC):
 
         self._model = model
         self._potential_fn = potential_fn
+        self._potential_fn_gen = None
+        self._unravel_fn = None
         self._batch_log_density = None
         # unravel an (n_chains, n_params) Array into a pytree and
         # evaluate the log density at each chain
@@ -140,12 +142,14 @@ class EnsembleSampler(MCMCKernel, ABC):
                 validate_grad=False,
             )
             new_init_params = new_params_info[0]
+            self._potential_fn_gen = potential_fn_gen
             self._potential_fn = potential_fn_gen(*model_args, **model_kwargs)
 
             if init_params is None:
                 init_params = new_init_params
 
         flat_params, unravel_fn = batch_ravel_pytree(init_params)
+        self._unravel_fn = unravel_fn
         self._batch_log_density = lambda z: -vmap(self._potential_fn)(unravel_fn(z))
 
         if self._num_chains < 2 * flat_params.shape[1]:
@@ -197,6 +201,21 @@ class EnsembleSampler(MCMCKernel, ABC):
         return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
+        if getattr(self, "_potential_fn_gen", None) is None:
+            return self._sample_impl(state, model_args, model_kwargs)
+        model_args = () if model_args is None else model_args
+        model_kwargs = {} if model_kwargs is None else model_kwargs
+        potential_fn = self._potential_fn_gen(*model_args, **model_kwargs)
+        previous_log_density = self._batch_log_density
+        # Keep subclass hooks unchanged, without retaining a traced target on the
+        # kernel. Like init, sampling one kernel concurrently is not supported.
+        self._batch_log_density = lambda z: -vmap(potential_fn)(self._unravel_fn(z))
+        try:
+            return self._sample_impl(state, model_args, model_kwargs)
+        finally:
+            self._batch_log_density = previous_log_density
+
+    def _sample_impl(self, state, model_args, model_kwargs):
         z, inner_state, rng_key = state
         rng_key, _ = random.split(rng_key)
         z_flat, unravel_fn = batch_ravel_pytree(z)

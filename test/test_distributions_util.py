@@ -356,6 +356,17 @@ def test_binomial_non_threefry_matches_sequential(impl):
     assert_array_equal(binomial(key, p, n), expected)
 
 
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.int16, jnp.uint8])
+def test_binomial_total_count_dtype(dtype):
+    # draws must not depend on the dtype of the counts, and keep that dtype
+    p = jnp.array([0.0, 0.05, 0.3, 0.5, 0.9, 1.0])
+    n = jnp.array([10, 20, 50, 200, 30, 7])
+    expected = binomial(random.key(0), p, n)
+    actual = binomial(random.key(0), p, n.astype(dtype))
+    assert actual.dtype == dtype
+    assert_array_equal(actual, expected)
+
+
 @pytest.mark.parametrize("concentration", [1, 10, 100])
 def test_von_mises_centered(concentration):
     samples = von_mises_centered(random.key(0), concentration, shape=(10000,))

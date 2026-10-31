@@ -7,6 +7,9 @@ This module contains spectral densities for various kernel functions.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from types import ModuleType
+
 from jax import Array, vmap
 import jax.numpy as jnp
 from jax.scipy import special
@@ -17,6 +20,23 @@ from numpyro.contrib.hsgp.laplacian import sqrt_eigenvalues
 
 def align_param(dim, param):
     return jnp.broadcast_to(param, jnp.broadcast_shapes(jnp.shape(param), (dim,)))
+
+
+def _exp_floored(log_density: Array) -> Array:
+    # Floor at the smallest positive normal so that ``jnp.sqrt`` of the density
+    # keeps a finite gradient where the density underflows.
+    density = jnp.exp(log_density)
+    return jnp.maximum(density, jnp.finfo(density.dtype).tiny)
+
+
+def _log_spectral_density_squared_exponential(
+    dim: int, w: ArrayLike, alpha: ArrayLike, length: ArrayLike
+) -> Array:
+    length = align_param(dim, length)
+    log_c = jnp.log(alpha) + jnp.sum(
+        0.5 * jnp.log(2 * jnp.pi) + jnp.log(length), axis=-1
+    )
+    return log_c - 0.5 * jnp.sum(w**2 * length**2, axis=-1)
 
 
 def spectral_density_squared_exponential(
@@ -52,10 +72,28 @@ def spectral_density_squared_exponential(
     :return: spectral density value
     :rtype: Array
     """
+    return _exp_floored(
+        _log_spectral_density_squared_exponential(
+            dim=dim, w=w, alpha=alpha, length=length
+        )
+    )
+
+
+def _log_spectral_density_matern(
+    dim: int, nu: float, w: ArrayLike, alpha: ArrayLike, length: ArrayLike
+) -> Array:
     length = align_param(dim, length)
-    c = jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1) * alpha
-    e = jnp.exp(-0.5 * jnp.sum(w**2 * length**2, axis=-1))
-    return c * e
+    log_c = (
+        jnp.log(alpha)
+        + dim * jnp.log(2.0)
+        + (dim / 2) * jnp.log(jnp.pi)
+        + nu * jnp.log(2 * nu)
+        + special.gammaln(nu + dim / 2)
+        - special.gammaln(nu)
+        + jnp.sum(jnp.log(length), axis=-1)
+    )
+    s = jnp.sum(length**2 * w**2, axis=-1)
+    return log_c - (nu + dim / 2) * jnp.log(2 * nu + s)
 
 
 def spectral_density_matern(
@@ -92,18 +130,20 @@ def spectral_density_matern(
     :return: spectral density value
     :rtype: Array
     """  # noqa: E501
-    length = align_param(dim, length)
-    c1 = (
-        alpha
-        * (2 ** (dim))
-        * (jnp.pi ** (dim / 2))
-        * ((2 * nu) ** nu)
-        * special.gamma(nu + dim / 2)
+    return _exp_floored(
+        _log_spectral_density_matern(dim=dim, nu=nu, w=w, alpha=alpha, length=length)
     )
-    s = jnp.sum(length**2 * w**2, axis=-1)
-    c2 = jnp.prod(length, axis=-1) * (2 * nu + s) ** (-nu - dim / 2)
-    c3 = special.gamma(nu)
-    return c1 * c2 / c3
+
+
+def _eval_at_sqrt_eigenvalues(
+    fn: Callable[[Array], Array],
+    ell: float | int | list[float | int],
+    m: int | list[int],
+    dim: int,
+) -> Array:
+    """Evaluate ``fn`` at each of the first :math:`D \\times m^\\star` square root eigenvalues."""
+    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)  # dim x prod(m)
+    return vmap(fn, in_axes=-1)(sqrt_eigenvalues_)
 
 
 def diag_spectral_density_squared_exponential(
@@ -129,19 +169,14 @@ def diag_spectral_density_squared_exponential(
     :rtype: Array
     """
 
-    def _spectral_density(w):
+    def _spectral_density(w: Array) -> Array:
         return spectral_density_squared_exponential(
-            dim=dim,
-            w=w,
-            alpha=alpha,
-            length=length,
+            dim=dim, w=w, alpha=alpha, length=length
         )
 
-    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)  # dim x m
-    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
+    return _eval_at_sqrt_eigenvalues(_spectral_density, ell=ell, m=m, dim=dim)
 
 
-# TODO support length-D kernel hyperparameters
 def diag_spectral_density_matern(
     nu: float,
     alpha: ArrayLike,
@@ -167,34 +202,93 @@ def diag_spectral_density_matern(
     :rtype: Array
     """
 
-    def _spectral_density(w):
+    def _spectral_density(w: Array) -> Array:
         return spectral_density_matern(dim=dim, nu=nu, w=w, alpha=alpha, length=length)
 
-    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)
-    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
+    return _eval_at_sqrt_eigenvalues(_spectral_density, ell=ell, m=m, dim=dim)
 
 
-def modified_bessel_second_kind(v, z):
-    """
-    Modified Bessel function of the second kind K_v(z).
-
-    Uses the exponentially scaled version from TensorFlow Probability for numerical stability.
-
-    :param v: order of the Bessel function
-    :param z: argument
-    :return: K_v(z)
-    """
+def _import_tfp() -> ModuleType:
     try:
         from tensorflow_probability.substrates import jax as tfp
     except ImportError as e:
         raise ImportError(
-            "TensorFlow Probability is required for the Rational Quadratic kernel spectral density."
+            "TensorFlow Probability is required for the rational quadratic and "
+            "periodic spectral densities."
         ) from e
+    return tfp
 
-    v = jnp.asarray(v, dtype=float)
-    z = jnp.asarray(z, dtype=float)
-    # bessel_kve returns K_v(z) * exp(z), so we multiply by exp(-z) to get K_v(z)
-    return jnp.exp(-z) * tfp.math.bessel_kve(v, z)
+
+def _log_spectral_density_rational_quadratic(
+    dim: int,
+    w: ArrayLike,
+    alpha: ArrayLike,
+    length: ArrayLike,
+    scale_mixture: ArrayLike,
+) -> Array:
+    tfp = _import_tfp()
+
+    # Only support isotropic (scalar) length scale
+    length = jnp.atleast_1d(length)
+    if length.shape[-1] > 1 and dim > 1:
+        raise NotImplementedError(
+            "Rational Quadratic spectral density currently only supports "
+            "isotropic (scalar) length scales."
+        )
+    length_scalar = jnp.mean(length)  # Use scalar length
+
+    # Compute scaling parameter: a = sqrt(2 * scale_mixture) * length
+    a = jnp.sqrt(2 * scale_mixture) * length_scalar
+
+    # Compute |ω| (magnitude of frequency vector)
+    w = jnp.atleast_1d(w)
+    abs_w = jnp.sqrt(jnp.sum(w**2, axis=-1))
+    scaled_w = a * abs_w
+    small = abs_w < 1e-8
+
+    # Order of Bessel function: ν = α_mix - D/2. TFP requires the order and the
+    # argument to share a dtype.
+    nu = scale_mixture - dim / 2
+    dtype = jnp.result_type(float, scaled_w, nu)
+    nu = jnp.asarray(nu, dtype=dtype)
+
+    # Dimension-dependent correction factor: (2 * α_mix)^((D-1)/2)
+    log_dim_factor = ((dim - 1) / 2) * jnp.log(2 * scale_mixture)
+
+    # For small ω, use asymptotic expansion: z^ν K_ν(z) → Γ(ν) 2^(ν-1) as z → 0
+    # S(0) = α * π^(D/2) * a^D * (2*α_mix)^((D-1)/2) * Γ(α_mix - D/2) / Γ(α_mix)
+    # Note: This requires α_mix > D/2 for Γ(α_mix - D/2) to be positive and finite
+    log_S_0 = (
+        jnp.log(alpha)
+        + (dim / 2) * jnp.log(jnp.pi)
+        + dim * jnp.log(a)
+        + log_dim_factor
+        + special.gammaln(scale_mixture - dim / 2)
+        - special.gammaln(scale_mixture)
+    )
+
+    # For regular case (ω ≠ 0):
+    # S(ω) = α * (2π)^(D/2) * 2^(1-α_mix) * a * (2*α_mix)^((D-1)/2)
+    #        * (a|ω|)^(α_mix-D/2) * K_{α_mix-D/2}(a|ω|) / Γ(α_mix)
+    # The branch is evaluated at a safe argument where ``small`` holds so that
+    # log(0) cannot leak NaNs into the gradient through ``jnp.where``, and
+    # log K_ν(z) = log(K_ν(z) exp(z)) - z is taken from the exponentially scaled
+    # Bessel function so it stays finite where K_ν(z) underflows.
+    safe_z = jnp.where(small, 1.0, scaled_w).astype(dtype)
+    log_bessel = tfp.math.log_bessel_kve(nu, safe_z) - safe_z
+    log_S_regular = (
+        jnp.log(alpha)
+        + (dim / 2) * jnp.log(2 * jnp.pi)
+        + (1 - scale_mixture) * jnp.log(2)
+        + jnp.log(a)
+        + log_dim_factor
+        + nu * jnp.log(safe_z)
+        + log_bessel
+        - special.gammaln(scale_mixture)
+    )
+
+    # Use S_0 for small ω, S_regular otherwise
+    return jnp.where(small, log_S_0, log_S_regular)
 
 
 def spectral_density_rational_quadratic(
@@ -239,6 +333,9 @@ def spectral_density_rational_quadratic(
         For :math:`\\alpha_{\\text{mix}} \\leq D/2`, the spectral density diverges at :math:`\\omega = 0`.
         The HSGP approximation for the RQ kernel may require larger ``ell`` values compared
         to the Squared Exponential kernel due to the heavier tails of the RQ kernel.
+        Gradients with respect to ``scale_mixture`` are not supported: the modified
+        Bessel function from TensorFlow Probability has no derivative with respect to
+        its order, so that contribution is silently dropped.
 
     **References:**
 
@@ -257,59 +354,11 @@ def spectral_density_rational_quadratic(
     :return: spectral density value
     :rtype: Array
     """
-    # Only support isotropic (scalar) length scale
-    length = jnp.atleast_1d(length)
-    if length.shape[-1] > 1 and dim > 1:
-        raise NotImplementedError(
-            "Rational Quadratic spectral density currently only supports "
-            "isotropic (scalar) length scales."
+    return _exp_floored(
+        _log_spectral_density_rational_quadratic(
+            dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
         )
-    length_scalar = jnp.mean(length)  # Use scalar length
-
-    # Compute scaling parameter: a = sqrt(2 * scale_mixture) * length
-    a = jnp.sqrt(2 * scale_mixture) * length_scalar
-
-    # Compute |ω| (magnitude of frequency vector)
-    w = jnp.atleast_1d(w)
-    abs_w = jnp.sqrt(jnp.sum(w**2, axis=-1))
-    scaled_w = a * abs_w
-
-    # Order of Bessel function: ν = α_mix - D/2
-    nu = scale_mixture - dim / 2
-
-    # Dimension-dependent correction factor: (2 * α_mix)^((D-1)/2)
-    log_dim_factor = ((dim - 1) / 2) * jnp.log(2 * scale_mixture)
-
-    # For small ω, use asymptotic expansion: z^ν K_ν(z) → Γ(ν) 2^(ν-1) as z → 0
-    # S(0) = α * π^(D/2) * a^D * (2*α_mix)^((D-1)/2) * Γ(α_mix - D/2) / Γ(α_mix)
-    # Note: This requires α_mix > D/2 for Γ(α_mix - D/2) to be positive and finite
-    log_S_0 = (
-        jnp.log(alpha)
-        + (dim / 2) * jnp.log(jnp.pi)
-        + dim * jnp.log(a)
-        + log_dim_factor
-        + special.gammaln(scale_mixture - dim / 2)
-        - special.gammaln(scale_mixture)
     )
-    S_0 = jnp.exp(log_S_0)
-
-    # For regular case (ω ≠ 0):
-    # S(ω) = α * (2π)^(D/2) * 2^(1-α_mix) * a * (2*α_mix)^((D-1)/2)
-    #        * (a|ω|)^(α_mix-D/2) * K_{α_mix-D/2}(a|ω|) / Γ(α_mix)
-    log_S_regular = (
-        jnp.log(alpha)
-        + (dim / 2) * jnp.log(2 * jnp.pi)
-        + (1 - scale_mixture) * jnp.log(2)
-        + jnp.log(a)
-        + log_dim_factor
-        + nu * jnp.log(scaled_w)
-        + jnp.log(modified_bessel_second_kind(nu, scaled_w))
-        - special.gammaln(scale_mixture)
-    )
-    S_regular = jnp.exp(log_S_regular)
-
-    # Use S_0 for small ω, S_regular otherwise
-    return jnp.where(abs_w < 1e-8, S_0, S_regular)
 
 
 def diag_spectral_density_rational_quadratic(
@@ -339,30 +388,12 @@ def diag_spectral_density_rational_quadratic(
     :rtype: Array
     """
 
-    def _spectral_density(w):
+    def _spectral_density(w: Array) -> Array:
         return spectral_density_rational_quadratic(
-            dim=dim,
-            w=w,
-            alpha=alpha,
-            length=length,
-            scale_mixture=scale_mixture,
+            dim=dim, w=w, alpha=alpha, length=length, scale_mixture=scale_mixture
         )
 
-    sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim=dim)
-    return vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
-
-
-def modified_bessel_first_kind(v, z):
-    try:
-        from tensorflow_probability.substrates import jax as tfp
-    except ImportError as e:
-        raise ImportError(
-            "TensorFlow Probability is required for this function."
-        ) from e
-
-    v = jnp.asarray(v, dtype=float)
-    z = jnp.asarray(z, dtype=float)
-    return jnp.exp(jnp.abs(z)) * tfp.math.bessel_ive(v, z)
+    return _eval_at_sqrt_eigenvalues(_spectral_density, ell=ell, m=m, dim=dim)
 
 
 def diag_spectral_density_periodic(
@@ -386,7 +417,15 @@ def diag_spectral_density_periodic(
     :return: "spectral density" vector
     :rtype: Array
     """
-    a = length ** (-2)
-    j = jnp.arange(0, m)
+    tfp = _import_tfp()
+    # q_j^2 = c_j alpha^2 I_j(a) / exp(a) with a = length^-2; the exponentially
+    # scaled I_j(a) exp(-a) stays finite where exp(a) overflows (length <~ 0.1 in
+    # single precision). TFP requires the order and the argument to share a dtype.
+    a = jnp.asarray(length) ** -2.0
+    dtype = jnp.result_type(float, a)
+    a = a.astype(dtype)
+    j = jnp.arange(0, m, dtype=dtype)
     c = jnp.where(j > 0, 2, 1)
-    return (c * alpha**2 / jnp.exp(a)) * modified_bessel_first_kind(j, a)
+    q2 = c * alpha**2 * tfp.math.bessel_ive(j, a)
+    # Strictly positive, like the other densities (see ``_exp_floored``).
+    return jnp.maximum(q2, jnp.finfo(q2.dtype).tiny)

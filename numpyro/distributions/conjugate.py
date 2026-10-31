@@ -585,22 +585,32 @@ class GammaPoisson(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
-        distribution function is:
+        distribution function, for :math:`k = \lfloor x \rfloor \geq 0`, is:
 
         .. math::
-            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, x + 1)}
-            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{x} dt
+            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, k + 1)}
+            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{k} dt
 
-        which is the regularized incomplete beta function.
-        This implementation uses :func:`~jax.scipy.special.betainc`.
+        which is the regularized incomplete beta function. The CDF is zero for
+        :math:`x < 0` and one at :math:`x = \infty`.
+        This implementation uses :func:`~jax.scipy.special.betainc`, which does not
+        support gradients with respect to its first argument, so the CDF is not
+        differentiable with respect to ``concentration``.
         """
         rate_fraction = jnp.where(
             jnp.isinf(self.rate),
             jnp.ones_like(self.rate),
             self.rate / (self.rate + 1.0),
         )
-        bt = betainc(self.concentration, value + 1.0, rate_fraction)
-        return bt
+        value = jnp.floor(value)
+        is_negative = value < 0
+        is_inf = jnp.isposinf(value)
+        # betainc returns NaN for b close to the largest float, so clamp huge thresholds.
+        dtype = jnp.result_type(self.concentration, value, rate_fraction, float)
+        max_value = jnp.sqrt(jnp.finfo(dtype).max)
+        safe_value = jnp.where(is_negative | is_inf, 0.0, jnp.minimum(value, max_value))
+        bt = betainc(self.concentration, safe_value + 1.0, rate_fraction)
+        return jnp.where(is_negative, 0.0, jnp.where(is_inf, 1.0, bt))
 
 
 def NegativeBinomial(
@@ -610,11 +620,45 @@ def NegativeBinomial(
     *,
     validate_args: Optional[bool] = None,
 ) -> GammaPoisson:
-    """Factory function for Negative Binomial distribution.
+    r"""Factory function for the Negative Binomial distribution.
 
-    :param int total_count: Number of successful trials.
-    :param Optional[ArrayLike] probs: Probability of success for each trial, by default None
-    :param Optional[ArrayLike] logits: Log-odds of success for each trial, by default None
+    :math:`X \sim \mathrm{NB}(r, p)` counts the successes (probability :math:`p` each)
+    observed before the :math:`r`-th failure of a sequence of Bernoulli trials,
+
+    .. math::
+
+        P(X = k \mid r, p) = \frac{\Gamma(k + r)}{k!\,\Gamma(r)}\,(1 - p)^{r}\,p^{k},
+        \qquad k \in \mathbb{N},
+
+    with
+
+    .. math::
+
+        \mathbb{E}[X] = \frac{r p}{1 - p}, \qquad
+        \operatorname{Var}[X] = \frac{r p}{(1 - p)^2}, \qquad
+        F(k) = P(X \le k) = I_{1 - p}(r, k + 1),
+
+    where :math:`I_x(a, b)` is the regularized incomplete beta function. With
+    ``logits`` :math:`z`, :math:`p = \sigma(z)` and :math:`\mathbb{E}[X] = r e^{z}`.
+
+    The Negative Binomial is the Gamma–Poisson mixture
+    :math:`\lambda \sim \mathrm{Gamma}(r, \tfrac{1 - p}{p}),\ X \mid \lambda \sim
+    \mathrm{Poisson}(\lambda)`.
+
+    .. note::
+        Both returned classes subclass :class:`GammaPoisson` and sample as
+        Gamma→Poisson; the cdf is :meth:`GammaPoisson.cdf`.
+        :class:`NegativeBinomialLogits` evaluates ``log_prob``/``mean``/``variance``
+        directly in terms of the logits so that :math:`z = -\infty` is exact.
+        If both ``probs`` and ``logits`` are given, ``probs`` is used and ``logits``
+        is ignored.
+
+    :param total_count: Number of failures :math:`r > 0` at which the Bernoulli trials
+        stop (need not be an integer).
+    :param Optional[ArrayLike] probs: Success probability :math:`p` of each trial, by
+        default None.
+    :param Optional[ArrayLike] logits: Log-odds :math:`z = \log\frac{p}{1-p}`;
+        :math:`-\infty` puts all mass at zero. By default None.
     :param Optional[bool] validate_args: Whether to validate the parameters, by default None
     :return: An instance of :class:`NegativeBinomialProbs` or
         :class:`NegativeBinomialLogits` depending on the provided parameters.

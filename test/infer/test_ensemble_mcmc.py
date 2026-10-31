@@ -160,6 +160,74 @@ def test_random_move_mixed_with_other_move_smoke():
     assert mcmc.get_samples(group_by_chain=True)["coefs"].shape[0] == n_chains
 
 
+@pytest.mark.parametrize("kernel_cls", [AIES, ESS])
+@pytest.mark.parametrize("randomize_split", [False, True])
+def test_ensemble_changed_args_jit_oracle(kernel_cls, randomize_split):
+    def model(mean):
+        numpyro.sample("x", dist.Normal(mean, 1))
+
+    kernel = kernel_cls(model, randomize_split=randomize_split)
+    state = kernel.init(
+        random.split(random.key(0), 8),
+        0,
+        init_params={"x": jnp.linspace(-1, 1, 8)},
+        model_args=(0.0,),
+        model_kwargs={},
+    )
+    reference = kernel_cls(model, randomize_split=randomize_split)
+    reference.init(
+        random.split(random.key(0), 8),
+        0,
+        init_params={"x": jnp.linspace(-1, 1, 8)},
+        model_args=(10.0,),
+        model_kwargs={},
+    )
+    previous = kernel._batch_log_density
+    step = jax.jit(lambda state, mean: kernel.sample(state, (mean,), {}))
+    with jax.check_tracer_leaks():
+        first = step(state, 0.0)
+        actual = step(state, 10.0)
+        expected = reference.sample(state, (10.0,), {})
+    for left, right in zip(jax.tree.leaves(actual), jax.tree.leaves(expected)):
+        if hasattr(left, "dtype") and jax.dtypes.issubdtype(
+            left.dtype, jax.dtypes.prng_key
+        ):
+            left, right = random.key_data(left), random.key_data(right)
+        np.testing.assert_allclose(left, right, rtol=1e-5, atol=1e-6)
+    assert not jnp.allclose(first.z["x"], expected.z["x"])
+    assert kernel._batch_log_density is previous
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_ensemble_density_restored(raises):
+    class InspectingSampler(AIES):
+        def update_active_chains(self, active, inactive, inner_state):
+            density = self._batch_log_density(jnp.array([[2.0], [3.0]]))
+            np.testing.assert_allclose(density[1] - density[0], 7.5, rtol=1e-5)
+            if raises:
+                raise RuntimeError("hook failed")
+            return active, inner_state
+
+    def model(mean=0.0):
+        numpyro.sample("x", dist.Normal(mean, 1))
+
+    kernel = InspectingSampler(model)
+    state = kernel.init(
+        random.split(random.key(0), 8),
+        0,
+        init_params={"x": jnp.linspace(-1, 1, 8)},
+    )
+    previous = kernel._batch_log_density
+    # Use the Python-loop path so this hook can inspect concrete densities.
+    with jax.disable_jit(), jax.check_tracer_leaks():
+        if raises:
+            with pytest.raises(RuntimeError, match="hook failed"):
+                kernel.sample(state, None, {"mean": 10.0})
+        else:
+            kernel.sample(state, None, {"mean": 10.0})
+    assert kernel._batch_log_density is previous
+
+
 def test_ensemble_sampler_uses_complementary_halves():
     class ToyEnsembleSampler(EnsembleSampler):
         def __init__(self):

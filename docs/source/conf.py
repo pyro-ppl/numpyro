@@ -158,15 +158,22 @@ nbsphinx_prolog = r"""
 
 # -- Copy README files
 
-# replace "# NumPyro" by "# Getting Started with NumPyro"
+# replace "# NumPyro" by "# Getting Started with NumPyro", keeping the
+# README's centered header block (logo, tagline, links and badges)
 with open("../../README.md", "rt") as f:
     lines = f.readlines()
     for i, line in enumerate(lines):
         if "# NumPyro" == line.rstrip():
             break
-    lines = lines[i:]
-    lines[0] = "# Getting Started with NumPyro\n"
-    text = "\n".join(lines)
+    # move the title above the centered block (opening <div> and logo), so
+    # the title stays a top-level section and the block's </div> stays balanced
+    lines = ["# Getting Started with NumPyro\n", "\n"] + lines[:i] + lines[i + 1 :]
+    # render the tagline as bold text, not as a section heading
+    for j, line in enumerate(lines):
+        if line.startswith("### "):
+            lines[j] = "**" + line[4:].rstrip() + "**\n"
+            break
+    text = "".join(lines)
 
 with open("getting_started.rst", "wt") as f:
     f.write(nbsphinx.markdown2rst(text))
