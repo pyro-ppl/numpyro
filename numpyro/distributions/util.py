@@ -6,7 +6,7 @@ from collections import namedtuple
 import functools as ft
 from functools import partial, update_wrapper
 import math
-from typing import Any
+from typing import Any, Callable
 import warnings
 
 import numpy as np
@@ -557,6 +557,34 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> Array:
 def clamp_probs(probs: ArrayLike) -> Array:
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
+
+
+def cdf_within_support(
+    cdf_fn: Callable[[Array], Array], value: ArrayLike, support: Any
+) -> Array:
+    """Evaluate the univariate CDF ``cdf_fn`` at ``value``, returning 0 below and 1 above
+    ``support``.
+
+    ``cdf_fn`` is evaluated at an interior point instead of at values outside the support, so
+    that neither the result nor its gradients pick up a NaN there. NaN values propagate.
+    """
+    lower = getattr(support, "lower_bound", None)
+    upper = getattr(support, "upper_bound", None)
+    value = jnp.asarray(value)
+    if lower is None and upper is None:
+        return cdf_fn(value)
+    below = jnp.less(value, lower) if lower is not None else jnp.zeros_like(value, bool)
+    above = (
+        jnp.greater(value, upper) if upper is not None else jnp.zeros_like(value, bool)
+    )
+    if lower is None:
+        interior = upper - 1.0
+    elif upper is None:
+        interior = lower + 1.0
+    else:
+        interior = (lower + upper) / 2
+    cdf = cdf_fn(jnp.where(below | above, interior, value))
+    return jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
 
 
 def betainc(a, b, x):

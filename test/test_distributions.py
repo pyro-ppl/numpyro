@@ -2058,6 +2058,32 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         pytest.skip("cdf/icdf not implemented")
 
 
+@pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS)
+def test_cdf_outside_support(jax_dist, sp_dist, params):
+    d = jax_dist(*params)
+    if d.event_dim > 0:
+        pytest.skip("skip testing cdf of multivariate distributions")
+    lower = getattr(d.support, "lower_bound", None)
+    upper = getattr(d.support, "upper_bound", None)
+    values, expected = [-jnp.inf, jnp.inf], [0.0, 1.0]
+    if lower is not None:
+        values += [lower - 1.0, lower - 1e-3]
+        expected += [0.0, 0.0]
+    if upper is not None:
+        values += [upper + 1e-3, upper + 1.0]
+        expected += [1.0, 1.0]
+    values = jnp.stack([jnp.broadcast_to(v, d.batch_shape) for v in values])
+    expected = jnp.stack([jnp.full(d.batch_shape, e) for e in expected])
+    try:
+        actual = d.cdf(values)
+    except NotImplementedError:
+        pytest.skip("cdf not implemented")
+    assert_allclose(actual, expected)
+    finite = jnp.isfinite(values)
+    grad = jax.grad(lambda x: d.cdf(x).sum())(jnp.where(finite, values, 0.0))
+    assert jnp.isfinite(jnp.where(finite, grad, 0.0)).all()
+
+
 @pytest.mark.parametrize("low, high", [(2, 7), (-3, 4), (5, 5)])
 def test_discrete_uniform_icdf(low, high):
     d = dist.DiscreteUniform(low, high)
