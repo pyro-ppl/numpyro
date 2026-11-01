@@ -4786,8 +4786,9 @@ def test_pytree_fields_follow_mro_order(cls, data_fields, aux_fields):
 
     The order must not depend on the string hash seed: a distribution then
     flattens identically in every process, so JAX's persistent compilation
-    cache can reuse the programs jit lowers from it. A set-based gather would
-    produce all of these orders on only a tiny fraction of hash seeds.
+    cache can reuse the programs jit lowers from it. The expected tuples pin
+    the whole flattened layout, so adding a field to one of these classes
+    fails this test; that is expected, and updating the tuple is the fix.
     """
     assert cls.gather_pytree_data_fields() == data_fields
     assert cls.gather_pytree_aux_fields() == aux_fields
