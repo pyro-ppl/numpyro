@@ -1984,6 +1984,7 @@ class Gompertz(Distribution):
             lambda x: -jnp.expm1(-self.concentration * jnp.expm1(x * self.rate)),
             value,
             self.support.lower_bound,
+            safe_value=1 / self.rate,
         )
 
     def icdf(self, q: ArrayLike) -> Array:
@@ -5095,7 +5096,9 @@ class Weibull(Distribution):
                 1 - jnp.exp(-scaled_value),
             )
 
-        return _cdf_within_support(_cdf, value, self.support.lower_bound)
+        return _cdf_within_support(
+            _cdf, value, self.support.lower_bound, safe_value=self.scale
+        )
 
     @property
     def mean(self) -> Array:

@@ -6587,3 +6587,26 @@ def test_cdf_outside_support(jax_dist, params, low, high):
         expected = sp_dist(*params).cdf(inside)
         assert_allclose(evaluate(params, inside), expected, atol=1e-6, rtol=1e-5)
     assert jnp.isnan(evaluate(params, np.nan))
+
+
+@pytest.mark.parametrize(
+    "jax_dist, params, value",
+    [
+        (dist.Gompertz, (2.0, 100.0), -0.01),
+        (dist.Gompertz, (2.0, 1000.0), -0.01),
+        (dist.Gompertz, (np.array([2.0, 0.5]), np.array([[1.0], [1e3]])), -1.0),
+        (dist.Weibull, (1e-4, 10.0), -1e-6),
+        (dist.Weibull, (1e-4, 100.0), -1e-6),
+        (dist.Weibull, (np.array([1e-4, 1.0]), np.array([[1.0], [100.0]])), -1.0),
+    ],
+)
+def test_cdf_outside_support_grad(jax_dist, params, value):
+    # The point substituted outside the support must not overflow at the scale of
+    # the parameters, or reverse-mode gradients are NaN although the cdf is zero.
+    def evaluate(params, value):
+        return jax_dist(*params).cdf(value).sum()
+
+    assert evaluate(params, value) == 0.0
+    grads = jax.grad(evaluate, argnums=(0, 1))(params, value)
+    for derivative in jax.tree.leaves(grads):
+        assert_array_equal(derivative, 0.0)

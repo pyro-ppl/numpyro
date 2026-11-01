@@ -565,6 +565,7 @@ def _cdf_within_support(
     low: ArrayLike,
     high: Optional[ArrayLike] = None,
     include_low: bool = True,
+    safe_value: Optional[ArrayLike] = None,
 ) -> Array:
     """
     Evaluate ``cdf_fn`` on the support and return 0 below and 1 above it.
@@ -579,12 +580,19 @@ def _cdf_within_support(
     :param high: Upper bound of the support, or ``None`` if it is unbounded above.
     :param include_low: Whether ``cdf_fn`` is evaluated at ``value == low``. Set to
         ``False`` if its gradients are not finite at the lower bound.
+    :param safe_value: Point strictly inside the support that replaces values outside
+        it. Defaults to ``low + 1`` if the support is unbounded above and to its
+        midpoint otherwise. Pass a point at the scale of the parameters if
+        ``cdf_fn`` or its gradients can overflow at the default.
     :return: The cumulative distribution function evaluated at ``value``.
     """
     below = jnp.less(value, low) if include_low else jnp.less_equal(value, low)
     above = False if high is None else jnp.greater(value, high)
-    # Strictly interior points, matching feasible_like of greater_than and interval.
-    safe_value = low + 1 if high is None else (low + high) / 2
+    if safe_value is None:
+        # Strictly interior points, matching feasible_like of greater_than and interval.
+        safe_value = low + 1 if high is None else (low + high) / 2
+    # The substitute only picks where cdf_fn is evaluated, so it carries no gradient.
+    safe_value = lax.stop_gradient(safe_value)
     cdf = cdf_fn(jnp.where(below | above, safe_value, value))
     return jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
 
