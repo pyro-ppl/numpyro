@@ -6572,3 +6572,73 @@ def test_poisson_cdf_support_limits(rate, compiled):
     expected[finite] = -osp.poisson.pmf(np.floor(np.asarray(values)[finite]), rate)
     assert_allclose(derivative, expected, atol=1e-6)
     assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))
+
+
+@pytest.mark.parametrize("array_type", [np.array, jnp.array])
+def test_dirichlet_multinomial_bounded_count_jit(array_type):
+    concentration = jnp.array([[1.0, 1.0], [2.0, 2.0]])
+    mean = jax.jit(lambda d: d.mean)
+    variance = jax.jit(lambda d: d.variance)
+    sample = jax.jit(lambda d, key: d.sample(key))
+    log_prob = jax.jit(lambda d, value: d.log_prob(value))
+    for counts in ([2, 3], [4, 5]):
+        d = dist.DirichletMultinomial(
+            concentration, array_type(counts), total_count_max=10
+        )
+        expected_mean = np.array(counts)[:, None] * 0.5
+        expected_variance = (
+            np.array(counts)[:, None]
+            * 0.25
+            * (np.array(counts)[:, None] + np.array([[2], [4]]))
+            / np.array([[3], [5]])
+        )
+        assert_allclose(mean(d), np.broadcast_to(expected_mean, (2, 2)))
+        assert_allclose(variance(d), np.broadcast_to(expected_variance, (2, 2)))
+        draws = sample(d, random.key(0))
+        assert draws.shape == (2, 2)
+        assert_array_equal(draws.sum(-1), counts)
+        value = np.stack([counts, np.zeros(2, dtype=int)], -1)
+        expected_log_prob = osp.dirichlet_multinomial.logpmf(
+            value, np.array(concentration), np.array(counts)
+        )
+        assert_allclose(log_prob(d, value), expected_log_prob, rtol=1e-5)
+
+
+def test_dirichlet_multinomial_bounded_count_vmap():
+    concentration = jnp.array([[1.0, 1.0], [2.0, 2.0]])
+    counts = jnp.array([2, 3])
+    constructor = lambda a, n: dist.DirichletMultinomial(  # noqa: E731
+        a, n, total_count_max=10
+    )
+    mapped = jax.vmap(constructor)(concentration, counts)
+    actual = jax.vmap(lambda d: d.mean)(mapped)
+    assert_allclose(actual, np.array([[1.0, 1.0], [1.5, 1.5]]))
+    samples = jax.vmap(lambda d: d.sample(random.key(0)))(mapped)
+    assert samples.shape == (2, 2)
+    assert_array_equal(samples.sum(-1), counts)
+
+
+def test_dirichlet_multinomial_bounded_count_jit_constructor():
+    constructor = jax.jit(
+        lambda n: dist.DirichletMultinomial(jnp.ones(2), n, total_count_max=10)
+    )
+    d = constructor(jnp.array([2, 3]))
+    assert_allclose(d.mean, np.array([[1.0, 1.0], [1.5, 1.5]]))
+    assert_array_equal(d.sample(random.key(0)).sum(-1), np.array([2, 3]))
+
+
+@pytest.mark.parametrize("total_count", [0, 3])
+@pytest.mark.parametrize("total_count_max", [None, 10])
+def test_dirichlet_multinomial_static_count_pytree(total_count, total_count_max):
+    d = dist.DirichletMultinomial(
+        jnp.ones(2), total_count, total_count_max=total_count_max
+    )
+    leaves, treedef = jax.tree.flatten(d)
+    restored = jax.tree.unflatten(treedef, leaves)
+    assert_allclose(restored.mean, np.full(2, total_count / 2))
+    sample = jax.jit(lambda d, key: d.sample(key))(restored, random.key(0))
+    assert sample.shape == (2,)
+    assert sample.sum() == total_count
+    if total_count_max is None:
+        # Preserve the existing concrete-count sampler path without a bound.
+        assert isinstance(restored.total_count, int)

@@ -445,6 +445,8 @@ def _vmap_over_beta_binomial(
 @vmap_over.register
 def _vmap_over_dirichlet_multinomial(dist: DirichletMultinomial, concentration=None):
     dist_axes = _default_vmap_over(dist, concentration=concentration)
+    if dist.total_count_max is not None:
+        dist_axes.total_count = None
     dist_axes._dirichlet = vmap_over(dist._dirichlet, concentration=concentration)
     return dist_axes
 

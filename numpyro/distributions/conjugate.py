@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from typing import Optional
+from typing import Any, Optional, cast
 
 import jax
 from jax import Array, lax, nn, random
@@ -349,7 +349,7 @@ class DirichletMultinomial(Distribution):
         "concentration": constraints.independent(constraints.positive, 1),
         "total_count": constraints.nonnegative_integer,
     }
-    pytree_data_fields = ("concentration", "_dirichlet")
+    pytree_data_fields = ("concentration", "_dirichlet", "_dynamic_total_count")
     pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
@@ -379,6 +379,26 @@ class DirichletMultinomial(Distribution):
             self._dirichlet.event_shape,
             validate_args=validate_args,
         )
+
+    def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+        data, aux = super().tree_flatten()
+        if self.total_count_max is not None:
+            # A static bound makes the actual counts safe to vary under JAX transforms.
+            index = type(self).gather_pytree_data_fields().index("_dynamic_total_count")
+            data = data[:index] + (self.total_count,) + data[index + 1 :]
+            index = type(self).gather_pytree_aux_fields().index("total_count")
+            aux = aux[:index] + (None,) + aux[index + 1 :]
+        return data, aux
+
+    @classmethod
+    def tree_unflatten(
+        cls, aux_data: tuple[Any, ...], params: tuple[Any, ...]
+    ) -> "DirichletMultinomial":
+        d = cast(DirichletMultinomial, super().tree_unflatten(aux_data, params))
+        if d.total_count_max is not None:
+            index = cls.gather_pytree_data_fields().index("_dynamic_total_count")
+            d.total_count = params[index]
+        return d
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
