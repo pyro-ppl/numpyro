@@ -15,7 +15,7 @@ import numpyro
 from numpyro.contrib.hsgp.laplacian import eigenfunctions, eigenfunctions_periodic
 from numpyro.contrib.hsgp.spectral_densities import (
     diag_spectral_density_matern,
-    _log_diag_spectral_density_periodic,
+    diag_spectral_density_periodic,
     diag_spectral_density_rational_quadratic,
     diag_spectral_density_squared_exponential,
 )
@@ -249,6 +249,18 @@ def hsgp_periodic_non_centered(
     """
     Low rank approximation for the periodic squared exponential kernel in the non-centered parametrization.
 
+    The approximation is the linear model
+
+    .. math::
+
+        f(x) = \\sum_{j=0}^{m-1} \\tilde{q}_j \\left(
+            \\beta_j^{\\cos} \\cos(j w_0 x) + \\beta_j^{\\sin} \\sin(j w_0 x)\\right),
+        \\qquad \\beta_j^{\\cos}, \\beta_j^{\\sin} \\sim \\mathcal{N}(0, 1),
+
+    where :math:`\\tilde{q}_j^2 = c_j \\alpha^2 I_j(\\ell^{-2}) / \\exp(\\ell^{-2})`
+    (with :math:`c_0 = 1` and :math:`c_j = 2` for :math:`j \\geq 1`) are the
+    variance coefficients returned by
+    :func:`~numpyro.contrib.hsgp.spectral_densities.diag_spectral_density_periodic`.
     See Appendix B in [`1 <hsgp-periodic-non-centered-ref-1_>`__].
 
     **References:**
@@ -280,8 +292,7 @@ def hsgp_periodic_non_centered(
     zero = jnp.array([0.0])
     beta_sin = jnp.concatenate((zero, beta_sin))
 
-    q = jnp.exp(
-        0.5
-        * _log_diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
-    )
+    # Scale the standard normal coefficients by the square root of the variance
+    # coefficients q_j^2 (see gh-2366).
+    q = jnp.sqrt(diag_spectral_density_periodic(alpha=alpha, length=length, m=m))
     return cosines @ (q * beta_cos) + sines @ (q * beta_sin)

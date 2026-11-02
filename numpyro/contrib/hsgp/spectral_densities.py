@@ -399,26 +399,18 @@ def diag_spectral_density_rational_quadratic(
 def _log_diag_spectral_density_periodic(
     alpha: ArrayLike, length: ArrayLike, m: int
 ) -> Array:
-    """
-    Log of the periodic kernel variance coefficients.
-
-    Computes the coefficients in log space to avoid underflow in the modified
-    Bessel function for large basis sizes.
-    """
-    try:
-        from tensorflow_probability.substrates import jax as tfp
-    except ImportError as e:
-        raise ImportError(
-            "TensorFlow Probability is required for the periodic kernel spectral density."
-        ) from e
-
-    a = length ** (-2)
-    j = jnp.arange(0, m, dtype=jnp.result_type(a, float))
+    tfp = _import_tfp()
+    # q_j^2 = c_j alpha^2 I_j(a) / exp(a) with a = length^-2; the exponentially
+    # scaled ``log_bessel_ive`` gives log(I_j(a)) - a directly, which stays
+    # finite where exp(a) overflows (length <~ 0.1 in single precision) and
+    # where I_j(a) / exp(a) underflows (large m). TFP requires the order and
+    # the argument to share a dtype.
+    a = jnp.asarray(length) ** -2.0
+    dtype = jnp.result_type(float, a)
+    a = a.astype(dtype)
+    j = jnp.arange(0, m, dtype=dtype)
     c = jnp.where(j > 0, 2, 1)
-    alpha_nonzero = alpha != 0
-    safe_alpha2 = jnp.where(alpha_nonzero, alpha**2, 1)
-    log_alpha2 = jnp.where(alpha_nonzero, jnp.log(safe_alpha2), -jnp.inf)
-    return jnp.log(c) + log_alpha2 + tfp.math.log_bessel_ive(j, a)
+    return jnp.log(c) + 2 * jnp.log(alpha) + tfp.math.log_bessel_ive(j, a)
 
 
 def diag_spectral_density_periodic(
@@ -442,15 +434,6 @@ def diag_spectral_density_periodic(
     :return: "spectral density" vector
     :rtype: Array
     """
-    tfp = _import_tfp()
-    # q_j^2 = c_j alpha^2 I_j(a) / exp(a) with a = length^-2; the exponentially
-    # scaled I_j(a) exp(-a) stays finite where exp(a) overflows (length <~ 0.1 in
-    # single precision). TFP requires the order and the argument to share a dtype.
-    a = jnp.asarray(length) ** -2.0
-    dtype = jnp.result_type(float, a)
-    a = a.astype(dtype)
-    j = jnp.arange(0, m, dtype=dtype)
-    c = jnp.where(j > 0, 2, 1)
-    q2 = c * alpha**2 * tfp.math.bessel_ive(j, a)
-    # Strictly positive, like the other densities (see ``_exp_floored``).
-    return jnp.maximum(q2, jnp.finfo(q2.dtype).tiny)
+    return _exp_floored(
+        _log_diag_spectral_density_periodic(alpha=alpha, length=length, m=m)
+    )
