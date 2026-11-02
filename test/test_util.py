@@ -15,7 +15,13 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap
+from numpyro.util import (
+    check_model_guide_match,
+    enable_x64,
+    fori_collect,
+    format_shapes,
+    soft_vmap,
+)
 
 
 def test_fori_collect_thinning():
@@ -371,3 +377,36 @@ def test_missing_plate_in_model():
         numpyro.sample("x", dist.Normal(0, 1))
 
     _run_svi_check_warnings(model, guide, "Missing a plate statement")
+
+
+@pytest.mark.parametrize(
+    "env_value, expected",
+    [
+        ("0", False),
+        ("false", False),
+        ("False", False),
+        ("1", True),
+        ("true", True),
+        ("True", True),
+    ],
+)
+def test_enable_x64_false_respects_env_var(monkeypatch, env_value, expected):
+    original = jax.config.read("jax_enable_x64")
+    monkeypatch.setenv("JAX_ENABLE_X64", env_value)
+    try:
+        enable_x64(False)
+        assert jax.config.read("jax_enable_x64") is expected
+    finally:
+        jax.config.update("jax_enable_x64", original)
+
+
+@pytest.mark.parametrize("env_value", ["", "yes", "2", "on"])
+def test_enable_x64_invalid_env_var(monkeypatch, env_value):
+    original = jax.config.read("jax_enable_x64")
+    monkeypatch.setenv("JAX_ENABLE_X64", env_value)
+    try:
+        with pytest.raises(ValueError, match="JAX_ENABLE_X64 must be one of"):
+            enable_x64(False)
+        assert jax.config.read("jax_enable_x64") is original
+    finally:
+        jax.config.update("jax_enable_x64", original)

@@ -1052,7 +1052,7 @@ class Independent(Distribution):
         >>> [diag_normal.batch_shape, diag_normal.event_shape]
         [(), (3,)]
 
-    :param numpyro.distribution.Distribution base_distribution: a distribution instance.
+    :param numpyro.distribution.Distribution base_dist: a distribution instance.
     :param int reinterpreted_batch_ndims: the number of batch dims to reinterpret as event dims.
     """
 
