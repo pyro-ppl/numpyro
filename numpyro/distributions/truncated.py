@@ -935,12 +935,11 @@ class LeftTruncatedGamma(Distribution):
         return jnp.where(jnp.greater_equal(q, 1.0), jnp.inf, x)
 
     def cdf(self, value: ArrayLike) -> Array:
-        sf = gammaincc(self.base_dist.concentration, self.base_dist.rate * value)
-        cdf = jnp.where(
-            jnp.less(value, self.low),
-            0.0,
-            jnp.clip(1 - sf / self._normalizer, 0.0, 1.0),
-        )
+        def _cdf(value: ArrayLike) -> Array:
+            sf = gammaincc(self.base_dist.concentration, self.base_dist.rate * value)
+            return jnp.clip(1 - sf / self._normalizer, 0.0, 1.0)
+
+        cdf = _cdf_within_support(_cdf, value, self.support)
         return jnp.where(jnp.greater(self._normalizer, 0.0), cdf, jnp.nan)
 
     def _pdf(self, value: ArrayLike) -> Array:
@@ -1073,12 +1072,11 @@ class RightTruncatedGamma(Distribution):
         return jnp.where(invalid, jnp.nan, x)
 
     def cdf(self, value: ArrayLike) -> Array:
-        cdf = gammainc(self.base_dist.concentration, self.base_dist.rate * value)
-        cdf = jnp.where(
-            jnp.greater(value, self.high),
-            1.0,
-            jnp.clip(cdf / self._normalizer, 0.0, 1.0),
-        )
+        def _cdf(value: ArrayLike) -> Array:
+            cdf = gammainc(self.base_dist.concentration, self.base_dist.rate * value)
+            return jnp.clip(cdf / self._normalizer, 0.0, 1.0)
+
+        cdf = _cdf_within_support(_cdf, value, self.support)
         return jnp.where(jnp.greater(self._normalizer, 0.0), cdf, jnp.nan)
 
     def _pdf(self, value: ArrayLike) -> Array:
@@ -1249,22 +1247,18 @@ class TwoSidedTruncatedGamma(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         concentration, rate = self.base_dist.concentration, self.base_dist.rate
-        truncated_cdf = jnp.where(
-            self._use_upper_tail,
-            (self._sf_at_low - gammaincc(concentration, rate * value))
-            / self._normalizer,
-            (gammainc(concentration, rate * value) - self._cdf_at_low)
-            / self._normalizer,
-        )
-        cdf = jnp.where(
-            jnp.less(value, self.low),
-            0.0,
-            jnp.where(
-                jnp.greater(value, self.high),
-                1.0,
-                jnp.clip(truncated_cdf, 0.0, 1.0),
-            ),
-        )
+
+        def _cdf(value: ArrayLike) -> Array:
+            truncated_cdf = jnp.where(
+                self._use_upper_tail,
+                (self._sf_at_low - gammaincc(concentration, rate * value))
+                / self._normalizer,
+                (gammainc(concentration, rate * value) - self._cdf_at_low)
+                / self._normalizer,
+            )
+            return jnp.clip(truncated_cdf, 0.0, 1.0)
+
+        cdf = _cdf_within_support(_cdf, value, self.support)
         return jnp.where(jnp.greater(self._normalizer, 0.0), cdf, jnp.nan)
 
     def _pdf(self, value: ArrayLike) -> Array:

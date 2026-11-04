@@ -6543,6 +6543,7 @@ def test_poisson_cdf_support_limits(rate, compiled):
         (dist.Beta, (2.0, 3.0), 0.0, 1.0),
         (dist.BetaProportion, (0.4, 5.0), 0.0, 1.0),
         (dist.Chi2, (3.0,), 0.0, np.inf),
+        (dist.Dagum, (2.0, 2.0, 3.0), 0.0, np.inf),
         (dist.DoublyTruncatedPowerLaw, (-1.5, 1.0, 5.0), 1.0, 5.0),
         (dist.DoublyTruncatedPowerLaw, (-1.0, 1.0, 5.0), 1.0, 5.0),
         (dist.Exponential, (2.0,), 0.0, np.inf),
@@ -6555,6 +6556,11 @@ def test_poisson_cdf_support_limits(rate, compiled):
         (dist.LogNormal, (0.3, 1.0), 0.0, np.inf),
         (dist.LogUniform, (1.0, 10.0), 1.0, 10.0),
         (dist.Pareto, (2.0, 3.0), 2.0, np.inf),
+        (_TruncatedGamma, (2.0, 1.5, 0.5, None), 0.5, np.inf),
+        (_TruncatedGamma, (2.0, 1.5, None, 3.0), 0.0, 3.0),
+        (_TruncatedGamma, (2.0, 1.5, 0.5, 3.0), 0.5, 3.0),
+        # The interval lies above the median, so the upper-tail form is used.
+        (_TruncatedGamma, (2.0, 1.5, 4.0, 6.0), 4.0, 6.0),
         (dist.Weibull, (2.0, 1.5), 0.0, np.inf),
     ],
 )
@@ -6569,13 +6575,15 @@ def test_cdf_outside_support(jax_dist, params, low, high):
     expected = np.concatenate([np.zeros(below.shape), np.ones(above.shape)])
     assert_array_equal(evaluate(params, outside), expected)
     # The cdf is constant outside the support, so its derivatives vanish there.
-    for derivative in jax.jacfwd(evaluate)(params, outside):
-        assert_array_equal(derivative, 0.0)
-    value_grad = jax.vmap(jax.grad(evaluate, argnums=1), in_axes=(None, 0))
-    assert_array_equal(value_grad(params, outside), 0.0)
+    # Reverse mode also propagates NaNs out of the unselected branch of a where,
+    # which forward mode drops.
+    for jacobian in (jax.jacfwd, jax.jacrev):
+        derivatives = jacobian(evaluate, argnums=(0, 1))(params, outside)
+        for derivative in jax.tree.leaves(derivatives):
+            assert_array_equal(derivative, 0.0)
     # The lower bound may be excluded from the support, but gradients stay finite.
     assert evaluate(params, low) == 0.0
-    assert np.isfinite(jax.grad(evaluate)(params, low)).all()
+    assert np.isfinite(jax.tree.leaves(jax.grad(evaluate)(params, low))).all()
 
     inside = low + (
         (high - low) * np.array([0.25, 0.5, 0.75])
@@ -6595,14 +6603,17 @@ def test_cdf_outside_support(jax_dist, params, low, high):
         (dist.Gompertz, (2.0, 100.0), -0.01),
         (dist.Gompertz, (2.0, 1000.0), -0.01),
         (dist.Gompertz, (np.array([2.0, 0.5]), np.array([[1.0], [1e3]])), -1.0),
+        (dist.Levy, (1e10, 1e3), 1e10 * (1 - 1e-3) - 1.0),
+        (dist.Levy, (np.array([0.0, 1e10]), np.array([[1e3], [1e6]])), -1.0),
         (dist.Weibull, (1e-4, 10.0), -1e-6),
         (dist.Weibull, (1e-4, 100.0), -1e-6),
         (dist.Weibull, (np.array([1e-4, 1.0]), np.array([[1.0], [100.0]])), -1.0),
     ],
 )
 def test_cdf_outside_support_grad(jax_dist, params, value):
-    # The point substituted outside the support must not overflow at the scale of
-    # the parameters, or reverse-mode gradients are NaN although the cdf is zero.
+    # The point substituted outside the support must stay at the scale of the
+    # parameters. If it overflows, or rounds onto the boundary, reverse-mode
+    # gradients are NaN although the cdf is zero.
     def evaluate(params, value):
         return jax_dist(*params).cdf(value).sum()
 

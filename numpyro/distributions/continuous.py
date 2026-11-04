@@ -6262,6 +6262,7 @@ class Levy(Distribution):
             value,
             self.support,
             include_low=False,
+            safe_value=self.loc + self.scale,
         )
 
     @property
@@ -6578,11 +6579,16 @@ class Dagum(Distribution):
         :param value: Positive point :math:`x` at which to evaluate the CDF.
         :return: Probability that a Dagum random variable is at most ``value``.
         """
-        return jnp.exp(
-            -self.concentration
-            * nn.softplus(
-                xlogy(self.sharpness, self.scale) - xlogy(self.sharpness, value)
-            )
+        return _cdf_within_support(
+            lambda x: jnp.exp(
+                -self.concentration
+                * nn.softplus(
+                    xlogy(self.sharpness, self.scale) - xlogy(self.sharpness, x)
+                )
+            ),
+            value,
+            self.support,
+            include_low=False,
         )
 
     def icdf(self, q: ArrayLike) -> Array:
