@@ -44,6 +44,8 @@ from numpyro.distributions.copula import GaussianCopula, GaussianCopulaBeta
 from numpyro.distributions.discrete import (
     CategoricalProbs,
     DiscreteUniform,
+    MultinomialLogits,
+    MultinomialProbs,
     OrderedLogistic,
     ZeroInflatedPoisson,
     ZeroInflatedProbs,
@@ -442,11 +444,34 @@ def _vmap_over_beta_binomial(
     return dist_axes
 
 
+def _vmap_over_bounded_total_count(dist, total_count=None, **kwargs):
+    if dist.total_count_max is None and total_count is not None:
+        raise ValueError("Cannot map total_count without total_count_max.")
+    dist_axes = _default_vmap_over(dist, total_count=total_count, **kwargs)
+    if dist.total_count_max is None:
+        dist_axes.total_count = dist.total_count
+    return dist_axes
+
+
 @vmap_over.register
-def _vmap_over_dirichlet_multinomial(dist: DirichletMultinomial, concentration=None):
-    dist_axes = _default_vmap_over(dist, concentration=concentration)
-    if dist.total_count_max is not None:
-        dist_axes.total_count = None
+def _vmap_over_multinomial_probs(dist: MultinomialProbs, probs=None, total_count=None):
+    return _vmap_over_bounded_total_count(dist, probs=probs, total_count=total_count)
+
+
+@vmap_over.register
+def _vmap_over_multinomial_logits(
+    dist: MultinomialLogits, logits=None, total_count=None
+):
+    return _vmap_over_bounded_total_count(dist, logits=logits, total_count=total_count)
+
+
+@vmap_over.register
+def _vmap_over_dirichlet_multinomial(
+    dist: DirichletMultinomial, concentration=None, total_count=None
+):
+    dist_axes = _vmap_over_bounded_total_count(
+        dist, total_count=total_count, concentration=concentration
+    )
     dist_axes._dirichlet = vmap_over(dist._dirichlet, concentration=concentration)
     return dist_axes
 

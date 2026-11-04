@@ -40,7 +40,7 @@ from jax.typing import ArrayLike
 
 from numpyro._typing import NumLike
 from numpyro.distributions import constraints, transforms
-from numpyro.distributions.distribution import Distribution
+from numpyro.distributions.distribution import Distribution, _BoundedTotalCountMixin
 from numpyro.distributions.util import (
     assert_one_of,
     binary_cross_entropy_with_logits,
@@ -1253,7 +1253,7 @@ class OrderedLogistic(CategoricalProbs):
         raise NotImplementedError
 
 
-class MultinomialProbs(Distribution):
+class MultinomialProbs(_BoundedTotalCountMixin):
     r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
     outcomes, parameterized by a probability vector on the simplex and a total
     count :math:`n` of i.i.d. trials.
@@ -1277,7 +1277,6 @@ class MultinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("probs",)
-    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self,
@@ -1294,6 +1293,9 @@ class MultinomialProbs(Distribution):
             it is required to specify `total_count_max`.
         :param total_count_max: The maximum number of trials,
             i.e. `max(total_count)`, used to size the sampler's internal arrays.
+            This bound is required for array or traced counts. With a bound,
+            ``total_count`` is a pytree data leaf and is returned from ``jax.jit``
+            as an Array, even when initialized with a Python int.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
         if jnp.ndim(probs) < 1:
@@ -1406,7 +1408,7 @@ class MultinomialProbs(Distribution):
         return batch_shape, event_shape
 
 
-class MultinomialLogits(Distribution):
+class MultinomialLogits(_BoundedTotalCountMixin):
     r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
     outcomes, parameterized by unnormalized log-probabilities (logits) and a
     total count :math:`n` of i.i.d. trials.
@@ -1433,7 +1435,6 @@ class MultinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("logits",)
-    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self,
@@ -1452,6 +1453,9 @@ class MultinomialLogits(Distribution):
             it is required to specify `total_count_max`.
         :param total_count_max: The maximum number of trials,
             i.e. `max(total_count)`, used to size the sampler's internal arrays.
+            This bound is required for array or traced counts. With a bound,
+            ``total_count`` is a pytree data leaf and is returned from ``jax.jit``
+            as an Array, even when initialized with a Python int.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
         if jnp.ndim(logits) < 1:
@@ -1615,7 +1619,9 @@ def Multinomial(
     :param probs: event probabilities :math:`\mathbf{p}`
     :param logits: event log probabilities :math:`\mathbf{z}`
     :param int total_count_max: the maximum number of trials,
-        i.e. `max(total_count)`
+        i.e. `max(total_count)`.
+        With a bound, ``total_count`` is a pytree data leaf and is returned from
+        ``jax.jit`` as an Array, even when initialized with a Python int.
 
     .. note::
         ``total_count_max`` (an upper bound on ``total_count``) must be given when
