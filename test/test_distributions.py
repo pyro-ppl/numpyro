@@ -13,7 +13,6 @@ from typing import Callable, get_args, get_origin, get_type_hints
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
-import scipy
 import scipy.integrate as osp_integrate
 from scipy.sparse import csr_matrix
 import scipy.stats as osp
@@ -109,10 +108,6 @@ def _mvn_to_scipy(loc, cov, prec, tril):
 
 
 def _multivariate_t_to_scipy(df, loc, tril):
-    if scipy.__version__ < "1.6.0":
-        pytest.skip(
-            "Multivariate Student-T distribution is not available in scipy < 1.6"
-        )
     jax_dist = dist.MultivariateStudentT(df, loc, tril)
     mean = jax_dist.mean
     cov = jax_dist.covariance_matrix
