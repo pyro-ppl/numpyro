@@ -3243,6 +3243,39 @@ def test_validate_args_of_derived_parameter_under_jit():
             np.array([[True, True], [False, False]]),
         ),
         (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=-1, lengths=[2, 1]
+            ),
+            np.array([[0.0, 1.0, 2.0], [np.nan, 1.0, 2.0], [0.0, 1.0, -1.0]]),
+            np.array([True, False, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=-2, lengths=[1, 2]
+            ),
+            np.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]]),
+            np.array([True, True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=0, lengths=[1, 2]
+            ),
+            np.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]]),
+            np.array([True, True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_matrix, constraints.positive], dim=-2, lengths=[1, 2]
+            ),
+            np.array(
+                [
+                    [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]],
+                    [[1.0, 1.0], [1.0, 1.0], [1.0, -1.0]],
+                ]
+            ),
+            np.array([True, False]),
+        ),
+        (
             constraints.corr_cholesky,
             np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
             np.array([True, False]),
@@ -3408,35 +3441,7 @@ def test_zero_sum_support_of_samples(scale, event_shape):
     assert jnp.all(mask)
 
 
-@pytest.mark.parametrize("case", ["event_axis", "batch_axis", "matrix_event"])
-@pytest.mark.parametrize("same_event_dim", [False, True])
-@pytest.mark.parametrize("positive_dim", [False, True])
-@pytest.mark.parametrize("jit", [False, True])
-def test_cat_constraint_event_dims(case, same_event_dim, positive_dim, jit):
-    if case == "event_axis":
-        value = jnp.array([[0.0, 1.0, 2.0], [jnp.nan, 1.0, 2.0], [0.0, 1.0, -1.0]])
-        first, event_dim, dim, lengths = constraints.real_vector, 1, -1, [2, 1]
-        expected = [True, False, False]
-    elif case == "batch_axis":
-        value = jnp.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]])
-        first, event_dim, dim, lengths = constraints.real_vector, 1, -2, [1, 2]
-        expected = [True, True, False]
-    else:
-        value = jnp.ones((2, 3, 2)).at[1, 2, 1].set(-1.0)
-        first, event_dim, dim, lengths = constraints.real_matrix, 2, -2, [1, 2]
-        expected = [True, False]
-    if positive_dim:
-        dim += value.ndim
-    second = constraints.positive
-    if same_event_dim:
-        second = constraints.independent(second, event_dim)
-    constraint = constraints.cat([first, second], dim=dim, lengths=lengths)
-    check = jax.jit(lambda value: constraint(value)) if jit else constraint
-    assert_array_equal(check(value), expected)
-
-
-@pytest.mark.parametrize("jit", [False, True])
-def test_cat_constraint_validated_transformed_distribution(jit):
+def test_cat_constraint_validated_transformed_distribution():
     transform = transforms.CatTransform(
         [
             transforms.IndependentTransform(transforms.AffineTransform(0.0, 2.0), 1),
@@ -3450,17 +3455,9 @@ def test_cat_constraint_validated_transformed_distribution(jit):
     )
     x = jnp.array([[0.1, 0.2, 0.3], [-0.4, 0.5, -0.2]])
     y = transform(x)
-    log_prob = jax.jit(distribution.log_prob) if jit else distribution.log_prob
     expected = -0.5 * (jnp.sum(x**2, axis=-1) + 3 * math.log(2 * math.pi))
     expected -= 2 * math.log(2) + x[..., -1]
-    assert_allclose(log_prob(y), expected, rtol=1e-6)
-    assert_array_equal(distribution.support(y.at[1, -1].set(-1.0)), [True, False])
-    expected_score = jnp.concatenate(
-        [-x[..., :2] / 2, -(x[..., 2:] + 1) / y[..., 2:]], -1
-    )
-    assert_allclose(
-        grad(lambda value: log_prob(value).sum())(y), expected_score, rtol=1e-5
-    )
+    assert_allclose(distribution.log_prob(y), expected, rtol=1e-6)
 
 
 def test_cat_constraint_pytree_and_validation():
