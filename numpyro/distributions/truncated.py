@@ -1837,8 +1837,7 @@ class DoublyTruncatedPowerLaw(Distribution):
         return _cdf_within_support(
             lambda x: f(x, self.alpha, self.low, self.high),
             value,
-            self.support.lower_bound,
-            self.support.upper_bound,
+            self.support,
         )
 
     def icdf(self, q: ArrayLike) -> Array:

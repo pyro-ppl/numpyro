@@ -431,8 +431,7 @@ class Beta(Distribution):
         return _cdf_within_support(
             lambda x: betainc(self.concentration1, self.concentration0, x),
             value,
-            self.support.lower_bound,
-            self.support.upper_bound,
+            self.support,
         )
 
     def icdf(self, q: ArrayLike) -> Array:
@@ -1007,7 +1006,7 @@ class Exponential(Distribution):
         return _cdf_within_support(
             lambda x: -jnp.expm1(jnp.negative(self.rate) * x),
             value,
-            self.support.lower_bound,
+            self.support,
         )
 
     def icdf(self, q: ArrayLike) -> Array:
@@ -1124,7 +1123,7 @@ class Gamma(Distribution):
         return _cdf_within_support(
             lambda x: gammainc(self.concentration, self.rate * x),
             value,
-            self.support.lower_bound,
+            self.support,
         )
 
     def icdf(self, q: ArrayLike) -> Array:
@@ -1619,7 +1618,7 @@ class HalfCauchy(Distribution):
         :type value: ArrayLike
         """
         return _cdf_within_support(
-            lambda x: self._cauchy.cdf(x) * 2 - 1, value, self.support.lower_bound
+            lambda x: self._cauchy.cdf(x) * 2 - 1, value, self.support
         )
 
     def icdf(self, q: ArrayLike) -> Array:
@@ -1734,7 +1733,7 @@ class HalfNormal(Distribution):
         :type value: ArrayLike
         """
         return _cdf_within_support(
-            lambda x: self._normal.cdf(x) * 2 - 1, value, self.support.lower_bound
+            lambda x: self._normal.cdf(x) * 2 - 1, value, self.support
         )
 
     def icdf(self, q: ArrayLike) -> Array:
@@ -1860,9 +1859,7 @@ class InverseGamma(TransformedDistribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return _cdf_within_support(
-            super().cdf, value, self.support.lower_bound, include_low=False
-        )
+        return _cdf_within_support(super().cdf, value, self.support, include_low=False)
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Inverse-Gamma distribution:
@@ -1983,7 +1980,7 @@ class Gompertz(Distribution):
         return _cdf_within_support(
             lambda x: -jnp.expm1(-self.concentration * jnp.expm1(x * self.rate)),
             value,
-            self.support.lower_bound,
+            self.support,
             safe_value=1 / self.rate,
         )
 
@@ -2796,9 +2793,7 @@ class LogNormal(TransformedDistribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return _cdf_within_support(
-            super().cdf, value, self.support.lower_bound, include_low=False
-        )
+        return _cdf_within_support(super().cdf, value, self.support, include_low=False)
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Normal distribution:
@@ -3017,9 +3012,7 @@ class LogUniform(TransformedDistribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return _cdf_within_support(
-            super().cdf, value, self.support.lower_bound, self.support.upper_bound
-        )
+        return _cdf_within_support(super().cdf, value, self.support)
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Uniform distribution:
@@ -4445,7 +4438,7 @@ class Pareto(TransformedDistribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return _cdf_within_support(super().cdf, value, self.support.lower_bound)
+        return _cdf_within_support(super().cdf, value, self.support)
 
     # override the default behaviour to save computations
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -5096,9 +5089,7 @@ class Weibull(Distribution):
                 1 - jnp.exp(-scaled_value),
             )
 
-        return _cdf_within_support(
-            _cdf, value, self.support.lower_bound, safe_value=self.scale
-        )
+        return _cdf_within_support(_cdf, value, self.support, safe_value=self.scale)
 
     @property
     def mean(self) -> Array:
@@ -6269,7 +6260,7 @@ class Levy(Distribution):
         return _cdf_within_support(
             lambda x: 2.0 - 2.0 * ndtr(jnp.sqrt(self.scale / (x - self.loc))),
             value,
-            self.support.lower_bound,
+            self.support,
             include_low=False,
         )
 
