@@ -4796,6 +4796,28 @@ def test_sine_bivariate_von_mises_norm(conc):
     assert jnp.allclose(integral_torus, 1.0, rtol=1e-2)
 
 
+@pytest.mark.parametrize("batch_shape", [(), (2,), (2, 2), (2, 3), (2, 1, 3)])
+@pytest.mark.parametrize("jit", [False, True])
+def test_gaussian_state_space_variance_batch_axes(batch_shape, jit):
+    scales = np.arange(1, math.prod(batch_shape) * 2 + 1, dtype=float)
+    scales = scales.reshape(batch_shape + (2,)) / 5 + 0.5
+    scale_tril = jnp.asarray(scales[..., None, :] * np.eye(2))
+    steps = np.arange(1, 4)[:, None]
+    expected = scales[..., None, :] ** 2 * steps
+
+    def variance(matrix):
+        return dist.GaussianStateSpace(3, jnp.eye(2), scale_tril=matrix).variance
+
+    if jit:
+        variance = jax.jit(variance)
+    assert_allclose(variance(scale_tril), expected, rtol=1e-6)
+    weights = np.arange(expected.size).reshape(expected.shape) / 10 + 1
+    actual_grad = grad(lambda matrix: (variance(matrix) * weights).sum())(scale_tril)
+    coefficient = (weights * steps).sum(axis=-2)
+    expected_grad = 2 * np.asarray(scale_tril) * coefficient[..., :, None]
+    assert_allclose(actual_grad, expected_grad, rtol=1e-6)
+
+
 def test_gaussian_random_walk_state_space_equivalence():
     # Gaussian random walks are state space models with one state and unit transition
     # matrix. Here, we verify we get the expected results.
