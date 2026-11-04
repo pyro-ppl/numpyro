@@ -15,6 +15,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 import scipy.integrate as osp_integrate
 from scipy.sparse import csr_matrix
+import scipy.special
 import scipy.stats as osp
 
 import jax
