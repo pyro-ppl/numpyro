@@ -1538,6 +1538,7 @@ class MultinomialLogits(Distribution):
             i.e. `max(total_count)`, used to size the sampler's internal arrays.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
+        logits = promote_to_inexact(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
