@@ -3,6 +3,7 @@
 
 
 from collections import namedtuple
+from decimal import Decimal, localcontext
 from functools import partial
 import inspect
 from itertools import product
@@ -3665,6 +3666,119 @@ def test_composed_transform_1(batch_shape):
         + t2.log_abs_det_jacobian(z, t2(z)).sum(-1)
     )
     assert_allclose(log_det, expected_log_det)
+
+
+@pytest.mark.parametrize("jit", [False, True])
+def test_ordered_logistic_tail_likelihood(jit):
+    predictors = np.array([-20.0, 0.0, 20.0], dtype=np.float32)
+    cutpoints = jnp.array([-1.0, 1.0], dtype=jnp.float32)
+    categories = jnp.arange(3)
+
+    def evaluate(predictor):
+        distribution = dist.OrderedLogistic(predictor, cutpoints, validate_args=True)
+        score = jax.jacfwd(
+            lambda eta: dist.OrderedLogistic(eta, cutpoints).log_prob(categories)
+        )(predictor)
+        return distribution.probs, distribution.log_prob(categories), score
+
+    evaluate = jax.vmap(evaluate)
+    if jit:
+        evaluate = jax.jit(evaluate)
+    probs, log_prob, score = evaluate(predictors)
+    expected_probs, expected_log_prob, expected_score = [], [], []
+    with localcontext() as context:
+        context.prec = 80
+        for predictor in predictors:
+            cdf = (
+                [Decimal(0)]
+                + [
+                    1 / (1 + (Decimal(str(float(predictor))) - cutpoint).exp())
+                    for cutpoint in (Decimal(-1), Decimal(1))
+                ]
+                + [Decimal(1)]
+            )
+            masses = [right - left for left, right in zip(cdf[:-1], cdf[1:])]
+            densities = [value * (1 - value) for value in cdf]
+            expected_probs.append([float(value) for value in masses])
+            expected_log_prob.append([float(value.ln()) for value in masses])
+            expected_score.append(
+                [float((densities[i] - densities[i + 1]) / masses[i]) for i in range(3)]
+            )
+    assert_allclose(probs, expected_probs, rtol=2e-6, atol=0)
+    assert_allclose(log_prob, expected_log_prob, rtol=2e-6, atol=1e-6)
+    assert_allclose(score, expected_score, rtol=2e-6, atol=1e-7)
+
+
+@pytest.mark.parametrize(
+    "cutpoints", [[], [-np.inf], [0.0], [np.inf], [-np.inf, 0.0, np.inf]]
+)
+def test_simplex_to_ordered_inverse_boundaries(cutpoints):
+    cutpoints = jnp.asarray(cutpoints)
+    anchor = jnp.array([0.0, 2.0])
+    transform = SimplexToOrderedTransform(anchor)
+    actual = jax.jit(lambda value: transform.inv(value))(cutpoints)
+    expected = np.diff(
+        scipy.special.expit(np.asarray(cutpoints) - np.asarray(anchor)[:, None]),
+        prepend=0,
+        append=1,
+    )
+    assert_allclose(actual, expected, rtol=1e-6, atol=0)
+    assert actual.shape == (2, len(cutpoints) + 1)
+    assert_array_equal(transform.domain(actual), np.ones(2, dtype=bool))
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("jit", [False, True])
+@pytest.mark.parametrize("case", ["positive", "first", "last"])
+def test_simplex_to_ordered_inverse_valid_producer(dtype, jit, case):
+    transform = SimplexToOrderedTransform()
+    if case == "positive":
+        probabilities = (
+            [0.99999994, 4e-8, 1e-8, 1e-8]
+            if dtype == np.float32
+            else [
+                1 - np.finfo(dtype).eps / 2,
+                np.finfo(dtype).eps / 3,
+                np.finfo(dtype).eps / 12,
+                np.finfo(dtype).eps / 12,
+            ]
+        )
+    else:
+        probabilities = [1.0, 0.0, 0.0] if case == "first" else [0.0, 0.0, 1.0]
+    probabilities = jnp.asarray(probabilities, dtype=dtype)
+    assert transform.domain(probabilities)
+    cutpoints = transform(probabilities)
+    if case == "positive":
+        assert jnp.all(probabilities > 0)
+        assert jnp.all(jnp.isposinf(cutpoints[-2:]))
+    inverse = jax.jit(lambda y: transform.inv(y)) if jit else transform.inv
+    actual = inverse(cutpoints)
+    assert jnp.all(jnp.isfinite(actual))
+    assert transform.domain(actual)
+    if case != "positive":
+        assert_allclose(actual, probabilities, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("jit", [False, True])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_simplex_to_ordered_inverse_repeated_infinity_gradients(dtype, jit, sign):
+    def inverse(cutpoints, anchor):
+        return SimplexToOrderedTransform(anchor).inv(cutpoints)
+
+    def evaluate(cutpoints, anchor):
+        value = inverse(cutpoints, anchor)
+        gradients = jax.jacrev(inverse, argnums=(0, 1))(cutpoints, anchor)
+        return value, gradients
+
+    fn = jax.jit(evaluate) if jit else evaluate
+    actual, (cutpoint_jacobian, anchor_jacobian) = fn(
+        jnp.full((2,), sign * jnp.inf, dtype=dtype), jnp.asarray(1.25, dtype=dtype)
+    )
+    expected = [1.0, 0.0, 0.0] if sign == 1 else [0.0, 0.0, 1.0]
+    assert_allclose(actual, expected, rtol=0, atol=0)
+    assert_allclose(cutpoint_jacobian, jnp.zeros((3, 2)), rtol=0, atol=0)
+    assert_allclose(anchor_jacobian, jnp.zeros(3), rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
