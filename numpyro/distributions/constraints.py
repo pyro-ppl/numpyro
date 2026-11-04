@@ -493,10 +493,24 @@ class _Cat(Constraint[NonScalarArray]):
         return values
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
+        event_dim = self.event_dim
         checks = [
-            constraint(value) for constraint, value in zip(self.cseq, self._slices(x))
+            jnp.all(
+                constraint(value),
+                axis=tuple(range(constraint.event_dim - event_dim, 0)),
+            )
+            for constraint, value in zip(self.cseq, self._slices(x))
         ]
-        return jnp.concatenate(checks, axis=self.dim)
+        # Component checks have already removed their event dimensions. Keep
+        # concatenating batch slices, but conjoin slices of the same event.
+        dim = self.dim if self.dim < 0 else self.dim - jnp.ndim(x)
+        dim += event_dim
+        if dim < 0:
+            return jnp.concatenate(checks, axis=dim)
+        result = checks[0]
+        for check in checks[1:]:
+            result = jnp.logical_and(result, check)
+        return result
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         values = [
