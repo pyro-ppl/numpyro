@@ -20,7 +20,7 @@ import jax
 from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.scipy.special import expit
+from jax.scipy.special import expit, logsumexp
 
 from numpyro._typing import (
     ConstrainFn,
@@ -32,6 +32,7 @@ from numpyro._typing import (
     SiteValues,
     TraceT,
 )
+from numpyro.distributions.util import is_identically_one
 from numpyro.handlers import condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.initialization import init_to_sample
@@ -42,6 +43,7 @@ from numpyro.infer.util import (
     potential_energy,
     transform_fn,
 )
+from numpyro.ops.provenance import eval_provenance
 from numpyro.util import cond, fori_loop, identity, is_prng_key
 
 __all__ = [
@@ -54,6 +56,7 @@ __all__ = [
     "GibbsState",
     "GibbsUpdateFn",
     "ModelWrapper",
+    "PlateBlock",
     "ProposalFn",
     "SiteSelector",
     "SitesSpec",
@@ -63,6 +66,9 @@ __all__ = [
     "discrete_latent_sites",
     "discrete_support_sizes",
     "latent_sample_sites",
+    "plate_blocks",
+    "plate_gibbs_update",
+    "plate_log_factors",
     "prototype_trace",
     "select_discrete_proposal",
     "subsample_plate_sizes",
@@ -224,6 +230,8 @@ def _flat_support_sizes(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray
     Built with pure numpy so that it stays concrete when `init` runs under a staging
     trace such as :func:`jax.pmap` (`jnp` operations would produce tracers there).
     """
+    if not sites:
+        return np.zeros((0,), dtype=int)
     sizes = discrete_support_sizes(model_trace, sites)
     return np.concatenate([np.ravel(leaf) for leaf in jax.tree.leaves(sizes)])
 
@@ -238,6 +246,8 @@ def _flat_support_lows(model_trace: TraceT, sites: Sequence[str]) -> np.ndarray:
     are traced when `init` runs under :func:`jax.pmap`; :func:`_flat_support_sizes` only
     uses the static shape of `enumerate_support`.
     """
+    if not sites:
+        return np.zeros((0,), dtype=int)
     lows = {
         name: np.broadcast_to(
             np.asarray(getattr(model_trace[name]["fn"].support, "lower_bound", 0)),
@@ -1169,6 +1179,265 @@ def discrete_gibbs_sweep(
     return z, pe
 
 
+# Plate-aware updates. The elements of a discrete site inside plates are conditionally
+# independent across the plate dims given the other latent sites, as long as every factor
+# that reads the site lives in the same plates. Their full conditionals can then be computed
+# in one batched pass, one model evaluation per support value, and all elements updated at
+# once, instead of one full-model evaluation per element and per support value.
+
+
+class PlateBlock(NamedTuple):
+    """
+    A discrete site whose elements :class:`DiscreteGibbs` updates all at once, see
+    :func:`plate_blocks`.
+
+    - **name** - the site.
+    - **support_size** - number of values in the site's support.
+    - **shape** - shape of the site's value.
+    - **plate_dims** - the (negative) dims of the plates enclosing the site.
+    - **factors** - the sample sites whose log density depends on the site, the site itself
+      included. Every one of them is inside the plates of the site.
+    - **support_low** - smallest support value, broadcast to `shape`, e.g. `low` of
+      :class:`~numpyro.distributions.DiscreteUniform`.
+    """
+
+    name: str
+    support_size: int
+    shape: tuple[int, ...]
+    plate_dims: tuple[int, ...]
+    factors: tuple[str, ...]
+    support_low: np.ndarray
+
+
+def _site_log_prob(site: dict[str, Any]) -> jax.Array:
+    """Unsummed log density of a sample site, as :func:`~numpyro.infer.util.log_density`."""
+    if site["intermediates"]:
+        log_prob = site["fn"].log_prob(site["value"], site["intermediates"])
+    else:
+        log_prob = site["fn"].log_prob(site["value"])
+    scale = site["scale"]
+    if (scale is not None) and (not is_identically_one(scale)):
+        log_prob = scale * log_prob
+    return jnp.asarray(log_prob)
+
+
+def _log_prob_dependencies(
+    model: ModelT,
+    model_args: ModelArgs,
+    model_kwargs: ModelKwargs,
+    model_trace: TraceT,
+    sites: Sequence[str],
+) -> dict[str, frozenset[str]]:
+    """
+    For every sample site of `model`, the names among `sites` on which its log density
+    depends, found by tracking provenance through an abstract evaluation of the model (no
+    array computation). The array leaves of the model arguments are tracked inputs too, so
+    that nothing traced (e.g. under `pmap`) is closed over.
+    """
+    leaves, treedef = jax.tree.flatten((model_args, model_kwargs))
+    is_array = [isinstance(leaf, (jax.Array, np.ndarray)) for leaf in leaves]
+    arrays = [leaf for leaf, tracked in zip(leaves, is_array) if tracked]
+    values = {name: model_trace[name]["value"] for name in sites}
+
+    def log_probs(_inputs: list[Any], **samples: Any) -> dict[str, jax.Array]:
+        inputs = iter(_inputs)
+        args, kwargs = jax.tree.unflatten(
+            treedef,
+            [
+                next(inputs) if tracked else leaf
+                for leaf, tracked in zip(leaves, is_array)
+            ],
+        )
+        with trace() as tr, seed(rng_seed=0), substitute(data=samples):
+            model(*args, **kwargs)
+        return {
+            name: _site_log_prob(site)
+            for name, site in tr.items()
+            if site["type"] == "sample"
+        }
+
+    provenance = eval_provenance(log_probs, _inputs=arrays, **values)
+    tracked = frozenset(sites)
+    return {name: frozenset(deps) & tracked for name, deps in provenance.items()}
+
+
+def plate_blocks(
+    model: ModelT,
+    model_args: ModelArgs,
+    model_kwargs: ModelKwargs,
+    model_trace: TraceT,
+    sites: Sequence[str],
+) -> tuple[PlateBlock, ...]:
+    """
+    The sites among `sites` that qualify for a plate-wise update, in `sites` order. A site
+    qualifies when
+
+    - it is inside at least one plate, none of which subsamples, and its value has no
+      batch dim besides the plate dims (dims of size 1 are fine) and no event dim;
+    - every sample site whose log density depends on it (found by provenance tracking) is
+      inside the same plates, none of which subsamples.
+
+    Given the other latent sites, the elements of such a site are then conditionally
+    independent across its plate dims, so their full conditionals can be computed in one
+    batched pass and all elements updated at once (:func:`plate_gibbs_update`).
+
+    :param model: the (conditioned, prepared) model, see :class:`DiscreteGibbs`.
+    :param tuple model_args: arguments provided to the model.
+    :param dict model_kwargs: keyword arguments provided to the model, with the conditioning.
+    :param model_trace: a trace of the model, see :func:`prototype_trace`.
+    :param sites: names of discrete latent sites in `model_trace`.
+    :return: the blocks.
+    """
+    sample_sites = {
+        name: site for name, site in model_trace.items() if site["type"] == "sample"
+    }
+    subsampled = subsample_plate_sizes(model_trace)
+    frames_of = {
+        name: frozenset((f.name, f.dim) for f in site["cond_indep_stack"])
+        for name, site in sample_sites.items()
+    }
+    dependencies = _log_prob_dependencies(
+        model, model_args, model_kwargs, model_trace, sites
+    )
+    blocks = []
+    for name in sites:
+        site, frames = sample_sites[name], frames_of[name]
+        shape = tuple(jnp.shape(site["value"]))
+        dims = tuple(sorted(dim for _, dim in frames if dim is not None))
+        if (
+            not frames
+            or len(dims) < len(frames)
+            or tuple(site["fn"].event_shape) != ()
+            or any(plate in subsampled for plate, _ in frames)
+            or any(-dim > len(shape) for dim in dims)
+            or any(shape[dim] != 1 and dim not in dims for dim in range(-len(shape), 0))
+        ):
+            continue
+        factors = tuple(s for s in sample_sites if name in dependencies[s])
+        if any(
+            not frames <= frames_of[s]
+            or any(plate in subsampled for plate, _ in frames_of[s])
+            for s in factors
+        ):
+            continue
+        support_low = np.broadcast_to(
+            np.asarray(getattr(site["fn"].support, "lower_bound", 0)), shape
+        )
+        support_size = int(site["fn"].enumerate_support(False).shape[0])
+        blocks.append(PlateBlock(name, support_size, shape, dims, factors, support_low))
+    return tuple(blocks)
+
+
+def plate_log_factors(
+    model: ModelT,
+    model_args: ModelArgs,
+    model_kwargs: ModelKwargs,
+    block: PlateBlock,
+    z: SiteValues,
+) -> jax.Array:
+    """
+    The per-element log factors of a plate block: for every support value `v` of the site
+    and every element of it, the log density of the block's factors at `z` with the element
+    set to `v`, summed over every dim that is not a plate dim of the site. Elementwise, these
+    are the unnormalized log full conditionals of the site. One batched model evaluation per
+    support value (every element is set to `v` at once, which is exact because the factors
+    are inside the plates of the site).
+
+    :param model: the (conditioned, prepared) model, see :class:`DiscreteGibbs`.
+    :param tuple model_args: arguments provided to the model.
+    :param dict model_kwargs: keyword arguments provided to the model, with the conditioning.
+    :param block: the block, see :func:`plate_blocks`.
+    :param z: current discrete values; the entries other than `block.name` are conditioned on.
+    :return: an array of shape `(block.support_size,) + block.shape`.
+    """
+    dtype = jnp.result_type(z[block.name])
+    low = jnp.asarray(block.support_low, dtype=dtype)
+
+    def log_factors(index: jax.Array) -> jax.Array:
+        z_index = {**z, block.name: jnp.full(block.shape, index, dtype=dtype) + low}
+        model_trace = trace(model).get_trace(
+            *model_args, **with_conditioning(model_kwargs, z_index)
+        )
+        total = 0.0
+        for name in block.factors:
+            log_prob = _site_log_prob(model_trace[name])
+            reduce_axes = tuple(
+                axis
+                for axis in range(-log_prob.ndim, 0)
+                if axis not in block.plate_dims
+            )
+            if reduce_axes:
+                log_prob = jnp.sum(log_prob, axis=reduce_axes, keepdims=True)
+            # drop the leading dims; they are plate dims of the factor beyond the site's
+            log_prob = jnp.reshape(
+                log_prob, log_prob.shape[max(log_prob.ndim - len(block.shape), 0) :]
+            )
+            total = total + log_prob
+        return jnp.broadcast_to(jnp.asarray(total), block.shape)
+
+    return jax.vmap(log_factors)(jnp.arange(block.support_size))
+
+
+def plate_gibbs_update(
+    rng_key: jax.Array,
+    z: SiteValues,
+    block: PlateBlock,
+    log_factors: jax.Array,
+    random_walk: bool = False,
+    modified: bool = False,
+) -> SiteValues:
+    """
+    Update every element of the site of a plate block at once, each from its own full
+    conditional (or with the uniform random walk / modified proposals of
+    :func:`select_discrete_proposal`, each Metropolis corrected). Because the elements are
+    conditionally independent given the other sites, the simultaneous update is the same
+    Gibbs (or Metropolis) update as a coordinate-wise sweep over the elements.
+
+    :param rng_key: random key.
+    :param z: current discrete values.
+    :param block: the block, see :func:`plate_blocks`.
+    :param log_factors: the per-element log factors at `z`, see :func:`plate_log_factors`.
+    :param bool random_walk: uniform proposals over the support instead of the conditional.
+    :param bool modified: use the modified (Metropolised) proposal.
+    :return: `z` with the site of the block updated.
+    """
+    name, shape, support_size = block.name, block.shape, block.support_size
+    value = z[name]
+    low = jnp.asarray(block.support_low, dtype=value.dtype)
+    current = (value - low).astype(jnp.int32)
+    # Handles the NaN case as the coordinate-wise proposals do.
+    log_factors = jnp.where(jnp.isfinite(log_factors), log_factors, -jnp.inf)
+    support = jnp.reshape(jnp.arange(support_size), (support_size,) + (1,) * len(shape))
+
+    def gather(index: jax.Array) -> jax.Array:
+        return jnp.take_along_axis(log_factors, index[None], axis=0)[0]
+
+    rng_proposal, rng_accept = random.split(rng_key)
+    if random_walk:
+        if modified:
+            i = random.randint(rng_proposal, shape, 0, support_size - 1)
+            proposal = jnp.where(i >= current, i + 1, i)
+        else:
+            proposal = random.randint(rng_proposal, shape, 0, support_size)
+        log_accept_ratio = gather(proposal) - gather(current)
+    elif modified:
+        # never propose the current value; the MH correction is (1 - P(z)) / (1 - P(z_new))
+        others = jnp.where(support == current, -jnp.inf, log_factors)
+        proposal = random.categorical(rng_proposal, others, axis=0)
+        log_accept_ratio = logsumexp(others, axis=0) - logsumexp(
+            jnp.where(support == proposal, -jnp.inf, log_factors), axis=0
+        )
+    else:
+        # a draw from the full conditional, always accepted
+        proposal = random.categorical(rng_proposal, log_factors, axis=0)
+        log_accept_ratio = jnp.zeros(shape)
+    # u ~ Uniform(0, 1), u < accept_ratio => -log(u) > -log_accept_ratio
+    # and -log(u) ~ exponential(1)
+    accept = random.exponential(rng_accept, shape) > -log_accept_ratio
+    new = jnp.where(accept, proposal, current)
+    return {**z, name: (new + low).astype(value.dtype)}
+
+
 class DiscreteGibbsState(NamedTuple):
     """
     - **z** - dict of the current discrete values.
@@ -1194,11 +1463,24 @@ class DiscreteGibbs(MCMCKernel):
     keyword arguments; sites marked `infer={"enumerate": "parallel"}` are marginalized exactly
     as in HMC.
 
+    With `plate_aware`, a site whose elements are conditionally independent across its plates
+    (every factor that reads the site is inside the same plates, see :func:`plate_blocks`) is
+    updated in one vectorized step instead: its full conditionals are computed in one batched
+    pass, with one model evaluation per support value, and all its elements are drawn at once
+    (:func:`plate_gibbs_update`). The other sites keep the coordinate-wise sweep. This is the
+    same Gibbs (or Metropolis) update as the sweep, only cheaper: a plated site with `N`
+    elements and `K` support values costs `K` batched model evaluations instead of
+    `N * (K - 1)` sequential ones. It relies on the independence the plates declare: the
+    factors inside a plate must depend on the site elementwise along the plate dims. It is
+    not used when a site is enumerated.
+
     :param model: the model.
     :param bool random_walk: uniform proposals over the support instead of the exact
         conditional.
     :param bool modified: Liu's modified (Metropolised) proposal that never proposes the
         current value.
+    :param bool plate_aware: update the elements of a plated site all at once when they are
+        conditionally independent. Defaults to False.
 
     **References:**
 
@@ -1208,14 +1490,22 @@ class DiscreteGibbs(MCMCKernel):
     sample_field: str = "z"
 
     def __init__(
-        self, model: ModelT, *, random_walk: bool = False, modified: bool = False
+        self,
+        model: ModelT,
+        *,
+        random_walk: bool = False,
+        modified: bool = False,
+        plate_aware: bool = False,
     ) -> None:
         self._model = model
         self._random_walk = random_walk
         self._modified = modified
+        self._plate_aware = plate_aware
         self._proposal_fn = select_discrete_proposal(random_walk, modified)
         # static metadata resolved at `init`
         self._sites: tuple[str, ...] | None = None
+        self._sweep_sites: tuple[str, ...] | None = None
+        self._plate_blocks: tuple[PlateBlock, ...] | None = None
         self._support_sizes_flat: np.ndarray | None = None
         self._support_lows_flat: np.ndarray | None = None
         self._enum = False
@@ -1225,6 +1515,35 @@ class DiscreteGibbs(MCMCKernel):
     @property
     def model(self) -> ModelT:
         return self._model
+
+    @property
+    def plate_blocks(self) -> tuple[PlateBlock, ...]:
+        """The sites updated plate-wise, see :func:`plate_blocks`; resolved at `init`."""
+        if self._plate_blocks is None:
+            raise RuntimeError(
+                "`plate_blocks` requires the kernel to be initialized; run `init` first."
+            )
+        return self._plate_blocks
+
+    def get_plate_log_factors_fn(
+        self,
+        block: PlateBlock,
+        model_args: ModelArgs = (),
+        model_kwargs: ModelKwargs | None = None,
+    ) -> Callable[[SiteValues], jax.Array]:
+        """The per-element log factors of a plate block, see :func:`plate_log_factors`."""
+        if self._prepared_model is None:
+            raise RuntimeError(
+                "`get_plate_log_factors_fn` requires the kernel to be initialized; "
+                "run `init` first."
+            )
+        return partial(
+            plate_log_factors,
+            self._prepared_model,
+            model_args,
+            {} if model_kwargs is None else model_kwargs,
+            block,
+        )
 
     def get_potential_fn(
         self,
@@ -1279,8 +1598,6 @@ class DiscreteGibbs(MCMCKernel):
                 "or use DiscreteGibbs as a block of Gibbs."
             )
         self._sites = sites
-        self._support_sizes_flat = _flat_support_sizes(model_trace, sites)
-        self._support_lows_flat = _flat_support_lows(model_trace, sites)
         self._enum = any(
             site["type"] == "sample"
             and not site["is_observed"]
@@ -1290,6 +1607,15 @@ class DiscreteGibbs(MCMCKernel):
         self._prepared_model = _prepare_model_for_potential(
             conditioned(self._model), model_trace, enum=self._enum
         )
+        self._plate_blocks = ()
+        if self._plate_aware and not self._enum:
+            self._plate_blocks = plate_blocks(
+                self._prepared_model, model_args, model_kwargs, model_trace, sites
+            )
+        plated = {block.name for block in self._plate_blocks}
+        self._sweep_sites = tuple(name for name in sites if name not in plated)
+        self._support_sizes_flat = _flat_support_sizes(model_trace, self._sweep_sites)
+        self._support_lows_flat = _flat_support_lows(model_trace, self._sweep_sites)
         init_params = {} if init_params is None else init_params
         z = _as_arrays(
             {name: init_params.get(name, model_trace[name]["value"]) for name in sites}
@@ -1303,20 +1629,47 @@ class DiscreteGibbs(MCMCKernel):
         model_args: ModelArgs,
         model_kwargs: ModelKwargs | None,
     ) -> DiscreteGibbsState:
-        """One :func:`~numpyro.infer.gibbs.discrete_gibbs_sweep` with the selected proposal."""
+        """
+        One :func:`~numpyro.infer.gibbs.discrete_gibbs_sweep` with the selected proposal over
+        the coordinate-wise sites, then one :func:`~numpyro.infer.gibbs.plate_gibbs_update`
+        per plate block.
+        """
         assert (
-            self._support_sizes_flat is not None and self._support_lows_flat is not None
+            self._support_sizes_flat is not None
+            and self._support_lows_flat is not None
+            and self._sweep_sites is not None
+            and self._plate_blocks is not None
         ), "`init` must be called before `sample`."
+        potential_fn = self.get_potential_fn(model_args, model_kwargs)
+        z, pe = state.z, state.potential_energy
         rng_key, key_sweep = random.split(state.rng_key)
-        z, pe = discrete_gibbs_sweep(
-            key_sweep,
-            state.z,
-            state.potential_energy,
-            self.get_potential_fn(model_args, model_kwargs),
-            jnp.asarray(self._support_sizes_flat),
-            self._proposal_fn,
-            self._support_lows_flat if np.any(self._support_lows_flat) else None,
-        )
+        if self._sweep_sites:
+            z_sweep = {name: z[name] for name in self._sweep_sites}
+            z_plated = {name: v for name, v in z.items() if name not in z_sweep}
+
+            def sweep_potential_fn(z_sweep: SiteValues) -> jax.Array:
+                return potential_fn({**z_sweep, **z_plated})
+
+            z_sweep, pe = discrete_gibbs_sweep(
+                key_sweep,
+                z_sweep,
+                pe,
+                potential_fn if not z_plated else sweep_potential_fn,
+                jnp.asarray(self._support_sizes_flat),
+                self._proposal_fn,
+                self._support_lows_flat if np.any(self._support_lows_flat) else None,
+            )
+            z = {**z, **z_sweep}
+        for block in self._plate_blocks:
+            rng_key, key_block = random.split(rng_key)
+            log_factors = plate_log_factors(
+                self._prepared_model, model_args, model_kwargs or {}, block, z
+            )
+            z = plate_gibbs_update(
+                key_block, z, block, log_factors, self._random_walk, self._modified
+            )
+        if self._plate_blocks:
+            pe = jnp.asarray(potential_fn(z))
         return state._replace(z=z, potential_energy=pe, rng_key=rng_key)
 
     def refresh(
@@ -1333,6 +1686,8 @@ class DiscreteGibbs(MCMCKernel):
         kernel = copy.copy(self)
         kernel._model = wrapper(self._model)
         kernel._sites = None
+        kernel._sweep_sites = None
+        kernel._plate_blocks = None
         kernel._support_sizes_flat = None
         kernel._support_lows_flat = None
         kernel._prepared_model = None
