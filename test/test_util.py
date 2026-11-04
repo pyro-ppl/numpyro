@@ -1,9 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
+import tqdm
 
 import jax
 from jax import random
@@ -12,7 +15,13 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.util import check_model_guide_match, fori_collect, format_shapes, soft_vmap
+from numpyro.util import (
+    check_model_guide_match,
+    enable_x64,
+    fori_collect,
+    format_shapes,
+    soft_vmap,
+)
 
 
 def test_fori_collect_thinning():
@@ -66,6 +75,63 @@ def test_fori_collect_return_last(progbar):
     expected_last_state = {"i": np.array(4)}
     jax.tree.all(jax.tree.map(assert_allclose, init_state, expected_last_state))
     jax.tree.all(jax.tree.map(assert_allclose, tree, expected_tree))
+
+
+def test_fori_collect_progbar_diagnostics_final_state():
+    calls = []
+
+    def diagnostics_fn(x):
+        calls.append(int(x))
+        return ""
+
+    # progress_rate=3 does not divide 62: the last step is off the update grid
+    # but the final bar must still show the final state's diagnostics.
+    fori_collect(
+        0,
+        62,
+        lambda x: x + 1,
+        jnp.int32(0),
+        progress_rate=3,
+        diagnostics_fn=diagnostics_fn,
+    )
+    assert calls[-1] == 62
+    assert len(calls) < 62  # not evaluated (host sync) on every step
+
+
+def test_fori_collect_progbar_disabled_tqdm(monkeypatch):
+    # TQDM_DISABLE=1 (read by tqdm at import) gives a bar created with
+    # disable=True, which has no `miniters` attribute.
+    monkeypatch.setattr(tqdm, "trange", partial(tqdm.trange, disable=True))
+    calls = []
+
+    def diagnostics_fn(x):
+        calls.append(int(x))
+        return ""
+
+    out = fori_collect(
+        0, 10, lambda x: x + 1, jnp.int32(0), diagnostics_fn=diagnostics_fn
+    )
+    assert_allclose(out, np.arange(1, 11))
+    assert calls == []  # nothing is rendered, so no host syncs
+
+
+def test_fori_collect_progbar_zero_progress_rate():
+    calls = []
+
+    def diagnostics_fn(x):
+        calls.append(int(x))
+        return ""
+
+    out = fori_collect(
+        0,
+        10,
+        lambda x: x + 1,
+        jnp.int32(0),
+        progress_rate=0,
+        diagnostics_fn=diagnostics_fn,
+    )
+    assert_allclose(out, np.arange(1, 11))
+    assert calls[-1] == 10
 
 
 def test_fori_collect_no_recompilation():
@@ -126,17 +192,27 @@ def test_ravel_pytree(pytree):
 
 @pytest.mark.parametrize("batch_shape", [(), (1,), (10,), (3, 4)])
 @pytest.mark.parametrize("chunk_size", [None, 1, 5, 16])
-def test_soft_vmap(batch_shape, chunk_size):
+@pytest.mark.parametrize("xp", [np, jnp], ids=["numpy", "jax"])
+def test_soft_vmap(batch_shape, chunk_size, xp):
     def f(x):
+        # "c" passes through unchanged, so a NumPy input would leak into the output
+        # unless soft_vmap converts its inputs.
         return {
-            k: ((v[..., None] * jnp.ones(4)) if k == "a" else ~v) for k, v in x.items()
+            k: (v[..., None] * jnp.ones(4)) if k == "a" else ~v if k == "b" else v
+            for k, v in x.items()
         }
 
-    xs = {"a": jnp.ones(batch_shape + (4,)), "b": jnp.zeros(batch_shape).astype(bool)}
+    xs = {
+        "a": xp.ones(batch_shape + (4,)),
+        "b": xp.zeros(batch_shape, dtype=bool),
+        "c": xp.ones(batch_shape + (2,)),
+    }
     ys = soft_vmap(f, xs, len(batch_shape), chunk_size)
-    assert set(ys.keys()) == {"a", "b"}
+    assert set(ys.keys()) == {"a", "b", "c"}
+    assert all(isinstance(y, jax.Array) for y in ys.values())
     assert_allclose(ys["a"], xs["a"][..., None] * jnp.ones(4))
     assert_allclose(ys["b"], ~xs["b"])
+    assert_allclose(ys["c"], xs["c"])
 
 
 def test_format_shapes():
@@ -301,3 +377,36 @@ def test_missing_plate_in_model():
         numpyro.sample("x", dist.Normal(0, 1))
 
     _run_svi_check_warnings(model, guide, "Missing a plate statement")
+
+
+@pytest.mark.parametrize(
+    "env_value, expected",
+    [
+        ("0", False),
+        ("false", False),
+        ("False", False),
+        ("1", True),
+        ("true", True),
+        ("True", True),
+    ],
+)
+def test_enable_x64_false_respects_env_var(monkeypatch, env_value, expected):
+    original = jax.config.read("jax_enable_x64")
+    monkeypatch.setenv("JAX_ENABLE_X64", env_value)
+    try:
+        enable_x64(False)
+        assert jax.config.read("jax_enable_x64") is expected
+    finally:
+        jax.config.update("jax_enable_x64", original)
+
+
+@pytest.mark.parametrize("env_value", ["", "yes", "2", "on"])
+def test_enable_x64_invalid_env_var(monkeypatch, env_value):
+    original = jax.config.read("jax_enable_x64")
+    monkeypatch.setenv("JAX_ENABLE_X64", env_value)
+    try:
+        with pytest.raises(ValueError, match="JAX_ENABLE_X64 must be one of"):
+            enable_x64(False)
+        assert jax.config.read("jax_enable_x64") is original
+    finally:
+        jax.config.update("jax_enable_x64", original)

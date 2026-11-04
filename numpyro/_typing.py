@@ -36,3 +36,22 @@ PyTree: TypeAlias = Any
 
 
 NumLikeT = TypeVar("NumLikeT", bound=NumLike)
+
+
+ModelArgs: TypeAlias = tuple[Any, ...]
+"""Positional arguments of a model, as passed to ``MCMC.run(rng_key, *args)``."""
+
+ModelKwargs: TypeAlias = dict[str, Any]
+"""Keyword arguments of a model; may carry reserved keys such as ``GIBBS_SITES_KWARG``."""
+
+SiteValues: TypeAlias = dict[str, jax.Array]
+"""Values keyed by site name (a sample, a set of init params, a conditioning set)."""
+
+PotentialFn: TypeAlias = Callable[[SiteValues], jax.Array]
+"""Negative log joint as a function of (unconstrained) site values."""
+
+ConstrainFn: TypeAlias = Callable[[SiteValues], SiteValues]
+"""Maps site values to site values (constrain / postprocess)."""
+
+StateT = TypeVar("StateT")
+"""A kernel state pytree; used where a method returns the same state type it received."""

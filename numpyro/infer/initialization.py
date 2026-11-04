@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to
-from numpyro.util import find_stack_level
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 def init_to_median(site=None, num_samples=15):
@@ -54,7 +54,8 @@ def init_to_median(site=None, num_samples=15):
 def init_to_mean(site=None):
     """
     Initialize to the prior mean. For priors with no `.mean` property implemented,
-    we defer to the :func:`init_to_median` strategy.
+    or whose mean is not finite (e.g. Cauchy), we defer to the
+    :func:`init_to_median` strategy.
     """
     if site is None:
         return partial(init_to_mean)
@@ -79,6 +80,12 @@ def init_to_mean(site=None):
             sample_shape = site["kwargs"].get("sample_shape")
             if sample_shape:
                 value = jnp.broadcast_to(value, sample_shape + jnp.shape(value))
+            # Heavy-tailed priors such as Cauchy have a nan or infinite mean.
+            if not not_jax_tracer(value) or not jnp.isfinite(value).all():
+                median = init_to_median(site)
+                value = jnp.where(jnp.isfinite(value), value, median).astype(
+                    value.dtype
+                )
             return value
         except (NotImplementedError, ValueError):
             return init_to_median(site)

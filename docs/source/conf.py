@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import glob
+import logging
 import os
 import shutil
 import sys
 
 import nbsphinx
+from sphinx.util import logging as sphinx_logging
 
 # import pkg_resources
 
@@ -156,15 +158,22 @@ nbsphinx_prolog = r"""
 
 # -- Copy README files
 
-# replace "# NumPyro" by "# Getting Started with NumPyro"
+# replace "# NumPyro" by "# Getting Started with NumPyro", keeping the
+# README's centered header block (logo, tagline, links and badges)
 with open("../../README.md", "rt") as f:
     lines = f.readlines()
     for i, line in enumerate(lines):
         if "# NumPyro" == line.rstrip():
             break
-    lines = lines[i:]
-    lines[0] = "# Getting Started with NumPyro\n"
-    text = "\n".join(lines)
+    # move the title above the centered block (opening <div> and logo), so
+    # the title stays a top-level section and the block's </div> stays balanced
+    lines = ["# Getting Started with NumPyro\n", "\n"] + lines[:i] + lines[i + 1 :]
+    # render the tagline as bold text, not as a section heading
+    for j, line in enumerate(lines):
+        if line.startswith("### "):
+            lines[j] = "**" + line[4:].rstrip() + "**\n"
+            break
+    text = "".join(lines)
 
 with open("getting_started.rst", "wt") as f:
     f.write(nbsphinx.markdown2rst(text))
@@ -317,9 +326,31 @@ texinfo_documents = [
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
-    "jax": ("https://jax.readthedocs.io/en/latest/", None),
+    "jax": ("https://docs.jax.dev/en/latest/", None),
     "pyro": ("https://docs.pyro.ai/en/stable/", None),
 }
+
+
+class _IntersphinxFetchFailureFilter(logging.Filter):
+    """Log an unreachable intersphinx inventory as info instead of a warning.
+
+    Sphinx emits this warning without a ``type``, so ``suppress_warnings`` cannot
+    silence it, and ``-W`` would turn a transient outage of an external docs server
+    into a failed build. References into the missing inventory render as plain text.
+    """
+
+    def filter(self, record):
+        if record.levelno == logging.WARNING and str(record.msg).startswith(
+            "failed to reach any of the inventories"
+        ):
+            record.levelno = logging.INFO
+            record.levelname = "INFO"
+        return True
+
+
+sphinx_logging.getLogger("sphinx.ext.intersphinx").logger.addFilter(
+    _IntersphinxFetchFailureFilter()
+)
 
 
 # -- Suppress warnings in Sphinx 7.3.5

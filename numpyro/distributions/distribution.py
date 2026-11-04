@@ -39,6 +39,7 @@ from typing import (
     Literal,
     Optional,
     Sequence,
+    TypeVar,
     Union,
     cast,
     overload,
@@ -100,6 +101,8 @@ def validation_enabled(is_validate: bool = True) -> Generator[None, None, None]:
 
 COERCIONS: list[Any] = []
 
+_DistributionT = TypeVar("_DistributionT", bound="Distribution")
+
 
 class DistributionMeta(type):
     def __init__(
@@ -113,10 +116,10 @@ class DistributionMeta(type):
         return super().__init__(*args, **kwargs)
 
     def __call__(
-        cls,
+        cls: type[_DistributionT],
         *args: Any,
         **kwargs: Any,
-    ) -> Any:
+    ) -> _DistributionT:
         for coerce_ in COERCIONS:
             result = coerce_(cls, args, kwargs)
             if result is not None:
@@ -125,7 +128,7 @@ class DistributionMeta(type):
 
 
 class Distribution(metaclass=DistributionMeta):
-    """
+    r"""
     Base class for probability distributions in NumPyro. The design largely
     follows from :mod:`torch.distributions`.
 
@@ -139,6 +142,42 @@ class Distribution(metaclass=DistributionMeta):
         samples using `.log_prob`.
     :param validate_args: Whether to enable validation of distribution
         parameters and arguments to `.log_prob` method.
+
+    This class defines no density of its own; what every subclass honors is the
+    batch/event contract. An instance with ``batch_shape`` :math:`B` and
+    ``event_shape`` :math:`E` represents a family :math:`\{p_b : b \in B\}` of
+    densities (or mass functions) on :math:`\mathbb{R}^{E}`, one per batch index
+    :math:`b`. In terms of this family:
+
+    - ``sample(key, sample_shape=S)`` returns :math:`x` of shape
+      :math:`S + B + E` where, for every :math:`s \in S` and :math:`b \in B`,
+      :math:`x_{s,b} \sim p_b` independently.
+    - ``log_prob(x)`` returns an array of shape
+      :math:`\mathrm{broadcast}(x.\mathrm{shape}[:-|E|], B)` with entries
+      :math:`\log p_b(x_{\ldots,b})`; event dimensions are never broadcast and
+      are summed over inside the density.
+    - ``to_event(k)`` (returning :class:`Independent`) moves the :math:`k`
+      rightmost batch dimensions into the event, so that
+      :math:`\log p(x) = \sum_{i} \log p_{b,i}(x_{b,i})` over the moved indices.
+    - ``expand(B')`` (returning :class:`ExpandedDistribution`, or ``self`` when
+      :math:`B' = B`) broadcasts :math:`p_b` to the larger batch shape
+      :math:`B'`; ``mask(m)`` (returning :class:`MaskedDistribution`, or
+      ``self`` when ``m is True``) replaces :math:`\log p_b` by :math:`0` where
+      :math:`m_b` is ``False``.
+    - ``support`` is a :class:`~numpyro.distributions.constraints.Constraint`
+      describing the set on which :math:`p_b` is positive; ``arg_constraints``
+      gives the domain of each parameter and drives ``validate_args`` and, unless
+      a subclass sets ``pytree_data_fields``, the pytree flattening of the
+      instance.
+    - ``has_rsample`` is by default ``True`` iff the set of
+      ``reparametrized_params`` equals the set of ``arg_constraints`` keys, in
+      which case ``rsample`` returns a pathwise-differentiable draw; wrapper
+      distributions delegate to their base.
+
+    .. note::
+        ``sample``, ``log_prob``, ``mean``, ``variance``, ``mode``, ``cdf``,
+        ``icdf``, ``entropy`` and ``enumerate_support`` raise
+        ``NotImplementedError`` unless a subclass defines them.
 
     As an example:
 
@@ -672,6 +711,45 @@ class Distribution(metaclass=DistributionMeta):
 
 
 class ExpandedDistribution(Distribution):
+    r"""
+    Broadcasts the batch shape of a distribution to a larger ``batch_shape``.
+
+    If the base distribution has batch shape :math:`B_0` (densities
+    :math:`p_{b_0}`) and the target batch shape is :math:`B \supseteq B_0` under
+    NumPy broadcasting, the expanded distribution has density
+    :math:`p_b = p_{\pi(b)}` where :math:`\pi: B \to B_0` maps each batch index
+    to the base index it broadcasts from. Consequently
+
+    .. math::
+        \log p(x)_b = \log p_{\pi(b)}(x_b), \qquad
+        \mathbb{E}[X_b] = \mathbb{E}[X_{\pi(b)}], \qquad
+        \operatorname{Var}[X_b] = \operatorname{Var}[X_{\pi(b)}],
+
+    and ``entropy`` broadcasts the same way. Samples are **independent** draws
+    for every expanded batch index (not tiled copies of one base draw):
+    :math:`x_b \sim p_{\pi(b)}` independently over :math:`b \in B`.
+
+    :param base_dist: The distribution to expand.
+    :param batch_shape: The target batch shape; must be broadcastable from
+        ``base_dist.batch_shape``.
+    :raises ValueError: if ``base_dist.batch_shape`` cannot be broadcast to
+        ``batch_shape``.
+
+    .. note::
+        New leading batch dimensions are recorded as ``_expanded_sizes`` and
+        size-1 base dimensions that are widened as ``_interstitial_sizes``.
+        ``sample`` draws ``sample_shape + expanded + interstitial`` independent
+        base samples and transposes the interstitial axes into place.
+        ``log_prob`` is the base log density broadcast to
+        ``broadcast(batch_shape, value.shape[:-event_dim])``; the value itself
+        is passed to the base unchanged. Expanding an ``ExpandedDistribution``
+        flattens it to its inner base distribution. The constructor takes no
+        ``validate_args`` and ``log_prob`` performs no sample validation.
+        ``support``, ``has_rsample`` and ``has_enumerate_support`` are those of
+        the base distribution. Usually constructed via
+        :meth:`Distribution.expand`.
+    """
+
     arg_constraints = {}
     pytree_data_fields = ("base_dist",)
     pytree_aux_fields = (
@@ -847,8 +925,20 @@ class ExpandedDistribution(Distribution):
 
 
 class ImproperUniform(Distribution):
-    """
+    r"""
     A helper distribution with zero :meth:`log_prob` over the `support` domain.
+
+    The density is flat on the support :math:`\mathcal{S}`,
+
+    .. math::
+        p(x) \propto 1, \qquad \log p(x) = 0 \quad \text{for } x \in \mathcal{S},
+
+    and is *improper*: it does not integrate to one, so it only contributes a
+    constant to the joint log density of a model. This makes it useful as a flat
+    prior whose posterior is determined by the likelihood and by the support
+    constraint alone. When ``validate_args`` is enabled, values outside the
+    support get :math:`\log p(x) = -\infty` (the check is reduced over the event
+    dimensions, so a single invalid event entry rejects the whole event).
 
     .. note:: `sample` method is not implemented for this distribution. In autoguide and mcmc,
         initial parameters for improper sites are derived from `init_to_uniform` or `init_to_value`
@@ -929,9 +1019,24 @@ class ImproperUniform(Distribution):
 
 
 class Independent(Distribution):
-    """
+    r"""
     Reinterprets batch dimensions of a distribution as event dims by shifting
     the batch-event dim boundary further to the left.
+
+    If the base distribution has density :math:`p_{\text{base}}` with batch shape
+    :math:`(b_1, \ldots, b_n)` and :math:`k` is ``reinterpreted_batch_ndims``, the
+    resulting distribution has batch shape :math:`(b_1, \ldots, b_{n-k})`, event
+    shape :math:`(b_{n-k+1}, \ldots, b_n)` followed by the base event shape, and
+    density
+
+    .. math::
+        \log p(x) = \sum_{i_1=1}^{b_{n-k+1}} \cdots \sum_{i_k=1}^{b_n}
+        \log p_{\text{base}}\big(x_{i_1, \ldots, i_k}\big),
+
+    i.e. the reinterpreted components are treated as independent and their log
+    densities are summed. The entropy sums the same way, while ``mean`` and
+    ``variance`` are unchanged elementwise. The support becomes
+    ``constraints.independent(base_dist.support, k)``.
 
     From a practical standpoint, this is useful when changing the result of
     :meth:`log_prob`. For example, a univariate Normal distribution can be
@@ -947,7 +1052,7 @@ class Independent(Distribution):
         >>> [diag_normal.batch_shape, diag_normal.event_shape]
         [(), (3,)]
 
-    :param numpyro.distribution.Distribution base_distribution: a distribution instance.
+    :param numpyro.distribution.Distribution base_dist: a distribution instance.
     :param int reinterpreted_batch_ndims: the number of batch dims to reinterpret as event dims.
     """
 
@@ -1044,14 +1149,42 @@ class Independent(Distribution):
 
 
 class MaskedDistribution(Distribution):
-    """
+    r"""
     Masks a distribution by a boolean array that is broadcastable to the
     distribution's :attr:`Distribution.batch_shape`.
     In the special case ``mask is False``, computation of :meth:`log_prob` , is skipped,
     and constant zero values are returned instead.
 
+    With a boolean mask :math:`m` broadcastable to the batch shape,
+
+    .. math::
+        \log p(x)_b = \begin{cases}
+            \log p_{\text{base}}(x_b) & m_b = \text{True} \\
+            0 & m_b = \text{False},
+        \end{cases}
+
+    i.e. masked-out batch entries contribute a likelihood factor of :math:`1`.
+    This is the standard device for missing or padded observations: the joint
+    density of the kept entries is unchanged while the rest are marginalized
+    out of the likelihood.
+
     :param mask: A boolean or boolean-valued array.
     :type mask: jnp.ndarray or bool
+
+    .. note::
+        When ``mask is False``, ``log_prob`` returns zeros of the broadcast
+        batch shape without evaluating the base distribution; when
+        ``mask is True`` it returns the base ``log_prob`` unchanged. Otherwise
+        masked-out values are first replaced by ``support.feasible_like(value)``
+        so the base density never sees out-of-support entries (avoiding ``nan``
+        gradients; falls back to the raw value when ``feasible_like`` is
+        unavailable), and the result is ``where(mask, base_log_prob, 0)``. The
+        ``intermediates`` argument is accepted but not forwarded to the base.
+        ``sample``, ``mean``, ``variance``, ``support`` and
+        ``enumerate_support`` are those of the base distribution; the mask does
+        not affect them. A non-scalar mask broadcasts the base distribution to
+        ``broadcast(mask.shape, base.batch_shape)``. Usually constructed via
+        :meth:`Distribution.mask`.
     """
 
     arg_constraints = {}
@@ -1108,7 +1241,11 @@ class MaskedDistribution(Distribution):
             return self.base_dist.log_prob(value)
         try:
             assert self.base_dist.support is not None
-            default_value = self.base_dist.support.feasible_like(value)
+            default_value = self.base_dist.support.feasible_like(
+                jnp.broadcast_to(
+                    value, lax.broadcast_shapes(jnp.shape(value), self.shape())
+                )
+            )
         except NotImplementedError:
             pass
         else:
@@ -1159,11 +1296,39 @@ class MaskedDistribution(Distribution):
 
 
 class TransformedDistribution(Distribution):
-    """
+    r"""
     Returns a distribution instance obtained as a result of applying
     a sequence of transforms to a base distribution. For an example,
     see :class:`~numpyro.distributions.LogNormal` and
     :class:`~numpyro.distributions.HalfNormal`.
+
+    If :math:`X \sim p_X` and :math:`Y = g_m \circ \cdots \circ g_1(X)` for
+    bijective transforms :math:`g_1, \ldots, g_m`, the change-of-variables formula
+    gives
+
+    .. math::
+        \log p_Y(y) = \log p_X(x_0)
+        - \sum_{i=1}^{m} \log\left|\det J_{g_i}(x_{i-1})\right|,
+        \qquad x_m = y, \quad x_{i-1} = g_i^{-1}(x_i),
+
+    where :math:`J_{g_i}` is the Jacobian of :math:`g_i`. For univariate
+    transforms the cdf is :math:`F_Y(y) = F_X(g^{-1}(y))` when the composition
+    :math:`g` is increasing and :math:`1 - F_X(g^{-1}(y))` when it is decreasing,
+    with the direction given by the product of the transforms' ``sign``
+    attributes; ``icdf`` applies the same rule.
+
+    .. note::
+        ``sample`` applies the transforms in list order; ``log_prob`` inverts them
+        in reverse order and subtracts each ``log_abs_det_jacobian``, summed over the
+        event dimensions that the transform treats as batch dimensions.
+        :meth:`sample_with_intermediates` records the input of every transform so
+        that ``log_prob(value, intermediates)`` can skip the inverses. Nesting a
+        ``TransformedDistribution`` flattens its transforms into the list; the base
+        distribution is expanded and its batch dimensions reinterpreted as event
+        dimensions as needed to match the domain of the composed transform. The
+        ``support`` is the codomain of the last transform, lifted with
+        ``constraints.independent`` over any extra event dimensions; ``mean`` and
+        ``variance`` are not implemented.
 
     :param base_distribution: the base distribution over which to apply transforms.
     :param transforms: a single transform or a list of transforms.
@@ -1337,11 +1502,19 @@ class TransformedDistribution(Distribution):
 
 
 class FoldedDistribution(TransformedDistribution):
-    """
+    r"""
     Equivalent to ``TransformedDistribution(base_dist, AbsTransform())``,
     but additionally supports :meth:`log_prob` .
 
-    :param Distribution base_dist: A univariate distribution to reflect.
+    If :math:`X` has density :math:`p_X`, then :math:`Y = |X|` has density
+
+    .. math::
+      p_Y(y) = p_X(y) + p_X(-y), \qquad y \ge 0,
+
+    so :meth:`log_prob` computes
+    :math:`\log p_Y(y) = \operatorname{logsumexp}\{\log p_X(y), \log p_X(-y)\}`.
+
+    :param Distribution base_dist: A univariate continuous distribution to reflect.
     """
 
     support = constraints.positive
@@ -1361,6 +1534,34 @@ class FoldedDistribution(TransformedDistribution):
 
 
 class Delta(Distribution):
+    r"""
+    Degenerate distribution that places all of its mass on a single point
+    ``v``, optionally reweighted by an additive ``log_density`` term.
+
+    Writing :math:`v` for the support point and :math:`c` for the
+    ``log_density`` offset, the log density is
+
+    .. math::
+      \log p(x) = \log c + \begin{cases}
+        0 & \text{if } x = v, \\
+        -\infty & \text{otherwise,}
+      \end{cases}
+
+    so with the default ``log_density = 0`` the distribution reduces to the
+    Dirac delta :math:`\delta(x - v)`. The ``log_density`` term does not move
+    the support; it only shifts the log density by a constant, which is useful
+    for representing deterministic values while tracking an accompanying
+    log-weight (for example a change-of-variables Jacobian). When
+    ``event_dim > 0`` the trailing dimensions of ``v`` are treated as event
+    dimensions and the per-element indicators are summed over them.
+
+    :param numpy.ndarray v: The support point on which all mass is placed.
+    :param numpy.ndarray log_density: An additive offset applied to the log
+        density, broadcast to the batch shape.
+    :param int event_dim: The number of trailing dimensions of ``v`` to treat
+        as event dimensions.
+    """
+
     arg_constraints = {
         "v": constraints.dependent(is_discrete=False),
         "log_density": constraints.real,
@@ -1393,11 +1594,28 @@ class Delta(Distribution):
 
     @constraints.dependent_property
     def support(self) -> constraints.Constraint:
+        r"""Support of the distribution.
+
+        The support is the real line (extended to ``event_dim`` event
+        dimensions), even though all probability mass is concentrated at
+        ``v``.
+        """
         return constraints.independent(constraints.real, self.event_dim)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> ArrayLike:
+        r"""Draw samples from the distribution.
+
+        Sampling is deterministic: every draw equals the support point
+        :math:`v`, broadcast to ``sample_shape + batch_shape + event_shape``.
+        The PRNG ``key`` is therefore unused.
+
+        :param key: A JAX PRNG key (unused).
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples that are all equal to ``v``.
+        :rtype: ArrayLike
+        """
         if not sample_shape:
             return self.v
         shape = sample_shape + self.batch_shape + self.event_shape
@@ -1405,29 +1623,75 @@ class Delta(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> ArrayLike:
+        r"""Calculate the log density.
+
+        .. math::
+            \log p(x) = \log c + \sum_{\text{event}} \begin{cases}
+              0 & \text{if } x = v, \\
+              -\infty & \text{otherwise,}
+            \end{cases}
+
+        where :math:`c` is ``log_density``. Elementwise indicators are summed
+        over the event dimensions before the ``log_density`` offset is added,
+        so any coordinate differing from ``v`` yields :math:`-\infty`.
+
+        :param value: Values at which to evaluate the log density.
+        :return: Log density.
+        :rtype: ArrayLike
+        """
         log_prob = jnp.where(value == self.v, 0, -jnp.inf)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the distribution.
+
+        .. math:: E[X] = v
+        """
         return jnp.asarray(self.v)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the distribution.
+
+        Because all mass sits on the single point ``v``, the variance is zero.
+
+        .. math:: \operatorname{Var}(X) = 0
+        """
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     def entropy(self) -> Array:
+        r"""Entropy of the distribution.
+
+        .. math:: H(X) = -\log c
+
+        where :math:`c` is ``log_density``; with the default
+        ``log_density = 0`` the point mass has zero entropy.
+        """
         return -jnp.broadcast_to(self.log_density, self.batch_shape)
 
 
 class Unit(Distribution):
-    """
+    r"""
     Trivial nonnormalized distribution representing the unit type.
 
     The unit type has a single value with no data, i.e. ``value.size == 0``.
+    Writing :math:`c` for ``log_factor``, the unnormalized log density at that
+    value is
+
+    .. math::
+        \log p(\varnothing) = c,
+
+    so the distribution contributes the constant :math:`c` to the joint log
+    density. The batch shape is ``jnp.shape(log_factor)`` and the event shape is
+    ``(0,)``; :meth:`sample` returns an empty array of that shape, and
+    :meth:`log_prob` ignores the contents of ``value`` and broadcasts
+    ``log_factor`` against its batch dimensions.
 
     This is used for :func:`numpyro.factor` statements.
+
+    :param numpy.ndarray log_factor: A possibly batched log probability factor.
     """
 
     arg_constraints = {"log_factor": constraints.real}

@@ -2,17 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, namedtuple
+from collections.abc import Callable
+import copy
 from functools import partial
 import math
 import os
+from typing import cast
 import warnings
 
+import jax
 from jax import lax, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
+from numpyro._typing import ConstrainFn, ModelArgs, ModelKwargs, PotentialFn
 from numpyro.infer.hmc_util import (
     IntegratorState,
+    _value_and_grad,
     build_tree,
     euclidean_kinetic_energy,
     find_reasonable_step_size,
@@ -22,9 +28,11 @@ from numpyro.infer.hmc_util import (
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import (
     ParamInfo,
+    _transforms_from_trace,
     find_stack_level,
     init_to_uniform,
     initialize_model,
+    transform_fn,
 )
 from numpyro.util import cond, fori_loop, identity, is_prng_key
 
@@ -89,11 +97,14 @@ def _get_num_steps(step_size, trajectory_length):
     return num_steps.astype(jnp.result_type(int))
 
 
-def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
+def momentum_generator(
+    prototype_r, mass_matrix_sqrt: dict[tuple[str, ...], jax.Array] | jax.Array, rng_key
+):
     if isinstance(mass_matrix_sqrt, dict):
-        rng_keys = random.split(rng_key, len(mass_matrix_sqrt))
+        blocks = cast(dict[tuple[str, ...], jax.Array], mass_matrix_sqrt)
+        rng_keys = random.split(rng_key, len(blocks))
         r = {}
-        for (site_names, mm_sqrt), rng_key in zip(mass_matrix_sqrt.items(), rng_keys):
+        for (site_names, mm_sqrt), rng_key in zip(blocks.items(), rng_keys):
             r_block = OrderedDict([(k, prototype_r[k]) for k in site_names])
             r.update(momentum_generator(r_block, mm_sqrt, rng_key))
         return r
@@ -333,7 +344,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         )
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
-        z_info = IntegratorState(z=z, potential_energy=pe, z_grad=z_grad)
+        z_info = IntegratorState(z=z, r=None, potential_energy=pe, z_grad=z_grad)
         wa_state = wa_init(
             z_info, rng_key_wa, step_size, inverse_mass_matrix=inverse_mass_matrix
         )
@@ -374,6 +385,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update_fn = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         else:
+            assert vv_update is not None
             vv_update_fn = vv_update
 
         if fixed_num_steps is not None:
@@ -426,8 +438,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update_fn = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         else:
+            assert vv_update is not None
             vv_update_fn = vv_update
 
+        assert max_treedepth is not None
         binary_tree = build_tree(
             vv_update_fn,
             kinetic_fn,
@@ -485,6 +499,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         if algo == "HMC":
             hmc_length_args = (hmc_state.trajectory_length,)
         else:
+            assert max_treedepth is not None
             hmc_length_args = (
                 jnp.where(hmc_state.i < wa_steps, max_treedepth[0], max_treedepth[1]),
             )
@@ -498,10 +513,12 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             *hmc_length_args,
         )
         # not update adapt_state after warmup phase
+        wa_update_fn = wa_update
+        assert wa_update_fn is not None
         adapt_state = cond(
             hmc_state.i < wa_steps,
             (hmc_state.i, accept_prob, vv_state, hmc_state.adapt_state),
-            lambda args: wa_update(*args),
+            lambda args: wa_update_fn(*args),
             hmc_state.adapt_state,
             identity,
         )
@@ -532,8 +549,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
     if "SPHINX_BUILD" in os.environ:
-        hmc.init_kernel = init_kernel
-        hmc.sample_kernel = sample_kernel
+        hmc.init_kernel = init_kernel  # ty: ignore[unresolved-attribute]
+        hmc.sample_kernel = sample_kernel  # ty: ignore[unresolved-attribute]
 
     return init_kernel, sample_kernel
 
@@ -684,6 +701,8 @@ class HMC(MCMCKernel):
         self._potential_fn_gen = None
         self._postprocess_fn = None
         self._sample_fn = None
+        self._inv_transforms = None
+        self._dynamic_support = None
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
@@ -711,6 +730,9 @@ class HMC(MCMCKernel):
                 )
             self._potential_fn_gen = potential_fn
             self._postprocess_fn = postprocess_fn
+            transforms = _transforms_from_trace(model_trace, raise_warnings=False)
+            self._inv_transforms = transforms.inv_transforms
+            self._dynamic_support = transforms.dynamic_support
         elif self._init_fn is None:
             self._init_fn, self._sample_fn = hmc(
                 potential_fn=self._potential_fn,
@@ -736,6 +758,102 @@ class HMC(MCMCKernel):
         return "{} steps of size {:.2e}. acc. prob={:.2f}".format(
             state.num_steps, state.adapt_state.step_size, state.mean_accept_prob
         )
+
+    def get_potential_fn(
+        self,
+        model_args: ModelArgs = (),
+        model_kwargs: ModelKwargs | None = None,
+    ) -> PotentialFn:
+        """
+        Return the potential energy function (negative log joint in unconstrained space) for
+        the given model arguments. Requires :meth:`init` to have run.
+
+        :param tuple model_args: arguments provided to the model.
+        :param dict model_kwargs: keyword arguments provided to the model.
+        :return: a callable mapping unconstrained site values to the potential energy.
+        """
+        if self._potential_fn_gen is None:
+            if self._potential_fn is not None:
+                return self._potential_fn
+            raise RuntimeError(
+                "`get_potential_fn` requires the kernel to be initialized; run `init` first."
+            )
+        model_kwargs = {} if model_kwargs is None else model_kwargs
+        return self._potential_fn_gen(*model_args, **model_kwargs)
+
+    def get_constrain_fn(
+        self,
+        model_args: ModelArgs = (),
+        model_kwargs: ModelKwargs | None = None,
+        *,
+        return_deterministic: bool = False,
+    ) -> ConstrainFn:
+        """
+        Return a function mapping unconstrained sample values to constrained values. When
+        `return_deterministic=False` and the model has no value-dependent supports, this is a
+        transform-only function (:func:`~numpyro.infer.util.transform_fn`) that never runs the
+        model; otherwise it replays the model (:func:`~numpyro.infer.util.constrain_fn`).
+        Composite kernels use the transform-only form to condition sibling blocks. Requires
+        :meth:`init` to have run.
+
+        :param tuple model_args: arguments provided to the model.
+        :param dict model_kwargs: keyword arguments provided to the model.
+        :param bool return_deterministic: whether to also return `deterministic` sites.
+        :return: a callable mapping unconstrained site values to constrained site values.
+        """
+        if self._inv_transforms is None:
+            if self._model is None:
+                return identity
+            raise RuntimeError(
+                "`get_constrain_fn` requires the kernel to be initialized; run `init` first."
+            )
+        if return_deterministic or self._dynamic_support:
+            model_kwargs = {} if model_kwargs is None else model_kwargs
+            assert self._postprocess_fn is not None
+            return self._postprocess_fn(*model_args, **model_kwargs)
+        return partial(transform_fn, self._inv_transforms)
+
+    def refresh(
+        self,
+        state: HMCState,
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs | None,
+    ) -> HMCState:
+        """
+        Recompute `potential_energy` and `z_grad` at `state.z` with the potential for the
+        given arguments, honoring `forward_mode_differentiation`. `energy` is left as is:
+        :meth:`sample` recomputes it from the potential and a fresh momentum.
+
+        :param HMCState state: the current state.
+        :param tuple model_args: arguments provided to the model.
+        :param dict model_kwargs: keyword arguments provided to the model.
+        :return: the state with refreshed `potential_energy` and `z_grad`.
+        """
+        pe_fn = self.get_potential_fn(model_args, model_kwargs)
+        pe, z_grad = _value_and_grad(pe_fn, state.z, self._forward_mode_differentiation)
+        return state._replace(potential_energy=pe, z_grad=z_grad)
+
+    def wrap_model(self, wrapper: Callable) -> "HMC":
+        """
+        Return a shallow copy of this kernel bound to `wrapper(self.model)`. The copy rebuilds
+        its closures against the wrapped model on its next :meth:`init`.
+
+        :param wrapper: callable mapping a model to a model with the same call signature.
+        :return: a new kernel bound to the wrapped model.
+        """
+        if self._model is None:
+            raise ValueError(
+                "`wrap_model` is not supported for kernels built from a potential function."
+            )
+        kernel = copy.copy(self)
+        kernel._model = wrapper(self._model)
+        kernel._init_fn = None
+        kernel._sample_fn = None
+        kernel._potential_fn_gen = None
+        kernel._postprocess_fn = None
+        kernel._inv_transforms = None
+        kernel._dynamic_support = None
+        return kernel
 
     def init(
         self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
@@ -768,7 +886,9 @@ class HMC(MCMCKernel):
                 dense_mass = [tuple(sorted(z))] if dense_mass else []
             assert isinstance(dense_mass, list)
 
-        hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
+        init_fn = self._init_fn
+        assert init_fn is not None
+        hmc_init_fn = lambda init_params, rng_key: init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
@@ -794,14 +914,15 @@ class HMC(MCMCKernel):
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
+            assert self._sample_fn is not None
             sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
 
-    def postprocess_fn(self, args, kwargs):
+    def postprocess_fn(self, model_args, model_kwargs):
         if self._postprocess_fn is None:
             return identity
-        return self._postprocess_fn(*args, **kwargs)
+        return self._postprocess_fn(*model_args, **model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):
         """
@@ -813,6 +934,7 @@ class HMC(MCMCKernel):
         :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state` after running HMC.
         """
+        assert self._sample_fn is not None, "`init` must be called before `sample`."
         return self._sample_fn(state, model_args, model_kwargs)
 
     def __getstate__(self):

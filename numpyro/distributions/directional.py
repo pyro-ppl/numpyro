@@ -225,6 +225,28 @@ class SineSkewed(Distribution):
     So, a 0-torus is a point, the 1-torus is a circle,
     and the 2-torus is commonly associated with the donut shape.
 
+    Let :math:`f` be the density of ``base_dist`` on the :math:`d`-torus, symmetric
+    about its location :math:`\boldsymbol\mu` (``base_dist.mean``), and let
+    :math:`\boldsymbol\lambda \in \mathbb{R}^d` be the ``skewness`` with
+    :math:`\sum_{i=1}^{d} |\lambda_i| \le 1`. The sine skewed density is
+
+    .. math::
+        p(\mathbf{x} \mid \boldsymbol\lambda) = f(\mathbf{x})
+        \left(1 + \sum_{i=1}^{d} \lambda_i \sin(x_i - \mu_i)\right),
+        \qquad \mathbf{x} \in [-\pi, \pi)^d ,
+
+    so that ``log_prob`` is the base log density plus
+    :math:`\log\big(1 + \sum_i \lambda_i \sin(x_i - \mu_i)\big)`. Normalization is
+    preserved because :math:`f` is symmetric about :math:`\boldsymbol\mu` and
+    :math:`\sin` is odd, so every :math:`\int f(\mathbf{x})\sin(x_i - \mu_i)\,
+    d\mathbf{x}` vanishes; the :math:`\ell_1` constraint on
+    :math:`\boldsymbol\lambda` keeps the bracket non-negative. Sampling follows
+    Section 2.3 of [1]: draw :math:`\mathbf{Y} \sim f` and
+    :math:`U \sim \mathrm{Uniform}(0, 1)`, and return :math:`\mathbf{Y}` if
+    :math:`U \le \tfrac12\big(1 + \sum_i \lambda_i \sin(Y_i - \mu_i)\big)`, otherwise
+    the reflection :math:`2\boldsymbol\mu - \mathbf{Y}`; the result is wrapped to
+    :math:`[-\pi, \pi)^d`.
+
     The sine skewed X distribution is parameterized by a weight parameter for each dimension of the event of X.
     For example with a von Mises distribution over a circle (1-torus), the sine skewed von Mises distribution has one
     skew parameter. The skewness parameters can be inferred using :class:`~numpyro.infer.HMC` or
@@ -254,10 +276,10 @@ class SineSkewed(Distribution):
 
     To ensure the skewing does not alter the normalization constant of the (sine bivariate von Mises) base
     distribution the skewness parameters are constraint. The constraint requires the sum of the absolute values of
-    skewness to be less than or equal to one. We can use the :class:`~numpyro.distriubtions.transforms.L1BallTransform`
+    skewness to be less than or equal to one. We can use the :class:`~numpyro.distributions.transforms.L1BallTransform`
     to achieve this.
 
-    In the context of :class:`~pyro.infer.SVI`, this distribution can freely be used as a likelihood, but use as
+    In the context of :class:`~numpyro.infer.svi.SVI`, this distribution can freely be used as a likelihood, but use as
     latent variables it will lead to slow inference for 2 and higher dim toruses. This is because the base_dist
     cannot be reparameterized.
 
@@ -266,13 +288,25 @@ class SineSkewed(Distribution):
     .. note:: For the skewness parameter, it must hold that the sum of the absolute value of its weights for an event
         must be less than or equal to one. See eq. 2.1 in [1].
 
-    ** References: **
+    .. note::
+        ``mean`` returns the base location :math:`\boldsymbol\mu` (``base_dist.mean``),
+        not the circular mean of the skewed distribution; ``variance`` is not
+        implemented. The base distribution must expose ``mean``, which is used as
+        the symmetry center, and must be symmetric about it for the density above
+        to be normalized. When validation is enabled, the checks performed by this
+        class itself only *warn* on values outside the support of this
+        distribution or of the base distribution; however, a ``base_dist``
+        constructed with validation enabled (the default) still masks
+        out-of-support values to :math:`-\infty` inside its own ``log_prob``, and
+        that value is what ``log_prob`` returns.
+
+    **References**
         1. Sine-skewed toroidal distributions and their application in protein bioinformatics
             Ameijeiras-Alonso, J., Ley, C. (2019)
 
     :param numpyro.distributions.Distribution base_dist: base density on a d-dimensional torus. Supported base
         distributions include: 1D :class:`~numpyro.distributions.VonMises`,
-        :class:`~numnumpyro.distributions.SineBivariateVonMises`, 1D :class:`~numpyro.distributions.ProjectedNormal`,
+        :class:`~numpyro.distributions.SineBivariateVonMises`, 1D :class:`~numpyro.distributions.ProjectedNormal`,
         and :class:`~numpyro.distributions.Uniform` (-pi, pi).
     :param jax.numpy.array skewness: skewness of the distribution.
     """
@@ -378,6 +412,39 @@ class SineBivariateVonMises(Distribution):
     kappa's are the concentration and rho gives the correlation between angles :math:`x_1` and :math:`x_2`.
     This distribution is helpful for modeling coupled angles such as torsion angles in peptide chains.
 
+    The density is unimodal when :math:`\rho^2 < \kappa_1\kappa_2` and bimodal when
+    :math:`\rho^2 > \kappa_1\kappa_2` [1]. Passing ``weighted_correlation``
+    :math:`w \in [-1, 1]` sets :math:`\rho = w\sqrt{\kappa_1\kappa_2}`, so
+    :math:`|w| < 1` guarantees unimodality.
+
+    The marginal density of the first angle and the conditional of the second
+    angle, which ``sample`` uses, are
+
+    .. math::
+        f(\phi) \propto \exp\big(\kappa_1 \cos(\phi - \mu_1)\big)\,
+        I_0\!\left(\sqrt{\kappa_2^2 + \rho^2 \sin^2(\phi - \mu_1)}\right), \qquad
+        \psi \mid \phi \sim \mathrm{VonMises}\!\left(\mu_2 + \beta(\phi),\
+        \alpha(\phi)\right),
+
+    with :math:`\alpha(\phi) = \sqrt{\kappa_2^2 + \rho^2\sin^2(\phi - \mu_1)}` and
+    :math:`\beta(\phi) = \arctan\!\big(\tfrac{\rho}{\kappa_2}\sin(\phi - \mu_1)\big)`.
+    ``sample`` draws :math:`\phi` by rejection sampling from an angular central
+    Gaussian envelope (Kent, Ganeiber & Mardia, 2018; see :meth:`sample`), running
+    at most ``max_sample_iter`` (1000) rounds, and then draws :math:`\psi` from
+    the conditional.
+
+    .. note::
+        ``norm_const`` evaluates :math:`\log C` with the series truncated at 50
+        terms and :math:`\rho^2` clipped from below at the dtype ``tiny`` before
+        taking logarithms. ``mean`` returns the locations :math:`(\mu_1, \mu_2)`
+        wrapped to :math:`[-\pi, \pi)`; by the point symmetry of the density about
+        :math:`(\mu_1, \mu_2)` this is the circular mean in both regimes, but in the
+        bimodal regime it is a saddle point rather than a mode. ``variance`` is not
+        implemented. If the rejection sampler has not accepted an entry after
+        ``max_sample_iter`` (1000) rounds, that entry is not resampled: its
+        :math:`\phi` silently falls back to :math:`\mu_1` (the zero initial state
+        of the loop) and :math:`\psi` is drawn from the conditional at that value.
+
     To infer parameters, use :class:`~numpyro.infer.hmc.NUTS` or :class:`~numpyro.infer.hmc.HMC` with priors that
     avoid parameterizations where the distribution becomes bimodal; see note below.
 
@@ -399,8 +466,9 @@ class SineBivariateVonMises(Distribution):
     .. note:: Normalization remains accurate for concentrations up to 10,000. Unlike Pyro, there is no assertion to
         verify this during initialization, as JIT-compilation would invalidate such a check.
 
-    ** References: **
-        1. Probabilistic model for two dependent circular variables Singh, H., Hnizdo, V., and Demchuck, E. (2002)
+    **References**
+        1. Singh, H., Hnizdo, V., & Demchuk, E. (2002). Probabilistic model for two
+           dependent circular variables. *Biometrika*, 89(3), 719–723.
 
     :param np.ndarray phi_loc: location of first angle
     :param np.ndarray psi_loc: location of second angle
@@ -408,7 +476,7 @@ class SineBivariateVonMises(Distribution):
     :param np.ndarray psi_concentration: concentration of second angle
     :param np.ndarray correlation: correlation between the two angles
     :param np.ndarray weighted_correlation: set correlation to weighted_corr * sqrt(phi_conc*psi_conc)
-        to avoid bimodality (see note). The `weighted_correlation` should be in [0,1].
+        to avoid bimodality (see note). The `weighted_correlation` should be in [-1,1].
     """
 
     arg_constraints = {
@@ -624,12 +692,50 @@ class SineBivariateVonMises(Distribution):
 
 
 class ProjectedNormal(Distribution):
-    """
+    r"""
     Projected isotropic normal distribution of arbitrary dimension.
 
     This distribution over directional data is qualitatively similar to the von
     Mises and von Mises-Fisher distributions, but permits tractable variational
     inference via reparametrized gradients.
+
+    If :math:`\mathbf{z} \sim \mathcal{N}(\boldsymbol{\mu}, \mathbf{I}_d)`, then
+    :math:`\mathbf{x} = \mathbf{z} / \lVert \mathbf{z} \rVert` follows a projected
+    normal distribution on the unit sphere :math:`S^{d-1}`. Its support is
+    :data:`~numpyro.distributions.constraints.sphere`, namely
+    :math:`\{\mathbf{x} \in \mathbb{R}^d : \lVert \mathbf{x} \rVert = 1\}`.
+    Its density with respect to the surface measure on the sphere is obtained by
+    integrating the isotropic normal density along the ray through
+    :math:`\mathbf{x}` [1],
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-\lVert \boldsymbol{\mu} \rVert^2 / 2}}{(2\pi)^{d/2}}
+        \int_0^\infty r^{d-1}
+        \exp\left( -\frac{r^2}{2} + r\, \boldsymbol{\mu}^\top \mathbf{x} \right) dr,
+
+    where :math:`\boldsymbol{\mu}` is :attr:`concentration`. While the radial
+    integral has a closed form for every nonnegative integer power,
+    :meth:`log_prob` implements the resulting density only for :math:`d \in \{2, 3\}`.
+    Writing :math:`t = \boldsymbol{\mu}^\top \mathbf{x}` and
+    :math:`M_k(t) = \int_0^\infty r^k\, \phi(r-t)\, dr`, where :math:`\phi` is the
+    standard normal density, these implemented forms are
+
+    .. math::
+
+        p(\mathbf{x} \mid \boldsymbol{\mu}) =
+        \frac{e^{-(\lVert \boldsymbol{\mu} \rVert^2 - t^2) / 2}}{(2\pi)^{(d-1)/2}}
+        M_{d-1}(t),
+
+        M_1(t) = t\, \Phi(t) + \phi(t),
+
+        M_2(t) = t\, \phi(t) + (1 + t^2)\, \Phi(t).
+
+    For :math:`\boldsymbol{\mu} \ne 0`, the intrinsic (Fréchet) mean direction
+    and mode are both :math:`\boldsymbol{\mu} / \lVert \boldsymbol{\mu} \rVert`.
+    For :math:`\boldsymbol{\mu} = 0`, the distribution is uniform on the sphere
+    and has no unique mean direction or mode.
 
     To use this distribution with autoguides and HMC, use ``handlers.reparam``
     with a :class:`~numpyro.infer.reparam.ProjectedNormalReparam`
@@ -641,12 +747,10 @@ class ProjectedNormal(Distribution):
                                        ProjectedNormal(zeros(3)))
             ...
 
-    .. note:: This implements :meth:`log_prob` only for dimensions {2,3}.
-
     [1] D. Hernandez-Stumpfhauser, F.J. Breidt, M.J. van der Woerd (2017)
         "The General Projected Normal Distribution of Arbitrary Dimension:
         Modeling and Bayesian Inference"
-        https://projecteuclid.org/euclid.ba/1453211962
+        https://doi.org/10.1214/16-BA1031
     """
 
     arg_constraints = {"concentration": constraints.real_vector}
@@ -656,6 +760,11 @@ class ProjectedNormal(Distribution):
     def __init__(
         self, concentration: ArrayLike, *, validate_args: Optional[bool] = None
     ):
+        r"""
+        :param concentration: Mean vector :math:`\boldsymbol{\mu} \in \mathbb{R}^d`
+            of the isotropic normal distribution before projection.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         assert jnp.ndim(concentration) >= 1
         self.concentration = concentration
         batch_shape = jnp.shape(concentration)[:-1]
@@ -672,6 +781,7 @@ class ProjectedNormal(Distribution):
 
     @property
     def mode(self) -> jax.Array:
+        """Mode direction for nonzero :attr:`concentration`."""
         return safe_normalize(self.concentration)
 
     def sample(
@@ -685,6 +795,15 @@ class ProjectedNormal(Distribution):
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
     ) -> Array:
+        r"""Evaluate the log probability density at ``value``.
+
+        This method implements the closed forms described above for event
+        dimensions 2 and 3 only.
+
+        :param value: Point on :attr:`support` at which to evaluate the log PDF.
+        :param intermediates: Not used.
+        :return: Log probability density under the projected normal distribution.
+        """
         if self._validate_args:
             event_shape = jnp.shape(value)[-1:]
             if event_shape != self.event_shape:

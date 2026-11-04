@@ -255,7 +255,6 @@ def _vmap_over_inverse_gamma(dist: InverseGamma, concentration=None, rate=None):
 @vmap_over.register
 def _vmap_over_uniform(dist: Uniform, low=None, high=None):
     dist_axes = _default_vmap_over(dist, low=low, high=high)
-    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
     return dist_axes
 
 
@@ -303,7 +302,6 @@ def _vmap_over_lognormal(dist: LogNormal, loc=None, scale=None):
 def _vmap_over_loguniform(dist: LogUniform, low=None, high=None):
     dist_axes = _default_vmap_over(dist, low=low, high=high)
     dist_axes.base_dist = vmap_over(dist.base_dist, low=low, high=high)
-    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
     return dist_axes
 
 
@@ -506,7 +504,6 @@ def _vmap_over_ordered_logistic(dist: OrderedLogistic, predictor=None, cutpoints
 @vmap_over.register
 def _vmap_over_discrete_uniform(dist: DiscreteUniform, low=None, high=None):
     dist_axes = _default_vmap_over(dist, low=low, high=high)
-    dist_axes._support = vmap_over(dist._support, lower_bound=low, upper_bound=high)
     return dist_axes
 
 

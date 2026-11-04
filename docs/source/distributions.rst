@@ -718,6 +718,22 @@ ZeroInflatedDistribution
 ^^^^^^^^^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
 
+ZeroInflatedLogits
+^^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ZeroInflatedProbs
+^^^^^^^^^^^^^^^^^
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ZeroInflatedPoisson
 ^^^^^^^^^^^^^^^^^^^
 .. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson
@@ -956,6 +972,10 @@ dependent
 ^^^^^^^^^
 .. autodata:: numpyro.distributions.constraints.dependent
 
+extended_real
+^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.extended_real
+
 greater_than
 ^^^^^^^^^^^^
 .. autofunction:: numpyro.distributions.constraints.greater_than
@@ -1035,6 +1055,10 @@ softplus_lower_cholesky
 simplex
 ^^^^^^^
 .. autodata:: numpyro.distributions.constraints.simplex
+
+softmax_logits
+^^^^^^^^^^^^^^
+.. autodata:: numpyro.distributions.constraints.softmax_logits
 
 sphere
 ^^^^^^

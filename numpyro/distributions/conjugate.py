@@ -31,11 +31,26 @@ def _log_beta_1(alpha, value):
 
 
 class BetaBinomial(Distribution):
-    r"""
-    Compound distribution comprising of a beta-binomial pair. The probability of
-    success (``probs`` for the :class:`~numpyro.distributions.Binomial` distribution)
-    is unknown and randomly drawn from a :class:`~numpyro.distributions.Beta` distribution
-    prior to a certain number of Bernoulli trials given by ``total_count``.
+    r"""A Beta-Binomial compound distribution: the probability of success
+    (``probs`` for the :class:`~numpyro.distributions.Binomial` distribution)
+    is unknown and randomly drawn from a :class:`~numpyro.distributions.Beta`
+    distribution prior to a certain number of Bernoulli trials given by
+    ``total_count``. Marginalizing out the success probability yields a
+    discrete distribution on :math:`\{0, 1, \dots, n\}` that is useful for
+    modeling overdispersed binomial count data.
+
+    The Probability Mass Function (PMF) of the Beta-Binomial distribution is
+    defined as:
+
+    .. math::
+        P(X = k \mid \alpha, \beta, n) =
+        \binom{n}{k} \frac{\mathrm{B}(k + \alpha,\ n - k + \beta)}
+        {\mathrm{B}(\alpha, \beta)},
+        \quad k \in \{0, 1, \dots, n\}
+
+    where :math:`\alpha` is :attr:`concentration1`, :math:`\beta` is
+    :attr:`concentration0`, :math:`n` is :attr:`total_count`, and
+    :math:`\mathrm{B}` is the beta function.
 
     :param numpy.ndarray concentration1: 1st concentration parameter (alpha) for the
         Beta distribution.
@@ -75,6 +90,25 @@ class BetaBinomial(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        sampling procedure is:
+
+        .. math::
+            \begin{align*}
+                p &\sim \mathrm{Beta}(\alpha, \beta) \\
+                X \mid p &\sim \mathrm{Binomial}(n, p)
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Beta` to generate
+        samples from the Beta distribution and
+        :class:`~numpyro.distributions.discrete.BinomialProbs` to generate
+        samples from the Binomial distribution.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer-valued samples in :math:`\{0, 1, \dots, n\}` drawn from
+            the Beta-Binomial distribution.
+        """
         assert key is not None
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
@@ -85,6 +119,22 @@ class BetaBinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        log probability mass function is:
+
+        .. math::
+            \ln P(X = k) =
+            \ln\Gamma(n + 1) - \ln\Gamma(k + 1) - \ln\Gamma(n - k + 1)
+            + \ln\mathrm{B}(k + \alpha,\ n - k + \beta)
+            - \ln\mathrm{B}(\alpha, \beta)
+
+        To ensure differentiability, the binomial coefficient is computed using
+        gamma functions, and the beta-function terms are evaluated with
+        :func:`~jax.scipy.special.betaln`.
+
+        :param value: Number of successes :math:`k \in \{0, 1, \dots, n\}` to score.
+        :return: Log probability scores evaluated under the Beta-Binomial PMF.
+        """
         return (
             -_log_beta_1(self.total_count - value + 1, value)
             + betaln(
@@ -96,10 +146,24 @@ class BetaBinomial(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        mean is:
+
+        .. math::
+            \mathbb{E}[X] = \frac{n\alpha}{\alpha + \beta}
+        """
         return self._beta.mean * self.total_count
 
     @property
     def variance(self) -> Array:
+        r"""If :math:`X \sim \mathrm{BetaBinomial}(\alpha, \beta, n)`, then the
+        variance is:
+
+        .. math::
+            \mathrm{Var}[X] =
+            \frac{n\,\alpha\beta\,(\alpha + \beta + n)}
+            {(\alpha + \beta)^{2}\,(\alpha + \beta + 1)}
+        """
         return (
             self._beta.variance
             * self.total_count
@@ -108,6 +172,9 @@ class BetaBinomial(Distribution):
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> Constraint:
+        r"""The support of the Beta-Binomial distribution is the set of integers
+        :math:`\{0, 1, \dots, n\}`, where :math:`n` is :attr:`total_count`.
+        """
         return constraints.integer_interval(0, self.total_count)
 
 
@@ -247,12 +314,30 @@ class BetaNegativeBinomial(Distribution):
 
 
 class DirichletMultinomial(Distribution):
-    r"""
-    Compound distribution comprising of a dirichlet-multinomial pair. The probability of
-    classes (``probs`` for the :class:`~numpyro.distributions.Multinomial` distribution)
-    is unknown and randomly drawn from a :class:`~numpyro.distributions.Dirichlet`
+    r"""A Dirichlet-Multinomial compound distribution: the class probabilities
+    (``probs`` for the :class:`~numpyro.distributions.Multinomial` distribution)
+    are unknown and randomly drawn from a :class:`~numpyro.distributions.Dirichlet`
     distribution prior to a certain number of Categorical trials given by
-    ``total_count``.
+    ``total_count``. Marginalizing out the probability vector yields a discrete
+    distribution over count vectors that is useful for modeling overdispersed
+    multinomial count data.
+
+    The Probability Mass Function (PMF) of the Dirichlet-Multinomial
+    distribution is defined as:
+
+    .. math::
+        P(X = \mathbf{x} \mid \boldsymbol{\alpha}, n) =
+        \frac{n!}{\prod_{k=0}^{K-1} x_k!}
+        \frac{\mathrm{B}(\boldsymbol{\alpha} + \mathbf{x})}
+        {\mathrm{B}(\boldsymbol{\alpha})}
+
+    where :math:`\boldsymbol{\alpha} = (\alpha_0, \alpha_1, \dots, \alpha_{K-1})`
+    is the concentration vector (:attr:`concentration`), :math:`n` is the number
+    of trials (:attr:`total_count`),
+    :math:`\mathrm{B}(\boldsymbol{\alpha}) = \prod_k \Gamma(\alpha_k) /
+    \Gamma\!\bigl(\sum_k \alpha_k\bigr)` is the multivariate beta function, and
+    the count vector :math:`\mathbf{x}` satisfies
+    :math:`\sum_{k=0}^{K-1} x_k = n`.
 
     :param numpy.ndarray concentration: concentration parameter (alpha) for the
         Dirichlet distribution.
@@ -298,6 +383,26 @@ class DirichletMultinomial(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the sampling procedure is:
+
+        .. math::
+            \begin{align*}
+                \mathbf{p} &\sim \mathrm{Dirichlet}(\boldsymbol{\alpha}) \\
+                X \mid \mathbf{p} &\sim \mathrm{Multinomial}(n, \mathbf{p})
+            \end{align*}
+
+        It uses :class:`~numpyro.distributions.continuous.Dirichlet` to generate
+        samples from the Dirichlet distribution and
+        :class:`~numpyro.distributions.discrete.MultinomialProbs` to generate
+        samples from the Multinomial distribution.
+
+        :param key: A JAX random number generator key (PRNG state).
+        :param sample_shape: Desired sample dimensions to prepend to the batch shape.
+        :return: Integer count vectors :math:`\mathbf{x}` with
+            :math:`\sum_{k=0}^{K-1} x_k =` :attr:`total_count`, drawn from the
+            Dirichlet-Multinomial distribution.
+        """
         assert key is not None
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
@@ -310,6 +415,27 @@ class DirichletMultinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the log probability mass function is:
+
+        .. math::
+            \ln P(X = \mathbf{x}) =
+            \ln\Gamma(n + 1) + \ln\Gamma(A) - \ln\Gamma(n + A)
+            - \sum_{k=0}^{K-1} \left[
+                \ln\Gamma(x_k + 1) + \ln\Gamma(\alpha_k)
+                - \ln\Gamma(x_k + \alpha_k)
+            \right]
+
+        where :math:`n` is :attr:`total_count` and
+        :math:`A = \sum_{k=0}^{K-1} \alpha_k`. To ensure differentiability, the
+        factorial terms are computed using
+        :func:`~jax.scipy.special.gammaln`.
+
+        :param value: Count vector :math:`\mathbf{x}` whose last dimension has
+            size :math:`K` and sums to :attr:`total_count`.
+        :return: Log probability scores evaluated under the
+            Dirichlet-Multinomial PMF.
+        """
         alpha = self.concentration
         return _log_beta_1(jnp.sum(alpha, -1), jnp.sum(value, -1)) - jnp.sum(
             _log_beta_1(alpha, value), -1
@@ -317,10 +443,30 @@ class DirichletMultinomial(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the mean is:
+
+        .. math::
+            \mathbb{E}[X_k] = n\,\frac{\alpha_k}{A},
+            \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`A = \sum_{k=0}^{K-1} \alpha_k`.
+        """
         return self._dirichlet.mean * jnp.expand_dims(self.total_count, -1)
 
     @property
     def variance(self) -> Array:
+        r"""If :math:`X \sim \mathrm{DirichletMultinomial}(\boldsymbol{\alpha}, n)`,
+        then the variance is:
+
+        .. math::
+            \mathrm{Var}[X_k] =
+            n\,\frac{\alpha_k}{A}\left(1 - \frac{\alpha_k}{A}\right)
+            \frac{n + A}{1 + A},
+            \quad k \in \{0, 1, \dots, K-1\}
+
+        where :math:`A = \sum_{k=0}^{K-1} \alpha_k`.
+        """
         n = jnp.expand_dims(self.total_count, -1)
         alpha = self.concentration
         alpha_sum = self.concentration.sum(-1, keepdims=True)
@@ -329,6 +475,10 @@ class DirichletMultinomial(Distribution):
 
     @constraints.dependent_property(is_discrete=True, event_dim=1)
     def support(self) -> Constraint:
+        r"""The support of the Dirichlet-Multinomial distribution is the set of
+        count vectors :math:`\mathbf{x} \in \{0, 1, \dots, n\}^K` whose entries
+        sum to :attr:`total_count` :math:`n`.
+        """
         return constraints.multinomial(self.total_count)
 
     @classmethod
@@ -366,10 +516,11 @@ class GammaPoisson(Distribution):
         validate_args: Optional[bool] = None,
     ):
         self.concentration, self.rate = promote_shapes(concentration, rate)
+        batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
+        # Validate this distribution's own parameters before building the internal
+        # Gamma, so that an invalid rate is reported against the public class.
+        super(GammaPoisson, self).__init__(batch_shape, validate_args=validate_args)
         self._gamma = Gamma(concentration, rate)
-        super(GammaPoisson, self).__init__(
-            self._gamma.batch_shape, validate_args=validate_args
-        )
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -434,22 +585,32 @@ class GammaPoisson(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
-        distribution function is:
+        distribution function, for :math:`k = \lfloor x \rfloor \geq 0`, is:
 
         .. math::
-            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, x + 1)}
-            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{x} dt
+            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, k + 1)}
+            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{k} dt
 
-        which is the regularized incomplete beta function.
-        This implementation uses :func:`~jax.scipy.special.betainc`.
+        which is the regularized incomplete beta function. The CDF is zero for
+        :math:`x < 0` and one at :math:`x = \infty`.
+        This implementation uses :func:`~jax.scipy.special.betainc`, which does not
+        support gradients with respect to its first argument, so the CDF is not
+        differentiable with respect to ``concentration``.
         """
         rate_fraction = jnp.where(
             jnp.isinf(self.rate),
             jnp.ones_like(self.rate),
             self.rate / (self.rate + 1.0),
         )
-        bt = betainc(self.concentration, value + 1.0, rate_fraction)
-        return bt
+        value = jnp.floor(value)
+        is_negative = value < 0
+        is_inf = jnp.isposinf(value)
+        # betainc returns NaN for b close to the largest float, so clamp huge thresholds.
+        dtype = jnp.result_type(self.concentration, value, rate_fraction, float)
+        max_value = jnp.sqrt(jnp.finfo(dtype).max)
+        safe_value = jnp.where(is_negative | is_inf, 0.0, jnp.minimum(value, max_value))
+        bt = betainc(self.concentration, safe_value + 1.0, rate_fraction)
+        return jnp.where(is_negative, 0.0, jnp.where(is_inf, 1.0, bt))
 
 
 def NegativeBinomial(
@@ -459,11 +620,45 @@ def NegativeBinomial(
     *,
     validate_args: Optional[bool] = None,
 ) -> GammaPoisson:
-    """Factory function for Negative Binomial distribution.
+    r"""Factory function for the Negative Binomial distribution.
 
-    :param int total_count: Number of successful trials.
-    :param Optional[ArrayLike] probs: Probability of success for each trial, by default None
-    :param Optional[ArrayLike] logits: Log-odds of success for each trial, by default None
+    :math:`X \sim \mathrm{NB}(r, p)` counts the successes (probability :math:`p` each)
+    observed before the :math:`r`-th failure of a sequence of Bernoulli trials,
+
+    .. math::
+
+        P(X = k \mid r, p) = \frac{\Gamma(k + r)}{k!\,\Gamma(r)}\,(1 - p)^{r}\,p^{k},
+        \qquad k \in \mathbb{N},
+
+    with
+
+    .. math::
+
+        \mathbb{E}[X] = \frac{r p}{1 - p}, \qquad
+        \operatorname{Var}[X] = \frac{r p}{(1 - p)^2}, \qquad
+        F(k) = P(X \le k) = I_{1 - p}(r, k + 1),
+
+    where :math:`I_x(a, b)` is the regularized incomplete beta function. With
+    ``logits`` :math:`z`, :math:`p = \sigma(z)` and :math:`\mathbb{E}[X] = r e^{z}`.
+
+    The Negative Binomial is the Gamma–Poisson mixture
+    :math:`\lambda \sim \mathrm{Gamma}(r, \tfrac{1 - p}{p}),\ X \mid \lambda \sim
+    \mathrm{Poisson}(\lambda)`.
+
+    .. note::
+        Both returned classes subclass :class:`GammaPoisson` and sample as
+        Gamma→Poisson; the cdf is :meth:`GammaPoisson.cdf`.
+        :class:`NegativeBinomialLogits` evaluates ``log_prob``/``mean``/``variance``
+        directly in terms of the logits so that :math:`z = -\infty` is exact.
+        If both ``probs`` and ``logits`` are given, ``probs`` is used and ``logits``
+        is ignored.
+
+    :param total_count: Number of failures :math:`r > 0` at which the Bernoulli trials
+        stop (need not be an integer).
+    :param Optional[ArrayLike] probs: Success probability :math:`p` of each trial, by
+        default None.
+    :param Optional[ArrayLike] logits: Log-odds :math:`z = \log\frac{p}{1-p}`;
+        :math:`-\infty` puts all mass at zero. By default None.
     :param Optional[bool] validate_args: Whether to validate the parameters, by default None
     :return: An instance of :class:`NegativeBinomialProbs` or
         :class:`NegativeBinomialLogits` depending on the provided parameters.
@@ -513,12 +708,14 @@ class NegativeBinomialLogits(GammaPoisson):
     distribution.
 
     :param total_count: Number of successful trials.
-    :param logits: Log-odds of success for each trial (:math:`\ln \frac{p}{1-p}`).
+    :param logits: Log-odds parameter (:math:`\ln \frac{p}{1-p}`) in
+        :math:`[-\infty, \infty)`; :math:`-\infty` puts all mass at zero.
     """
 
     arg_constraints = {
         "total_count": constraints.positive,
-        "logits": constraints.real,
+        # +inf is a Gamma rate of zero, which has no normalizer.
+        "logits": constraints.less_than(float("inf")),
     }
     support = constraints.nonnegative_integer
 
@@ -544,11 +741,23 @@ class NegativeBinomialLogits(GammaPoisson):
             - k \ln(1+\exp(-\mathrm{logits}(p)))
             - \ln\Gamma(1 + k) - \ln\Gamma(\alpha) + \ln\Gamma(k + \alpha)
         """
+        # A zero count contributes nothing even where softplus(-logits) is infinite.
+        log_1mp = jnp.where(value == 0, 0.0, nn.softplus(-self.logits))
         return -(
             self.total_count * nn.softplus(self.logits)
-            + value * nn.softplus(-self.logits)
+            + value * log_1mp
             + _log_beta_1(self.total_count, value)
         )
+
+    @property
+    def mean(self) -> Array:
+        # r exp(logits), rather than concentration / rate with rate = exp(-logits),
+        # whose gradient is 0 * inf at logits = -inf.
+        return self.total_count * jnp.exp(self.logits)
+
+    @property
+    def variance(self) -> Array:
+        return self.mean * (1 + jnp.exp(self.logits))
 
 
 class NegativeBinomial2(GammaPoisson):
@@ -592,6 +801,64 @@ def ZeroInflatedNegativeBinomial2(
     gate_logits: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
+    r"""A zero-inflated Negative Binomial distribution (NB2 / mean-dispersion
+    parameterization).
+
+    A zero-inflated :class:`~numpyro.distributions.conjugate.NegativeBinomial2`
+    mixes a point mass at zero (the *structural* or *excess* zeros) with a
+    Negative Binomial count distribution, allowing the number of zeros to exceed
+    what a plain Negative Binomial would produce. With gate :math:`g` (the
+    probability of a structural zero), mean :math:`\mu` and concentration
+    :math:`\alpha`, the probability mass function is
+
+    .. math::
+
+        P(X = 0) = g + (1 - g)\, \mathrm{NB2}(0 \mid \mu, \alpha), \qquad
+        P(X = k) = (1 - g)\, \mathrm{NB2}(k \mid \mu, \alpha)
+        \;\text{for } k \geq 1,
+
+    where :math:`\mathrm{NB2}(\cdot \mid \mu, \alpha)` is the PMF of the
+    :class:`~numpyro.distributions.conjugate.NegativeBinomial2` distribution,
+
+    .. math::
+
+        \mathrm{NB2}(k \mid \mu, \alpha) =
+        \frac{\Gamma(k + \alpha)}{k!\, \Gamma(\alpha)}
+        \left(\frac{\alpha}{\alpha + \mu}\right)^{\alpha}
+        \left(\frac{\mu}{\alpha + \mu}\right)^{k}.
+
+    A zero therefore arises either from the structural component (with
+    probability :math:`g`) or as a sampling zero from the Negative Binomial
+    component (with probability
+    :math:`(1 - g)\, \mathrm{NB2}(0 \mid \mu, \alpha)`, where
+    :math:`\mathrm{NB2}(0 \mid \mu, \alpha) = (\alpha / (\alpha + \mu))^{\alpha}`).
+
+    The mean and variance are
+
+    .. math::
+
+        \mathbb{E}[X] = (1 - g)\, \mu, \qquad
+        \operatorname{Var}(X) = (1 - g)\, \mu
+        \left(1 + \frac{\mu}{\alpha} + g\, \mu\right).
+
+    Compared with a zero-inflated Poisson, the Negative Binomial component also
+    accommodates over-dispersion among the non-structural counts (its variance is
+    :math:`\mu + \mu^2 / \alpha`). For :math:`g = 0` the distribution reduces to
+    :class:`~numpyro.distributions.conjugate.NegativeBinomial2`.
+
+    The gate must be specified either as a probability ``gate`` :math:`= g` or as
+    logits ``gate_logits`` :math:`= \ell`, with :math:`g = 1 / (1 + e^{-\ell})`.
+    Exactly one of the two is required, as for
+    :func:`~numpyro.distributions.discrete.ZeroInflatedDistribution`.
+
+    :param numpy.ndarray mean: mean :math:`\mu` of the NegativeBinomial2 component.
+    :param numpy.ndarray concentration: concentration (dispersion) :math:`\alpha`
+        of the NegativeBinomial2 component.
+    :param numpy.ndarray gate: probability of extra (structural) zeros, in
+        :math:`[0, 1]`.
+    :param numpy.ndarray gate_logits: logits of the probability of extra
+        (structural) zeros.
+    """
     return ZeroInflatedDistribution(
         NegativeBinomial2(mean, concentration, validate_args=validate_args),
         gate=gate,

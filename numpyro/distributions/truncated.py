@@ -34,8 +34,43 @@ from numpyro.distributions.util import (
 from numpyro.util import is_prng_key
 
 
+def _at_bound(
+    fn: Callable[[Array], Array], bound: Array, inside: Array, limit: ArrayLike
+) -> Array:
+    """``fn(bound)``, replaced by ``limit`` where ``bound`` is infinite.
+
+    ``fn`` is evaluated at ``inside`` there, so its infinite derivative at an infinite
+    bound cannot reach the gradient as ``0 * inf``. ``inside`` must be a point where
+    ``fn`` is differentiable: for a CDF use ``loc + scale`` (StudentT's CDF has a nan
+    derivative at ``loc``); for a density, any point inside the support.
+    """
+    unbounded = jnp.isinf(bound)
+    return jnp.where(unbounded, limit, fn(jnp.where(unbounded, inside, bound)))
+
+
 class LeftTruncatedDistribution(Distribution):
-    arg_constraints = {"low": constraints.real}
+    r"""A symmetric location-scale base distribution :math:`f` truncated from below at ``low``.
+
+    .. math::
+        p(x \mid a) = \frac{f(x)}{1 - F(a)}, \qquad x \geq a,
+
+    where :math:`F` is the cdf of the base distribution and :math:`a` is ``low``.
+
+    :param base_dist: one of :class:`~numpyro.distributions.continuous.Cauchy`,
+        :class:`~numpyro.distributions.continuous.Laplace`,
+        :class:`~numpyro.distributions.continuous.Logistic`,
+        :class:`~numpyro.distributions.continuous.Normal`,
+        :class:`~numpyro.distributions.continuous.SoftLaplace` or
+        :class:`~numpyro.distributions.continuous.StudentT` instance.
+    :param low: the value at which the base distribution is truncated from below.
+
+    .. note::
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
+    """
+
+    # [-inf, inf): -inf truncates nothing; +inf would leave an empty support.
+    arg_constraints = {"low": constraints.less_than(float("inf"))}
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "low", "_support")
@@ -72,12 +107,24 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
-        return self.base_dist.cdf(loc - sign * (loc - self.low))
+        return _at_bound(
+            lambda x: self.base_dist.cdf(loc - sign * (loc - x)),
+            self.low,
+            loc + self.base_dist.scale,
+            0.0,
+        )
 
     @lazy_property
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
         return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
+
+    @lazy_property
+    def _prob_at_low(self) -> Array:
+        # Density at the bound, which is zero at an infinite bound.
+        return _at_bound(
+            lambda x: jnp.exp(self.log_prob(x)), self.low, self.base_dist.loc, 0.0
+        )
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -100,13 +147,16 @@ class LeftTruncatedDistribution(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         # For left truncated distribution: CDF(x) = (F(x) - F(low)) / (1 - F(low))
-        # where F is the base distribution CDF
-        base_cdf_value = self.base_dist.cdf(value)
-        base_cdf_low = self.base_dist.cdf(self.low)
-
-        # Handle the case where value < low (should be 0)
-        # and value >= low (should be the truncated CDF)
-        truncated_cdf = (base_cdf_value - base_cdf_low) / (1.0 - base_cdf_low)
+        # where F is the base distribution CDF.
+        # Translating low into the tail probability T(low) = 1 - F(low) (which we
+        # get by reflecting low through loc) makes the formula stable when the
+        # truncation point is in the upper tail, where F(low) rounds to 1.
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
+        tail_prob_value = self.base_dist.cdf(loc - sign * (loc - value))
+        truncated_cdf = (tail_prob_value - self._tail_prob_at_low) / (
+            self._tail_prob_at_high - self._tail_prob_at_low
+        )
 
         # Clamp to [0, 1] and handle values below the truncation point
         result = jnp.where(
@@ -124,8 +174,7 @@ class LeftTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
-            return self.base_dist.loc + low_prob * self.base_dist.scale**2
+            return self.base_dist.loc + self._prob_at_low * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -134,10 +183,11 @@ class LeftTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
+            loc = self.base_dist.loc
+            low_prob = self._prob_at_low
             return (self.base_dist.scale**2) * (
                 1
-                + (self.low - self.base_dist.loc) * low_prob
+                + jnp.where(jnp.isinf(self.low), 0.0, self.low - loc) * low_prob
                 - (low_prob * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
@@ -147,7 +197,28 @@ class LeftTruncatedDistribution(Distribution):
 
 
 class RightTruncatedDistribution(Distribution):
-    arg_constraints = {"high": constraints.real}
+    r"""A symmetric location-scale base distribution :math:`f` truncated from above at ``high``.
+
+    .. math::
+        p(x \mid b) = \frac{f(x)}{F(b)}, \qquad x \leq b,
+
+    where :math:`F` is the cdf of the base distribution and :math:`b` is ``high``.
+
+    :param base_dist: one of :class:`~numpyro.distributions.continuous.Cauchy`,
+        :class:`~numpyro.distributions.continuous.Laplace`,
+        :class:`~numpyro.distributions.continuous.Logistic`,
+        :class:`~numpyro.distributions.continuous.Normal`,
+        :class:`~numpyro.distributions.continuous.SoftLaplace` or
+        :class:`~numpyro.distributions.continuous.StudentT` instance.
+    :param high: the value at which the base distribution is truncated from above.
+
+    .. note::
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
+    """
+
+    # (-inf, inf]: +inf truncates nothing; -inf would leave an empty support.
+    arg_constraints = {"high": constraints.greater_than(-float("inf"))}
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
     pytree_data_fields = ("base_dist", "high", "_support")
@@ -181,7 +252,15 @@ class RightTruncatedDistribution(Distribution):
 
     @lazy_property
     def _cdf_at_high(self) -> Array:
-        return self.base_dist.cdf(self.high)
+        safe = self.base_dist.loc + self.base_dist.scale
+        return _at_bound(self.base_dist.cdf, self.high, safe, 1.0)
+
+    @lazy_property
+    def _prob_at_high(self) -> Array:
+        # Density at the bound, which is zero at an infinite bound.
+        return _at_bound(
+            lambda x: jnp.exp(self.log_prob(x)), self.high, self.base_dist.loc, 0.0
+        )
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -221,8 +300,7 @@ class RightTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            high_prob = jnp.exp(self.log_prob(self.high))
-            return self.base_dist.loc - high_prob * self.base_dist.scale**2
+            return self.base_dist.loc - self._prob_at_high * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
         else:
@@ -231,10 +309,11 @@ class RightTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            high_prob = jnp.exp(self.log_prob(self.high))
+            loc = self.base_dist.loc
+            high_prob = self._prob_at_high
             return (self.base_dist.scale**2) * (
                 1
-                - (self.high - self.base_dist.loc) * high_prob
+                - jnp.where(jnp.isinf(self.high), 0.0, self.high - loc) * high_prob
                 - (high_prob * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
@@ -244,6 +323,28 @@ class RightTruncatedDistribution(Distribution):
 
 
 class TwoSidedTruncatedDistribution(Distribution):
+    r"""A symmetric location-scale base distribution :math:`f` truncated to ``[low, high]``.
+
+    .. math::
+        p(x \mid a, b) = \frac{f(x)}{F(b) - F(a)}, \qquad a \leq x \leq b,
+
+    where :math:`F` is the cdf of the base distribution, :math:`a` is ``low`` and
+    :math:`b` is ``high``.
+
+    :param base_dist: one of :class:`~numpyro.distributions.continuous.Cauchy`,
+        :class:`~numpyro.distributions.continuous.Laplace`,
+        :class:`~numpyro.distributions.continuous.Logistic`,
+        :class:`~numpyro.distributions.continuous.Normal`,
+        :class:`~numpyro.distributions.continuous.SoftLaplace` or
+        :class:`~numpyro.distributions.continuous.StudentT` instance.
+    :param low: the lower truncation point.
+    :param high: the upper truncation point.
+
+    .. note::
+        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
+        base returns ``nan`` and any other base raises ``NotImplementedError``.
+    """
+
     arg_constraints = {
         "low": constraints.dependent(is_discrete=False, event_dim=0),
         "high": constraints.dependent(is_discrete=False, event_dim=0),
@@ -288,14 +389,36 @@ class TwoSidedTruncatedDistribution(Distribution):
         # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
-        return self.base_dist.cdf(loc - sign * (loc - self.low))
+        return _at_bound(
+            lambda x: self.base_dist.cdf(loc - sign * (loc - x)),
+            self.low,
+            loc + self.base_dist.scale,
+            0.0,
+        )
 
     @lazy_property
     def _tail_prob_at_high(self) -> Array:
         # if low < loc, returns cdf(high); otherwise returns 1 - cdf(high)
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
-        return self.base_dist.cdf(loc - sign * (loc - self.high))
+        return _at_bound(
+            lambda x: self.base_dist.cdf(loc - sign * (loc - x)),
+            self.high,
+            loc + self.base_dist.scale,
+            jnp.where(sign > 0, 1.0, 0.0),
+        )
+
+    @lazy_property
+    def _prob_at_low(self) -> Array:
+        # Density at the bound, which is zero at an infinite bound. The fallback point
+        # must lie inside the support, since log_prob validates its input.
+        inside = jnp.clip(self.base_dist.loc, self.low, self.high)
+        return _at_bound(lambda x: jnp.exp(self.log_prob(x)), self.low, inside, 0.0)
+
+    @lazy_property
+    def _prob_at_high(self) -> Array:
+        inside = jnp.clip(self.base_dist.loc, self.low, self.high)
+        return _at_bound(lambda x: jnp.exp(self.log_prob(x)), self.high, inside, 0.0)
 
     @lazy_property
     def _log_diff_tail_probs(self) -> Array:
@@ -303,10 +426,23 @@ class TwoSidedTruncatedDistribution(Distribution):
         # fall back to cdf, if log_cdf not available
         log_cdf = getattr(self.base_dist, "log_cdf", None)
         if callable(log_cdf):
+            loc = self.base_dist.loc
+            # when the interval lies in the upper tail (low >= loc), reflect
+            # both endpoints through loc and use the accurate lower-tail
+            # log_cdf of the reflected values: log_cdf(low) - log_cdf(high)
+            # would otherwise lose all precision, making log_prob +inf.
+            reflect = self.low >= loc
+            p_first = jnp.where(reflect, 2 * loc - self.low, self.high)
+            p_second = jnp.where(reflect, 2 * loc - self.high, self.low)
+            # An infinite bound lands in p_first as +inf (log_cdf 0) or in p_second
+            # as -inf (log_cdf -inf, with a nan derivative); see _at_bound.
+            safe = loc + self.base_dist.scale
+            log_cdf_first = _at_bound(log_cdf, p_first, safe, 0.0)
+            log_cdf_second = _at_bound(log_cdf, p_second, safe, -jnp.inf)
             return logsumexp(
-                a=jnp.stack([log_cdf(self.high), log_cdf(self.low)], axis=-1),
+                a=jnp.stack([log_cdf_first, log_cdf_second], axis=-1),
                 axis=-1,
-                b=jnp.array([1, -1]),  # subtract low from high
+                b=jnp.array([1, -1]),  # subtract second from first
             )
 
         else:
@@ -344,16 +480,16 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         # For two-sided truncated distribution: CDF(x) = (F(x) - F(low)) / (F(high) - F(low))
-        # where F is the base distribution CDF
-        base_cdf_value = self.base_dist.cdf(value)
-        base_cdf_low = self.base_dist.cdf(self.low)
-        base_cdf_high = self.base_dist.cdf(self.high)
-
-        # Calculate the normalization constant (F(high) - F(low))
-        normalization = base_cdf_high - base_cdf_low
-
-        # Calculate the truncated CDF
-        truncated_cdf = (base_cdf_value - base_cdf_low) / normalization
+        # where F is the base distribution CDF.
+        # When the interval lies in the upper tail (low >= loc), both the
+        # numerator and the denominator are expressed in terms of reflected
+        # tail probabilities to avoid 0 / 0 from F(low) rounding to 1.
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
+        tail_prob_value = self.base_dist.cdf(loc - sign * (loc - value))
+        truncated_cdf = (tail_prob_value - self._tail_prob_at_low) / (
+            self._tail_prob_at_high - self._tail_prob_at_low
+        )
 
         # Handle values outside the truncation interval
         result = jnp.where(
@@ -377,8 +513,7 @@ class TwoSidedTruncatedDistribution(Distribution):
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
-            high_prob = jnp.exp(self.log_prob(self.high))
+            low_prob, high_prob = self._prob_at_low, self._prob_at_high
             return self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
             return jnp.full(self.batch_shape, jnp.nan)
@@ -388,12 +523,12 @@ class TwoSidedTruncatedDistribution(Distribution):
     @property
     def variance(self) -> Array:
         if isinstance(self.base_dist, Normal):
-            low_prob = jnp.exp(self.log_prob(self.low))
-            high_prob = jnp.exp(self.log_prob(self.high))
+            loc = self.base_dist.loc
+            low_prob, high_prob = self._prob_at_low, self._prob_at_high
             return (self.base_dist.scale**2) * (
                 1
-                + (self.low - self.base_dist.loc) * low_prob
-                - (self.high - self.base_dist.loc) * high_prob
+                + jnp.where(jnp.isinf(self.low), 0.0, self.low - loc) * low_prob
+                - jnp.where(jnp.isinf(self.high), 0.0, self.high - loc) * high_prob
                 - ((low_prob - high_prob) * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
@@ -409,16 +544,57 @@ def TruncatedDistribution(
     *,
     validate_args: Optional[bool] = None,
 ):
-    """
-    A function to generate a truncated distribution.
+    r"""Truncate a symmetric location-scale distribution to ``[low, high]``.
+
+    If the base distribution has density :math:`f` and cdf :math:`F`, the truncated
+    density is
+
+    .. math::
+        p(x \mid a, b) = \frac{f(x)}{F(b) - F(a)}, \qquad a \leq x \leq b,
+
+    where :math:`a` is ``low`` and :math:`b` is ``high``; an omitted bound
+    contributes :math:`F(a) = 0` or :math:`F(b) = 1`. The cdf and inverse cdf are
+
+    .. math::
+        F_{a,b}(x) = \frac{F(x) - F(a)}{F(b) - F(a)}, \qquad
+        F_{a,b}^{-1}(q) = F^{-1}\big(F(a) + q\,[F(b) - F(a)]\big),
+
+    and samples are drawn by inverse-cdf sampling.
+
+    Depending on which bounds are given this returns ``base_dist`` itself (neither),
+    a :class:`LeftTruncatedDistribution` (``low`` only), a
+    :class:`RightTruncatedDistribution` (``high`` only) or a
+    :class:`TwoSidedTruncatedDistribution` (both).
 
     :param base_dist: The base distribution to be truncated. This should be a univariate
         distribution. Currently, only the following distributions are supported:
-        Cauchy, Laplace, Logistic, Normal, and StudentT.
+        Cauchy, Laplace, Logistic, Normal, SoftLaplace, and StudentT.
     :param low: the value which is used to truncate the base distribution from below.
-        Setting this parameter to None to not truncate from below.
+        Setting this parameter to None to not truncate from below. ``-inf`` entries
+        are accepted too (e.g. per-observation bounds where some are absent), but a
+        site with an infinite bound can only be observed, not sampled as a latent:
+        the bijector of its support is undefined there. Use ``None`` for a latent
+        site.
     :param high: the value which is used to truncate the base distribution from above.
-        Setting this parameter to None to not truncate from above.
+        Setting this parameter to None to not truncate from above; ``+inf`` entries
+        are accepted with the same caveat as ``low``.
+
+    .. note::
+        ``mean`` and ``variance`` are available in closed form only for a ``Normal``
+        base; a ``Cauchy`` base returns ``nan`` and any other base raises
+        ``NotImplementedError``.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from numpyro import distributions as dist
+        >>> d = dist.TruncatedDistribution(dist.Laplace(0.0, 1.0), low=-1.0, high=2.0)
+        >>> type(d).__name__
+        'TwoSidedTruncatedDistribution'
+        >>> lower_only = dist.TruncatedDistribution(dist.Laplace(0.0, 1.0), low=-1.0)
+        >>> type(lower_only).__name__
+        'LeftTruncatedDistribution'
     """
     if high is None:
         if low is None:
@@ -445,6 +621,44 @@ def TruncatedCauchy(
     high: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
+    r"""A :class:`~numpyro.distributions.continuous.Cauchy` distribution truncated
+    to ``[low, high]``.
+
+    With location :math:`\mu`, scale :math:`\gamma`, and bounds :math:`a` (``low``)
+    and :math:`b` (``high``), the density is
+
+    .. math::
+        p(x \mid \mu, \gamma, a, b) = \frac{1}{
+            \gamma \left[1 + \left(\frac{x - \mu}{\gamma}\right)^2\right]
+            \left[\arctan\frac{b - \mu}{\gamma} - \arctan\frac{a - \mu}{\gamma}\right]
+        }, \qquad a \leq x \leq b,
+
+    which follows from the Cauchy cdf
+    :math:`F(x) = \frac{1}{2} + \frac{1}{\pi}\arctan\frac{x - \mu}{\gamma}`; an omitted
+    bound contributes :math:`\arctan(\pm\infty) = \pm\pi/2`. The cdf is
+
+    .. math::
+        P(X \leq x) = \frac{
+            \arctan\frac{x - \mu}{\gamma} - \arctan\frac{a - \mu}{\gamma}
+        }{
+            \arctan\frac{b - \mu}{\gamma} - \arctan\frac{a - \mu}{\gamma}
+        }.
+
+    This is :func:`TruncatedDistribution` applied to ``Cauchy(loc, scale)``, so it
+    returns a :class:`LeftTruncatedDistribution`, :class:`RightTruncatedDistribution`
+    or :class:`TwoSidedTruncatedDistribution` depending on which bounds are given,
+    or the plain ``Cauchy`` when neither is.
+
+    :param loc: location :math:`\mu` of the base Cauchy distribution.
+    :param scale: scale :math:`\gamma > 0` of the base Cauchy distribution.
+    :param low: lower truncation point, or None to not truncate from below.
+    :param high: upper truncation point, or None to not truncate from above.
+
+    .. note::
+        ``mean`` and ``variance`` return ``nan``: a one-sided truncated Cauchy has no
+        finite moments, and the closed-form moments of the two-sided case are not
+        implemented.
+    """
     return TruncatedDistribution(
         Cauchy(loc, scale), low=low, high=high, validate_args=validate_args
     )
@@ -458,6 +672,51 @@ def TruncatedNormal(
     high: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
+    r"""A :class:`~numpyro.distributions.continuous.Normal` distribution truncated
+    to ``[low, high]``.
+
+    With :math:`\alpha = (a - \mu) / \sigma` and :math:`\beta = (b - \mu) / \sigma`
+    for bounds :math:`a` (``low``) and :math:`b` (``high``), and
+    :math:`Z = \Phi(\beta) - \Phi(\alpha)`, the density is
+
+    .. math::
+        p(x \mid \mu, \sigma, a, b) = \frac{1}{\sigma Z}\,
+        \phi\!\left(\frac{x - \mu}{\sigma}\right), \qquad a \leq x \leq b,
+
+    where :math:`\phi` and :math:`\Phi` are the standard normal pdf and cdf. An
+    omitted bound contributes :math:`\alpha = -\infty` or :math:`\beta = \infty`, with
+    :math:`\phi(\pm\infty) = 0`, :math:`\alpha\,\phi(\alpha) \to 0`,
+    :math:`\Phi(-\infty) = 0` and :math:`\Phi(\infty) = 1`. The mean and variance are
+
+    .. math::
+        \mathbb{E}[X] = \mu + \sigma\,\frac{\phi(\alpha) - \phi(\beta)}{Z}, \qquad
+        \operatorname{Var}[X] = \sigma^2 \left[
+            1 + \frac{\alpha\,\phi(\alpha) - \beta\,\phi(\beta)}{Z}
+            - \left(\frac{\phi(\alpha) - \phi(\beta)}{Z}\right)^2
+        \right].
+
+    This is :func:`TruncatedDistribution` applied to ``Normal(loc, scale)``, so it
+    returns a :class:`LeftTruncatedDistribution`, :class:`RightTruncatedDistribution`
+    or :class:`TwoSidedTruncatedDistribution` depending on which bounds are given,
+    or the plain ``Normal`` when neither is.
+
+    :param loc: location :math:`\mu` of the base Normal distribution.
+    :param scale: scale :math:`\sigma > 0` of the base Normal distribution.
+    :param low: lower truncation point, or None to not truncate from below.
+    :param high: upper truncation point, or None to not truncate from above.
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from numpyro import distributions as dist
+        >>> d = dist.TruncatedNormal(0.0, 1.0, low=-1.0, high=2.0)
+        >>> type(d).__name__
+        'TwoSidedTruncatedDistribution'
+        >>> positive = dist.TruncatedNormal(0.0, 1.0, low=0.0)
+        >>> type(positive).__name__
+        'LeftTruncatedDistribution'
+    """
     return TruncatedDistribution(
         Normal(loc, scale), low=low, high=high, validate_args=validate_args
     )
@@ -1064,12 +1323,37 @@ def TruncatedGamma(
     high: Optional[ArrayLike] = None,
     validate_args: Optional[bool] = None,
 ):
-    """
-    A function to generate a truncated gamma distribution.
+    r"""A :class:`~numpyro.distributions.continuous.Gamma` distribution truncated
+    to ``[low, high]``.
 
-    :param concentration: concentration parameter of the base
+    With the base density
+
+    .. math::
+        \mathrm{Gamma}(x \mid \alpha, \lambda) =
+        \frac{\lambda^\alpha}{\Gamma(\alpha)}\, x^{\alpha - 1} e^{-\lambda x},
+        \qquad x > 0,
+
+    and bounds :math:`a` (``low``) and :math:`b` (``high``), the truncated density is
+
+    .. math::
+        p(x \mid \alpha, \lambda, a, b) = \frac{
+            \mathrm{Gamma}(x \mid \alpha, \lambda)
+        }{
+            P(\alpha, \lambda b) - P(\alpha, \lambda a)
+        }, \qquad a \leq x \leq b,
+
+    where :math:`P(\alpha, z)` is the regularized lower incomplete gamma function
+    (:func:`~jax.scipy.special.gammainc`); an omitted bound contributes
+    :math:`P(\alpha, 0) = 0` or :math:`P(\alpha, \infty) = 1`.
+
+    Depending on which bounds are given this returns the plain ``Gamma`` (neither), a
+    :class:`LeftTruncatedGamma` (``low`` only), a :class:`RightTruncatedGamma`
+    (``high`` only) or a :class:`TwoSidedTruncatedGamma` (both). See those classes
+    for how the normalizer is evaluated in the tails and for the ``icdf`` algorithm.
+
+    :param concentration: concentration parameter :math:`\alpha` of the base
         :class:`~numpyro.distributions.continuous.Gamma` distribution.
-    :param rate: rate parameter of the base distribution.
+    :param rate: rate parameter :math:`\lambda` of the base distribution.
     :param low: the value which is used to truncate the base distribution from
         below. Setting this parameter to None to not truncate from below.
     :param high: the value which is used to truncate the base distribution from
@@ -1099,6 +1383,60 @@ def TruncatedGamma(
 
 
 class TruncatedPolyaGamma(Distribution):
+    r"""An approximation of the Polya-Gamma distribution :math:`\mathrm{PG}(1, 0)`
+    restricted to :math:`[0, 2.5]`.
+
+    :math:`X \sim \mathrm{PG}(1, 0)` is defined by the infinite convolution of
+    exponential variates
+
+    .. math::
+        X = \frac{1}{2\pi^2} \sum_{k=1}^{\infty} \frac{g_k}{(k - 1/2)^2},
+        \qquad g_k \overset{\text{iid}}{\sim} \mathrm{Gamma}(1, 1),
+
+    so that :math:`\mathbb{E}[e^{-tX}] = 1 / \cosh\!\big(\sqrt{t/2}\big)` and
+    :math:`\mathbb{E}[X] = 1/4`. Its density has the alternating series representation
+
+    .. math::
+        p(x) = \sum_{n=0}^{\infty} (-1)^n \frac{2n + 1}{\sqrt{2\pi x^3}}
+        \exp\!\left(-\frac{(2n + 1)^2}{8x}\right), \qquad x > 0.
+
+    :math:`\mathrm{PG}(1, 0)` is the mixing distribution in the Pólya-Gamma
+    augmentation of logistic models (see reference 1); the Gibbs conditional there
+    is the tilted :math:`\mathrm{PG}(1, \psi)`.
+
+    :param batch_shape: batch shape of the distribution.
+
+    .. note::
+        ``sample`` and ``log_prob`` are both series truncations:
+
+        * ``sample`` keeps the first ``num_gamma_variates`` (class attribute, 8)
+          terms of the Gamma series and clips the result at ``truncation_point``
+          (2.5). The discarded terms have expected value
+          :math:`\frac{1}{2\pi^2}\sum_{k > 8} (k - 1/2)^{-2} \approx 0.0063`, so the
+          sampler mean is about :math:`0.244` rather than :math:`1/4`.
+        * ``log_prob`` evaluates the first ``num_log_prob_terms`` (class attribute,
+          7) terms of the alternating series. The discarded tail is alternating and
+          decreasing on the support, so the partial sum is positive and an upper
+          bound on the density. The truncation error of the partial sum is below
+          :math:`10^{-6}` for :math:`x < 1.39` (float32 rounding in the alternating
+          sum adds up to about :math:`10^{-5}`), about :math:`5 \times 10^{-3}` at
+          :math:`x = 2` and about :math:`0.7` at :math:`x = 2.5`, where the density
+          is :math:`2.8 \times 10^{-5}`. The density is not renormalized to the
+          support: the mass of :math:`\mathrm{PG}(1, 0)` above :math:`2.5` is
+          :math:`5.6 \times 10^{-6}`.
+
+        ``mean`` and ``variance`` are not implemented.
+
+    **References:**
+
+    1. Polson, N. G., Scott, J. G., & Windle, J. (2013). Bayesian inference for
+       logistic models using Pólya-Gamma latent variables. *Journal of the American
+       Statistical Association*, 108(504), 1339-1349.
+    2. Devroye, L. (2009). On exact simulation algorithms for some distributions
+       related to Jacobi theta functions. *Statistics & Probability Letters*,
+       79(21), 2251-2259.
+    """
+
     truncation_point = 2.5
     num_log_prob_terms = 7
     num_gamma_variates = 8
@@ -1149,9 +1487,12 @@ class DoublyTruncatedPowerLaw(Distribution):
 
     .. math::
         f(x; \alpha, a, b) = \frac{x^{\alpha}}{Z(\alpha, a, b)},
+        \qquad a \leq x \leq b,
 
     where, :math:`a` and :math:`b` are the lower and upper bounds respectively,
-    and :math:`Z(\alpha, a, b)` is the normalization constant. It is defined as,
+    with :math:`0 \leq a < b` (and :math:`a > 0` when :math:`\alpha \leq -1`,
+    otherwise :math:`Z` diverges), and :math:`Z(\alpha, a, b)` is the normalization
+    constant. It is defined as,
 
     .. math::
         Z(\alpha, a, b) = \begin{cases}
@@ -1159,9 +1500,45 @@ class DoublyTruncatedPowerLaw(Distribution):
             \frac{b^{1 + \alpha} - a^{1 + \alpha}}{1 + \alpha} & \text{otherwise}.
         \end{cases}
 
-    :param alpha: index of the power law distribution
-    :param low: lower bound of the distribution
-    :param high: upper bound of the distribution
+    The cdf is
+
+    .. math::
+        F(x) = \begin{cases}
+            \dfrac{\log(x / a)}{\log(b / a)} & \text{if } \alpha = -1, \\
+            \dfrac{x^{1 + \alpha} - a^{1 + \alpha}}{b^{1 + \alpha} - a^{1 + \alpha}}
+            & \text{otherwise},
+        \end{cases}
+
+    and the quantile function is
+
+    .. math::
+        F^{-1}(q) = \begin{cases}
+            a \, (b / a)^{q} & \text{if } \alpha = -1, \\
+            \big(a^{1 + \alpha} + q \, [b^{1 + \alpha} - a^{1 + \alpha}]\big)
+            ^{1 / (1 + \alpha)} & \text{otherwise}.
+        \end{cases}
+
+    Samples are drawn by inverse-cdf sampling. The raw moments are
+
+    .. math::
+        \mathbb{E}[X^k] = \begin{cases}
+            \dfrac{\log(b / a)}{Z(\alpha, a, b)} & \text{if } 1 + \alpha + k = 0, \\
+            \dfrac{1}{Z(\alpha, a, b)} \cdot
+            \dfrac{b^{1 + \alpha + k} - a^{1 + \alpha + k}}{1 + \alpha + k}
+            & \text{otherwise}.
+        \end{cases}
+
+    :param alpha: index :math:`\alpha` of the power law distribution
+    :param low: lower bound :math:`a` of the distribution
+    :param high: upper bound :math:`b` of the distribution
+
+    .. note::
+        The :math:`\alpha = -1` branch is selected by exact floating-point equality.
+        ``log_prob``, ``cdf`` and ``icdf`` carry custom JVP rules; at exactly
+        :math:`\alpha = -1` the :math:`\alpha`-derivative is approximated by the
+        average of the :math:`\alpha \ne -1` closed form evaluated at
+        :math:`\alpha \pm 10^{-3}`. ``cdf`` is clipped to :math:`[0, 1]`. ``mean``
+        and ``variance`` are not implemented (use the moment formula above).
     """
 
     arg_constraints = {
@@ -1196,19 +1573,19 @@ class DoublyTruncatedPowerLaw(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        r"""Logarithmic probability distribution:
+        r"""Log probability density for :math:`a \leq x \leq b`.
 
-        Z inequal minus one:
-
-        .. math::
-
-            \frac{(\alpha + 1)x^\alpha}{b^{\alpha + 1} - a^{\alpha + 1}}
-
-        Z equal minus one:
+        For :math:`\alpha \ne -1`:
 
         .. math::
 
-            \frac{x^\alpha}{\log(b) - \log(a)}
+            \log\left(\frac{(\alpha + 1)x^\alpha}{b^{\alpha + 1} - a^{\alpha + 1}}\right)
+
+        For :math:`\alpha = -1`:
+
+        .. math::
+
+            -\log(x) - \log\left(\log(b) - \log(a)\right)
 
         Derivations are calculated by Wolfram Alpha via the Jacobian matrix accordingly.
         """
@@ -1318,14 +1695,15 @@ class DoublyTruncatedPowerLaw(Distribution):
         return f(value, self.alpha, self.low, self.high)
 
     def cdf(self, value: ArrayLike) -> Array:
-        r"""Cumulated probability distribution:
-        Z inequal minus one:
+        r"""Cumulative distribution function for :math:`a \leq x \leq b`.
+
+        For :math:`\alpha \ne -1`:
 
         .. math::
 
             \frac{x^{\alpha + 1} - a^{\alpha + 1}}{b^{\alpha + 1} - a^{\alpha + 1}}
 
-        Z equal minus one:
+        For :math:`\alpha = -1`:
 
         .. math::
 
@@ -1430,7 +1808,7 @@ class DoublyTruncatedPowerLaw(Distribution):
                 ) - jnp.reciprocal((log_high - log_low) * low)
 
             def high_eq_neg1() -> Array:
-                return (log_x - log_low) / (jnp.square(log_high - log_low) * high)
+                return -(log_x - log_low) / (jnp.square(log_high - log_low) * high)
 
             # Including approximation for alpha = -1
             tangent_out = (
@@ -1458,13 +1836,14 @@ class DoublyTruncatedPowerLaw(Distribution):
         return f(value, self.alpha, self.low, self.high)
 
     def icdf(self, q: ArrayLike) -> Array:
-        r"""Inverse cumulated probability distribution:
-        Z inequal minus one:
+        r"""Inverse cumulative distribution function for :math:`0 \leq q \leq 1`.
+
+        For :math:`\alpha = -1`:
 
         .. math::
             a \left(\frac{b}{a}\right)^{q}
 
-        Z equal minus one:
+        For :math:`\alpha \ne -1`:
 
         .. math::
             \left(a^{1 + \alpha} + q (b^{1 + \alpha} - a^{1 + \alpha})\right)^{\frac{1}{1 + \alpha}}
@@ -1629,15 +2008,27 @@ class LowerTruncatedPowerLaw(Distribution):
     We can define the power law distribution as,
 
     .. math::
-        f(x; \alpha, a) = (-\alpha-1)a^{-\alpha - 1}x^{-\alpha},
-        \qquad x \geq a, \qquad \alpha < -1,
+        f(x; \alpha, a) = (-\alpha-1)a^{-\alpha - 1}x^{\alpha},
+        \qquad x > a > 0, \qquad \alpha < -1,
 
-    where, :math:`a` is the lower bound. The cdf of the distribution is given by,
+    where, :math:`a` is the lower bound, so that
 
     .. math::
-        F(x; \alpha, a) = 1 - \left(\frac{x}{a}\right)^{1+\alpha}.
+        \log f(x; \alpha, a) = \alpha \log x + \log(-\alpha - 1)
+        - (1 + \alpha) \log a.
 
-    The k-th moment of the distribution is given by,
+    The cdf of the distribution is given by,
+
+    .. math::
+        F(x; \alpha, a) = 1 - \left(\frac{x}{a}\right)^{1+\alpha},
+
+    and the quantile function by
+
+    .. math::
+        F^{-1}(q; \alpha, a) = a \, (1 - q)^{1 / (1 + \alpha)},
+
+    which is used for inverse-cdf sampling. The k-th moment of the distribution is
+    given by,
 
     .. math::
         E[X^k] = \begin{cases}
@@ -1645,8 +2036,17 @@ class LowerTruncatedPowerLaw(Distribution):
             \infty & \text{otherwise}.
         \end{cases}
 
-    :param alpha: index of the power law distribution
-    :param low: lower bound of the distribution
+    This is the same law as
+    :class:`~numpyro.distributions.continuous.Pareto` with ``scale`` :math:`= a`
+    and ``alpha`` :math:`= -\alpha - 1`.
+
+    :param alpha: index :math:`\alpha < -1` of the power law distribution
+    :param low: lower bound :math:`a > 0` of the distribution
+
+    .. note::
+        ``cdf`` returns :math:`0` for :math:`x \leq a`; ``icdf`` returns ``nan``
+        outside :math:`[0, 1]`. ``mean`` and ``variance`` are not implemented even
+        though the moment formula above is available.
     """
 
     arg_constraints = {

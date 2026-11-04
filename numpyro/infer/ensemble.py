@@ -29,7 +29,9 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **rng_key** - random number generator seed used for generating proposals, etc.
 """
 
-AIESState = namedtuple("AIESState", ["i", "accept_prob", "mean_accept_prob", "rng_key"])
+AIESState = namedtuple(
+    "AIESState", ["i", "accept_prob", "mean_accept_prob", "rng_key", "log_density"]
+)
 """
 A :func:`~collections.namedtuple` consisting of the following fields.
 
@@ -39,6 +41,8 @@ A :func:`~collections.namedtuple` consisting of the following fields.
  - **mean_accept_prob** - Mean acceptance probability until current iteration
    during warmup adaptation or sampling (for diagnostics).
  - **rng_key** - random number generator seed used for generating proposals, etc.
+ - **log_density** - log density of each chain at its current position, cached so
+   that only proposals are evaluated.
 """
 
 ESSState = namedtuple(
@@ -80,6 +84,8 @@ class EnsembleSampler(MCMCKernel, ABC):
 
         self._model = model
         self._potential_fn = potential_fn
+        self._potential_fn_gen = None
+        self._unravel_fn = None
         self._batch_log_density = None
         # unravel an (n_chains, n_params) Array into a pytree and
         # evaluate the log density at each chain
@@ -114,6 +120,11 @@ class EnsembleSampler(MCMCKernel, ABC):
         """return (updated active set of chains, updated inner state)"""
         raise NotImplementedError
 
+    def permute_inner_state(self, inner_state, perm):
+        """Apply the chain permutation used by ``randomize_split`` to any per-chain
+        quantities stored in ``inner_state``."""
+        return inner_state
+
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
             (
@@ -131,12 +142,14 @@ class EnsembleSampler(MCMCKernel, ABC):
                 validate_grad=False,
             )
             new_init_params = new_params_info[0]
+            self._potential_fn_gen = potential_fn_gen
             self._potential_fn = potential_fn_gen(*model_args, **model_kwargs)
 
             if init_params is None:
                 init_params = new_init_params
 
         flat_params, unravel_fn = batch_ravel_pytree(init_params)
+        self._unravel_fn = unravel_fn
         self._batch_log_density = lambda z: -vmap(self._potential_fn)(unravel_fn(z))
 
         if self._num_chains < 2 * flat_params.shape[1]:
@@ -188,12 +201,29 @@ class EnsembleSampler(MCMCKernel, ABC):
         return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
+        if getattr(self, "_potential_fn_gen", None) is None:
+            return self._sample_impl(state, model_args, model_kwargs)
+        model_args = () if model_args is None else model_args
+        model_kwargs = {} if model_kwargs is None else model_kwargs
+        potential_fn = self._potential_fn_gen(*model_args, **model_kwargs)
+        previous_log_density = self._batch_log_density
+        # Keep subclass hooks unchanged, without retaining a traced target on the
+        # kernel. Like init, sampling one kernel concurrently is not supported.
+        self._batch_log_density = lambda z: -vmap(potential_fn)(self._unravel_fn(z))
+        try:
+            return self._sample_impl(state, model_args, model_kwargs)
+        finally:
+            self._batch_log_density = previous_log_density
+
+    def _sample_impl(self, state, model_args, model_kwargs):
         z, inner_state, rng_key = state
         rng_key, _ = random.split(rng_key)
         z_flat, unravel_fn = batch_ravel_pytree(z)
 
         if self._randomize_split:
-            z_flat = random.permutation(rng_key, z_flat, axis=0)
+            perm = random.permutation(rng_key, self._num_chains)
+            z_flat = z_flat[perm]
+            inner_state = self.permute_inner_state(inner_state, perm)
 
         split_ind = self._num_chains // 2
 
@@ -313,10 +343,19 @@ class AIES(EnsembleSampler):
             for move in self._moves
         ]
 
-        return AIESState(jnp.array(0.0), jnp.array(0.0), jnp.array(0.0), rng_key)
+        return AIESState(
+            jnp.array(0.0),
+            jnp.array(0.0),
+            jnp.array(0.0),
+            rng_key,
+            jnp.zeros(self._num_chains),
+        )
+
+    def permute_inner_state(self, inner_state, perm):
+        return inner_state._replace(log_density=inner_state.log_density[perm])
 
     def update_active_chains(self, active, inactive, inner_state):
-        i, _, mean_accept_prob, rng_key = inner_state
+        i, _, mean_accept_prob, rng_key, log_density = inner_state
         rng_key, move_key, proposal_key, accept_key = random.split(rng_key, 4)
 
         move_i = random.choice(move_key, len(self._moves), p=self._weights)
@@ -325,16 +364,30 @@ class AIES(EnsembleSampler):
         )
 
         # --- evaluate the proposal ---
-        log_accept_prob = (
-            factors
-            + self._batch_log_density(proposal)
-            - self._batch_log_density(active)
+        # ``log_density`` caches the chains' log densities in update order (active half
+        # first); the whole ensemble is evaluated once, at the first step.
+        log_density = jax.lax.cond(
+            i == 0,
+            lambda: self._batch_log_density(jnp.concatenate([active, inactive])).astype(
+                log_density.dtype
+            ),
+            lambda: log_density,
         )
+        active_log_density, inactive_log_density = jnp.split(log_density, 2)
+        proposal_log_density = self._batch_log_density(proposal)
+        log_accept_prob = factors + proposal_log_density - active_log_density
 
         accepted = dist.Uniform().sample(accept_key, (active.shape[0],)) < jnp.exp(
             log_accept_prob
         )
         updated_active_chains = jnp.where(accepted[:, jnp.newaxis], proposal, active)
+        # the other half is updated next
+        log_density = jnp.concatenate(
+            [
+                inactive_log_density,
+                jnp.where(accepted, proposal_log_density, active_log_density),
+            ]
+        )
 
         accept_prob = jnp.count_nonzero(accepted) / accepted.shape[0]
         itr = i + 0.5
@@ -342,7 +395,7 @@ class AIES(EnsembleSampler):
         mean_accept_prob = mean_accept_prob + (accept_prob - mean_accept_prob) / n
 
         return updated_active_chains, AIESState(
-            itr, accept_prob, mean_accept_prob, rng_key
+            itr, accept_prob, mean_accept_prob, rng_key, log_density
         )
 
     @staticmethod
@@ -603,13 +656,20 @@ class ESS(EnsembleSampler):
         When this move is used the walkers move along random directions. There is no communication between the
         walkers and this Move corresponds to the vanilla Slice Sampling method. This Move should be used for
         debugging purposes only.
+
+        Each walker's direction is drawn and normalized independently of the other active
+        walkers, to length ``2 * mu``.
         """
 
         def random_move(rng_key, inactive, mu):
             directions = dist.Normal(loc=0, scale=1).sample(
                 rng_key, sample_shape=inactive.shape
             )
-            directions /= jnp.linalg.norm(directions, axis=0)
+            # Normalized per walker (last axis), not across the chain axis: the
+            # reference zeus implementation normalizes across chains instead, which
+            # couples a walker's step length to the other active walkers' draws and
+            # contradicts the "no communication between the walkers" contract above.
+            directions /= jnp.linalg.norm(directions, axis=-1, keepdims=True)
 
             return 2.0 * mu * directions
 

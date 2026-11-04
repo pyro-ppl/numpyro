@@ -42,10 +42,19 @@ def enable_x64(use_x64: bool = True) -> None:
     Changes the default array type to use 64 bit precision as in NumPy.
 
     :param bool use_x64: when `True`, JAX arrays will use 64 bits by default;
-        else 32 bits.
+        else 32 bits, unless the `JAX_ENABLE_X64` environment variable is set
+        to `"1"` or `"true"` (case-insensitive).
+    :raises ValueError: if `JAX_ENABLE_X64` is set to anything other than
+        `"0"`, `"1"`, `"false"` or `"true"` (case-insensitive).
     """
     if not use_x64:
-        use_x64 = bool(os.getenv("JAX_ENABLE_X64", 0))
+        env_value = os.getenv("JAX_ENABLE_X64", "0")
+        if env_value.lower() not in ("0", "1", "false", "true"):
+            raise ValueError(
+                "JAX_ENABLE_X64 must be one of '0', '1', 'false' or 'true', "
+                f"got {env_value!r}."
+            )
+        use_x64 = env_value.lower() in ("1", "true")
     jax.config.update("jax_enable_x64", use_x64)
 
 
@@ -142,7 +151,11 @@ def maybe_jit(fn: Callable, *args, **kwargs) -> Callable:
 
 
 def cond(
-    pred: bool, true_operand, true_fun: Callable, false_operand, false_fun: Callable
+    pred: bool | jax.Array,
+    true_operand,
+    true_fun: Callable,
+    false_operand,
+    false_fun: Callable,
 ) -> Any:
     if _DISABLE_CONTROL_FLOW_PRIM:
         if pred:
@@ -318,6 +331,17 @@ def _fori_collect_loop(_body_fn, upper, init_val, collection, start_idx, thinnin
     )
 
 
+def _init_collection(init_val, collection_size):
+    # The collection has to depend on the (possibly batched) init value so that
+    # it can be donated under vmap/pmap (see #1802). Under jit, XLA fuses
+    # `zeros * x` into a single output buffer placed (and sharded) like `x`,
+    # whereas running it eagerly allocates the collection twice.
+    return jax.tree.map(
+        lambda x: jnp.zeros((collection_size, *x.shape), x.dtype) * x[None],
+        init_val,
+    )
+
+
 def fori_collect(
     lower: int,
     upper: int,
@@ -402,11 +426,9 @@ def fori_collect(
         collection = update_collection(collection, val)
         return val, collection, start_idx, thinning
 
-    def map_fn(x):
-        nx = jnp.asarray(x)
-        return jnp.zeros((collection_size, *nx.shape), dtype=nx.dtype) * nx[None, ...]
-
-    collection = jax.tree.map(map_fn, init_val_transformed)
+    collection = maybe_jit(_init_collection, static_argnums=1)(
+        jax.tree.map(jnp.asarray, init_val_transformed), collection_size
+    )
 
     if not progbar:
         last_val, collection, _, _ = maybe_jit(
@@ -442,11 +464,24 @@ def fori_collect(
             vals = (val, collection, start_idx, thinning)
         else:
             with tqdm.trange(upper, miniters=progress_rate) as t:
+                if t.disable:
+                    # e.g. TQDM_DISABLE=1: nothing is rendered, and a disabled
+                    # bar has no `miniters` attribute.
+                    diagnostics_fn = None
                 for i in t:
                     vals = _body_fn(i, *vals)
 
                     t.set_description(progbar_desc(i), refresh=False)
-                    if diagnostics_fn:
+                    # Formatting the diagnostics reads device scalars, which
+                    # blocks the host until step `i` has finished and prevents
+                    # step `i + 1` from being dispatched asynchronously. tqdm
+                    # only displays the postfix every `t.miniters` steps (set to
+                    # `progress_rate`; tqdm's monitor thread lowers it to 1 when
+                    # a refresh is overdue by more than `maxinterval`), so
+                    # compute it only when it can be shown.
+                    if diagnostics_fn and (
+                        (i + 1) % max(t.miniters, 1) == 0 or i + 1 == upper
+                    ):
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
         last_val, collection, _, _ = vals
@@ -470,6 +505,10 @@ def soft_vmap(
         Defaults to the size of batch dimensions.
     :returns: output of `fn(xs)`.
     """
+    # Convert NumPy inputs up front (a no-op for jax arrays) so that leaves which
+    # `fn` passes through unchanged come back as jax arrays rather than as views
+    # of the caller's NumPy arrays.
+    xs = jax.tree.map(jnp.asarray, xs)
     flatten_xs = jax.tree.flatten(xs)[0]
     batch_shape = np.shape(flatten_xs[0])[:batch_ndims]
     for x in flatten_xs[1:]:
@@ -486,9 +525,13 @@ def soft_vmap(
     chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
     if chunk_size > 1:
         pad = chunk_size - batch_size % chunk_size if batch_size % chunk_size else 0
-        xs = jax.tree.map(
-            lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs
-        )
+        if pad > 0:
+            # jnp.pad copies its input when run eagerly, even for zero widths
+            # (XLA drops it under jit), so only pad when there is something to add.
+            xs = jax.tree.map(
+                lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)),
+                xs,
+            )
         num_chunks = batch_size // chunk_size + int(pad > 0)
         prepend_shape = (-1,) if num_chunks > 1 else ()
         xs = jax.tree.map(
@@ -849,9 +892,13 @@ def nested_attrgetter(*collect_fields):
 
 def _get_nested_attr(obj, field):
     """
-    Helper function to recursively access attributes and dictionary keys.
+    Helper function to recursively access attributes, dictionary keys and, for tuples and
+    lists, decimal indices (e.g. ``"block_states.1.diverging"``).
     """
     for attr in field.split("."):
+        if isinstance(obj, (tuple, list)) and attr.isdecimal():
+            obj = obj[int(attr)]
+            continue
         try:
             obj = getattr(obj, attr)
         except AttributeError:

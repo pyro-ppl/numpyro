@@ -228,6 +228,82 @@ def test_improper_normal(max_tree_depth):
     assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.007)
 
 
+@pytest.mark.parametrize(
+    "kernel_cls,chain_method,num_chains",
+    [
+        (AIES, "vectorized", 8),
+        (ESS, "vectorized", 8),
+        (BarkerMH, "sequential", 8),
+        (BarkerMH, "parallel", 2),
+        (BarkerMH, "sequential", 1),
+    ],
+)
+@pytest.mark.parametrize("jit_model_args", [False, True])
+@pytest.mark.parametrize("argument_kind", ["positional", "keyword", "array"])
+def test_sampler_changed_model_args(
+    kernel_cls, chain_method, num_chains, jit_model_args, argument_kind
+):
+    if chain_method == "parallel" and jax.local_device_count() < num_chains:
+        pytest.skip("parallel chains require multiple devices")
+
+    def model(mean):
+        numpyro.sample("x", dist.Normal(mean, 1))
+
+    mcmc = MCMC(
+        kernel_cls(model),
+        num_warmup=300,
+        num_samples=300,
+        num_chains=num_chains,
+        chain_method=chain_method,
+        jit_model_args=jit_model_args,
+        progress_bar=False,
+    )
+    for mean in [0.0, -10, 10.0]:
+        value = jnp.array([mean]) if argument_kind == "array" else mean
+        if argument_kind == "keyword":
+            mcmc.run(random.key(0), mean=value)
+        else:
+            mcmc.run(random.key(0), value)
+        assert_allclose(jnp.mean(mcmc.get_samples()["x"]), mean, atol=1)
+
+
+def test_barker_changed_args_jit_oracle():
+    def model(mean):
+        numpyro.sample("x", dist.Normal(mean, 1))
+
+    kernel = BarkerMH(model, adapt_step_size=False, adapt_mass_matrix=False)
+    state = kernel.init(random.key(0), 0, {"x": jnp.array(0.0)}, (0.0,), {})
+    reference = BarkerMH(model, adapt_step_size=False, adapt_mass_matrix=False)
+    reference.init(random.key(0), 0, {"x": jnp.array(0.0)}, (10.0,), {})
+    step = jit(lambda state, mean: kernel.sample(state, (mean,), {}))
+    with jax.check_tracer_leaks():
+        first = step(state, 0.0)
+        actual = step(state, 10.0)
+        expected = reference.sample(state, (10.0,), {})
+    for left, right in zip(jax.tree.leaves(actual), jax.tree.leaves(expected)):
+        if hasattr(left, "dtype") and jax.dtypes.issubdtype(
+            left.dtype, jax.dtypes.prng_key
+        ):
+            left, right = random.key_data(left), random.key_data(right)
+        assert_allclose(left, right, rtol=1e-5, atol=1e-6)
+    # This fixed proposal is accepted under the shifted target, distinguishing
+    # a correctly reused compiled step from one still targeting zero.
+    assert not jnp.allclose(first.z["x"], expected.z["x"])
+
+
+def test_barker_current_potential():
+    def model(mean=0.0):
+        numpyro.sample("x", dist.Normal(mean, 1))
+
+    kernel = BarkerMH(model)
+    kernel.init(random.key(0), 0, {"x": jnp.array(2.0)}, (), {})
+    zero = kernel._get_potential_fn(None, None)
+    shifted = kernel._get_potential_fn((), {"mean": 10.0})
+    point = {"x": jnp.array(2.0)}
+    assert_allclose(shifted(point) - zero(point), 30.0)
+    assert_allclose(jax.grad(shifted)(point)["x"], -8.0)
+
+
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS, SA, BarkerMH, AIES, ESS])
 def test_beta_bernoulli_x64(kernel_cls):
     if kernel_cls is SA and "CI" in os.environ and "JAX_ENABLE_X64" in os.environ:
@@ -683,6 +759,48 @@ def test_chain_jit_args_smoke(chain_method, compile_args):
     mcmc.run(random.key(1), data1)
     # this should be fast if jit_model_args=True
     mcmc.run(random.key(2), data2)
+
+
+@pytest.mark.parametrize("num_chains", [1, 2])
+def test_transfer_states_to_host(num_chains):
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1).expand([3]))
+
+    mcmc = MCMC(
+        NUTS(model),
+        num_warmup=10,
+        num_samples=20,
+        num_chains=num_chains,
+        chain_method="sequential",
+        progress_bar=False,
+    )
+    mcmc.run(random.key(0))
+    samples_flat = mcmc.get_samples()
+    samples = mcmc.get_samples(group_by_chain=True)
+    assert samples["x"].shape == (num_chains, 20, 3)
+    assert_allclose(samples["x"].reshape(-1, 3), samples_flat["x"])
+    # downstream code reads the private attribute directly, so it must keep
+    # serving the chain-grouped layout for any number of chains
+    assert_allclose(mcmc._states["z"]["x"], samples["x"])
+    # the pattern documented in examples/annotation.py for merging extra samples
+    # into the mcmc instance: update both layouts in place
+    mcmc.get_samples().update({"y": samples_flat["x"] + 1})
+    mcmc.get_samples(group_by_chain=True).update({"y": samples["x"] + 1})
+    assert_allclose(mcmc.get_samples()["y"], samples_flat["x"] + 1)
+    assert_allclose(mcmc.get_samples(group_by_chain=True)["y"], samples["x"] + 1)
+
+    mcmc.transfer_states_to_host()
+    # both layouts are served from the host without going back to the device
+    for group_by_chain, shape in [
+        (False, (num_chains * 20,)),
+        (True, (num_chains, 20)),
+    ]:
+        x = mcmc.get_samples(group_by_chain=group_by_chain)["x"]
+        assert isinstance(x, np.ndarray) and x.shape == shape + (3,)
+        diverging = mcmc.get_extra_fields(group_by_chain=group_by_chain)["diverging"]
+        assert isinstance(diverging, np.ndarray) and diverging.shape == shape
+    assert isinstance(mcmc._states["z"]["x"], np.ndarray)
+    assert_allclose(mcmc.get_samples()["x"], samples_flat["x"])
 
 
 def test_extra_fields():

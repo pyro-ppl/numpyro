@@ -55,7 +55,7 @@ from jax.scipy.special import (
 from jax.scipy.stats import norm as jax_norm
 from jax.typing import ArrayLike
 
-from numpyro._typing import NonScalarArray, NumLike
+from numpyro._typing import NonScalarArray
 from numpyro.distributions import constraints
 from numpyro.distributions.discrete import HurdleProbs, _to_logits_bernoulli
 from numpyro.distributions.distribution import (
@@ -99,6 +99,34 @@ if TYPE_CHECKING:
 
 
 class AsymmetricLaplace(Distribution):
+    r"""Asymmetric Laplace distribution on :math:`\mathbb{R}` with location
+    :math:`\mu`, scale :math:`\sigma > 0` and asymmetry :math:`\kappa > 0`.
+    It generalizes :class:`Laplace` by using different exponential decay rates
+    on either side of the location: the left and right scales are
+    :math:`\sigma \kappa` and :math:`\sigma / \kappa`, so :math:`\kappa = 1`
+    recovers :class:`Laplace` while larger :math:`\kappa` puts more spread
+    (and more mass) below :math:`\mu`.
+
+    The Probability Density Function (PDF) of the Asymmetric Laplace
+    distribution is defined as:
+
+    .. math::
+        f(x ; \mu, \sigma, \kappa) =
+        \frac{\kappa}{\sigma (1 + \kappa^2)}
+        \begin{cases}
+            \exp\left(-\displaystyle\frac{|x - \mu|}{\sigma \kappa}\right) & x < \mu, \\
+            \exp\left(-\kappa \displaystyle\frac{|x - \mu|}{\sigma}\right) & x \geq \mu,
+        \end{cases}
+
+    where :math:`\mu` is :attr:`loc` (the mode), :math:`\sigma` is
+    :attr:`scale` and :math:`\kappa` is :attr:`asymmetry`. The probability
+    mass below :math:`\mu` is :math:`\kappa^2 / (1 + \kappa^2)`, the mean is
+    :math:`\mu + \sigma (1 / \kappa - \kappa)` and the variance is
+    :math:`\sigma^2 (\kappa^2 + \kappa^{-2})`. A draw can be represented as
+    :math:`\mu - \sigma \kappa \, U + (\sigma / \kappa) \, V` with
+    independent :math:`U, V \sim \mathrm{Exponential}(1)`.
+    """
+
     arg_constraints = {
         "loc": constraints.real,
         "scale": constraints.positive,
@@ -115,6 +143,13 @@ class AsymmetricLaplace(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location :math:`\mu \in \mathbb{R}` (the mode). Defaults to ``0.0``.
+        :param scale: Scale :math:`\sigma > 0`. Defaults to ``1.0``.
+        :param asymmetry: Asymmetry :math:`\kappa > 0`; ``1.0`` gives the symmetric
+            Laplace distribution. Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(asymmetry)
         )
@@ -127,15 +162,36 @@ class AsymmetricLaplace(Distribution):
 
     @lazy_property
     def left_scale(self):
+        r"""Scale of the exponential decay below :attr:`loc`,
+        :math:`\sigma \kappa`."""
         return self.scale * self.asymmetry
 
     @lazy_property
     def right_scale(self):
+        r"""Scale of the exponential decay above :attr:`loc`,
+        :math:`\sigma / \kappa`."""
         return self.scale / self.asymmetry
 
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
     ) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \mu, \sigma, \kappa) =
+            -\frac{|x - \mu|}{s(x)}
+            - \ln\!\left(\sigma \kappa + \frac{\sigma}{\kappa}\right),
+            \qquad
+            s(x) = \begin{cases}
+                \sigma \kappa & x < \mu, \\
+                \sigma / \kappa & x \geq \mu.
+            \end{cases}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :param intermediates: Not used.
+        :return: Log probability density evaluated under the asymmetric Laplace
+            distribution.
+        """
         if self._validate_args:
             self._validate_sample(value)
         z = value - self.loc
@@ -145,6 +201,15 @@ class AsymmetricLaplace(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples via the scale-mixture representation
+        :math:`X = \mu - \sigma \kappa \, U + (\sigma / \kappa) \, V` with
+        independent :math:`U, V \sim \mathrm{Exponential}(1)` drawn from
+        :func:`~jax.random.exponential`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the asymmetric Laplace distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         shape = (2,) + sample_shape + self.batch_shape + self.event_shape
@@ -153,12 +218,22 @@ class AsymmetricLaplace(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the asymmetric Laplace distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu + \sigma \left(\frac{1}{\kappa} - \kappa\right)
+        """
         total_scale = self.left_scale + self.right_scale
         mean = self.loc + (self.right_scale**2 - self.left_scale**2) / total_scale
         return jnp.broadcast_to(mean, self.batch_shape)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the asymmetric Laplace distribution:
+
+        .. math::
+            \mathrm{Var}(X) = \sigma^2 \left(\kappa^2 + \kappa^{-2}\right)
+        """
         left = self.left_scale
         right = self.right_scale
         total = left + right
@@ -168,6 +243,23 @@ class AsymmetricLaplace(Distribution):
         return jnp.broadcast_to(variance, self.batch_shape)
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the asymmetric Laplace
+        distribution:
+
+        .. math::
+            F(x ; \mu, \sigma, \kappa) =
+            \begin{cases}
+                \displaystyle\frac{\kappa^2}{1 + \kappa^2}
+                \exp\left(-\displaystyle\frac{|x - \mu|}{\sigma \kappa}\right)
+                & x < \mu, \\
+                1 - \displaystyle\frac{1}{1 + \kappa^2}
+                \exp\left(-\displaystyle\frac{|x - \mu|}{\sigma / \kappa}\right)
+                & x \geq \mu.
+            \end{cases}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         z = value - self.loc
         k = self.asymmetry
         return jnp.where(
@@ -177,6 +269,20 @@ class AsymmetricLaplace(Distribution):
         )
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the asymmetric Laplace
+        distribution. With :math:`t = \kappa^2 / (1 + \kappa^2)`,
+
+        .. math::
+            F^{-1}(q ; \mu, \sigma, \kappa) =
+            \begin{cases}
+                \mu + \sigma \kappa \ln(q / t) & q \leq t, \\
+                \mu - \displaystyle\frac{\sigma}{\kappa}
+                \ln\!\bigl((1 + \kappa^2) (1 - q)\bigr) & q > t.
+            \end{cases}
+
+        :param q: Quantile(s) in :math:`[0, 1]`.
+        :return: Quantile values :math:`x` such that :math:`F(x) = q`.
+        """
         k = self.asymmetry
         temp = k**2 / (1 + k**2)
         return jnp.where(
@@ -451,7 +557,14 @@ class Cauchy(Distribution):
         :type value: ArrayLike
         """
         scaled = (value - self.loc) / self.scale
-        return jnp.arctan(scaled) / jnp.pi + 0.5
+        # In the lower tail, use arctan(z) / pi + 1/2 = -arctan(1 / z) / pi to avoid
+        # cancellation when adding 1/2.
+        lower = jnp.where(scaled < -1, scaled, -1.0)
+        return jnp.where(
+            scaled < -1,
+            -jnp.arctan(1 / lower) / jnp.pi,
+            jnp.arctan(scaled) / jnp.pi + 0.5,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -463,7 +576,18 @@ class Cauchy(Distribution):
         :param q: Probability value in :math:`[0,1]`.
         :type q: ArrayLike
         """
-        return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
+        # In the tails, use tan(pi * (q - 1/2)) = -1 / tan(pi * q) = 1 / tan(pi * (1 - q))
+        # so that tan is evaluated near 0 instead of near pi / 2. This keeps precision and
+        # gives -inf/inf at q = 0/1 (pi / 2 rounds up in float32, which flips the sign).
+        q = jnp.asarray(q)
+        x = jnp.where(
+            q < 0.25,
+            -1 / jnp.tan(jnp.pi * q),
+            jnp.where(
+                q > 0.75, 1 / jnp.tan(jnp.pi * (1 - q)), jnp.tan(jnp.pi * (q - 0.5))
+            ),
+        )
+        return self.loc + self.scale * x
 
     def entropy(self) -> Array:
         r"""Entropy of the Cauchy distribution.
@@ -622,9 +746,30 @@ class Dirichlet(Distribution):
 
 
 class EulerMaruyama(Distribution):
-    """
+    r"""
     Euler–Maruyama method is a method for the approximate numerical solution
     of a stochastic differential equation (SDE)
+
+    .. math::
+       dX_t = f(X_t, t)\, dt + g(X_t, t)\, dW_t
+
+    On a discrete time grid :math:`t_0 < t_1 < \cdots < t_N` with step sizes
+    :math:`\Delta t_k = t_{k+1} - t_k`, the method approximates the solution by
+
+    .. math::
+       X_{k+1} = X_k + \Delta t_k\, f(X_k, t_k) + \sqrt{\Delta t_k}\, g(X_k, t_k)\, \varepsilon_k,
+       \qquad \varepsilon_k \sim \mathcal{N}(0, 1),
+
+    with :math:`X_0 \sim` ``init_dist``. Each transition is therefore Gaussian,
+    and the joint density of the path :math:`x_0, \ldots, x_N` factorizes as
+
+    .. math::
+       p(x_0, \ldots, x_N) = p_0(x_0) \prod_{k=0}^{N-1}
+       \mathcal{N}\!\left(x_{k+1};\; x_k + \Delta t_k\, f(x_k, t_k),\;
+       \Delta t_k\, g(x_k, t_k)^2\right),
+
+    where :math:`p_0` is the density of ``init_dist``. The diffusion coefficient
+    :math:`g` is the per-coordinate scale of independent Gaussian noise.
 
     :param ndarray t: discretized time
     :param callable sde_fn: function returning the drift and diffusion coefficients of SDE
@@ -761,7 +906,7 @@ class EulerMaruyama(Distribution):
         sde_log_prob = Normal(0.0, sigma).to_event(self.event_dim).log_prob(xt - mu)
         init_log_prob = self.init_dist.log_prob(value0)
 
-        return sde_log_prob + init_log_prob
+        return jnp.add(sde_log_prob, init_log_prob)
 
 
 class Exponential(Distribution):
@@ -1036,28 +1181,95 @@ class Chi2(Gamma):
 
 
 class GaussianStateSpace(TransformedDistribution):
-    r"""
-    Gaussian state space model.
+    r"""Joint distribution of a linear Gaussian state sequence.
+
+    For a fixed initial state :math:`\mathbf{z}_0 \in \mathbb{R}^d`, a
+    transition matrix :math:`\mathbf{A} \in \mathbb{R}^{d \times d}`, and
+    independent innovations with covariance :math:`\mathbf{Q}`, the states evolve
+    according to
 
     .. math::
-        \mathbf{z}_{t} &= \mathbf{A} \mathbf{z}_{t - 1} + \boldsymbol{\epsilon}_t\\
-        &= \mathbf{A}^t \mathbf{z}_0 + \sum_{k=1}^{t} \mathbf{A}^{t-k} \boldsymbol{\epsilon}_k,
 
-    where :math:`\mathbf{z}_t` is the state vector at step :math:`t`, :math:`\mathbf{A}`
-    is the transition matrix, :math:`\mathbf{z}_0` is the initial value, and
-    :math:`\boldsymbol\epsilon` is the innovation noise.
+        \mathbf{z}_t = \mathbf{A}\mathbf{z}_{t-1} + \boldsymbol{\epsilon}_t,
+        \qquad \boldsymbol{\epsilon}_t \sim \mathcal{N}(\mathbf{0}, \mathbf{Q}),
+        \qquad t = 1, \ldots, T.
 
+    A sample contains :math:`(\mathbf{z}_1, \ldots, \mathbf{z}_T)` and has
+    event shape ``(num_steps, d)``. The deterministic initial state is not included
+    in the sample. The support is :math:`\mathbb{R}^{T \times d}`, and the joint
+    density is
 
-    :param num_steps: Number of steps.
-    :param transition_matrix: State space transition matrix :math:`\mathbf{A}`.
-    :param covariance_matrix: Covariance of the innovation noise
-        :math:`\boldsymbol\epsilon`.
-    :param precision_matrix: Precision matrix of the innovation noise
-        :math:`\boldsymbol\epsilon`.
-    :param scale_tril: Scale matrix of the innovation noise
-        :math:`\boldsymbol\epsilon`.
-    :param initial_value: Initial state vector :math:`\mathbf{z}_0`. If ``None``,
-        defaults to zero.
+    .. math::
+
+        p(\mathbf{z}_{1:T} \mid \mathbf{z}_0) =
+        \prod_{t=1}^{T} \mathcal{N}
+        (\mathbf{z}_t; \mathbf{A}\mathbf{z}_{t-1}, \mathbf{Q}).
+
+    Sampling applies :class:`~numpyro.distributions.transforms.RecursiveLinearTransform`
+    to independent multivariate Normal innovations. ``log_prob`` recovers those
+    innovations as :math:`\mathbf{z}_t - \mathbf{A}\mathbf{z}_{t-1}` and sums
+    their log densities over time. The transformation has unit Jacobian
+    determinant. This distribution describes the states themselves; it does not
+    include an observation model or marginalize latent states.
+
+    The marginal mean and covariance at step :math:`t` are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{z}_t] &= \mathbf{A}^t\mathbf{z}_0, \\
+        \mathbf{P}_t &= \mathbf{A}\mathbf{P}_{t-1}\mathbf{A}^{\mathsf{T}}
+            + \mathbf{Q}, \qquad \mathbf{P}_0 = \mathbf{0}.
+
+    ``variance`` returns the diagonal of each :math:`\mathbf{P}_t`, with shape
+    ``batch_shape + (num_steps, d)``. In contrast, ``covariance_matrix``,
+    ``precision_matrix``, and ``scale_tril`` describe the innovation noise, not
+    the covariance of the state sequence. With :math:`\mathbf{A}=\mathbf{I}`,
+    this is a multivariate Gaussian random walk.
+
+    Specify exactly one of ``covariance_matrix``, ``precision_matrix``, or
+    ``scale_tril``. These matrices may have leading batch dimensions, but the
+    transition matrix must be two-dimensional and is shared across the batch.
+
+    :param num_steps: Positive number of sampled steps :math:`T`.
+    :param transition_matrix: Square transition matrix :math:`\mathbf{A}` of
+        shape ``(d, d)``, shared across time.
+    :param covariance_matrix: Positive-definite innovation covariance
+        :math:`\mathbf{Q}`, of shape ``(..., d, d)``, shared across time.
+    :param precision_matrix: Inverse innovation covariance
+        :math:`\mathbf{Q}^{-1}`, of shape ``(..., d, d)``.
+    :param scale_tril: Lower-triangular Cholesky factor :math:`\mathbf{L}` such
+        that :math:`\mathbf{Q}=\mathbf{L}\mathbf{L}^{\mathsf{T}}`, of shape
+        ``(..., d, d)``.
+    :param initial_value: Deterministic initial state :math:`\mathbf{z}_0`, of
+        shape ``(..., d)``. Defaults to zero when ``None``.
+    :param validate_args: Whether to validate input constraints, defaults to
+        ``None``.
+
+    **Example:**
+
+    Two independent position/velocity trajectories with different initial
+    positions share the same transition and innovation covariance:
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> from numpyro import distributions as dist
+        >>> process = dist.GaussianStateSpace(
+        ...     num_steps=3,
+        ...     transition_matrix=jnp.array([[1., 1.], [0., 1.]]),
+        ...     scale_tril=0.1 * jnp.eye(2),
+        ...     initial_value=jnp.array([[0., 1.], [10., 1.]]),
+        ... )
+        >>> process.batch_shape, process.event_shape
+        ((2,), (3, 2))
+        >>> process.mean[0].tolist()
+        [[1.0, 1.0], [2.0, 1.0], [3.0, 1.0]]
+        >>> paths = process.sample(random.key(0), sample_shape=(4,))
+        >>> paths.shape
+        (4, 2, 3, 2)
+        >>> process.log_prob(paths).shape
+        (4, 2)
     """
 
     arg_constraints = {
@@ -1091,18 +1303,18 @@ class GaussianStateSpace(TransformedDistribution):
         )
         self.transition_matrix = transition_matrix
         self._initial_value = initial_value
+
         # Expand the covariance/precision/scale matrices to the right number of steps.
-        args = {
-            "covariance_matrix": covariance_matrix,
-            "precision_matrix": precision_matrix,
-            "scale_tril": scale_tril,
-        }
-        args = {
-            key: jnp.expand_dims(value, axis=-3).repeat(num_steps, axis=-3)
-            for key, value in args.items()
-            if value is not None
-        }
-        base_distribution = MultivariateNormal(**args)
+        def expand_to_steps(matrix: Optional[Array]) -> Optional[Array]:
+            if matrix is None:
+                return None
+            return jnp.expand_dims(matrix, axis=-3).repeat(num_steps, axis=-3)
+
+        base_distribution = MultivariateNormal(
+            covariance_matrix=expand_to_steps(covariance_matrix),
+            precision_matrix=expand_to_steps(precision_matrix),
+            scale_tril=expand_to_steps(scale_tril),
+        )
         self.scale_tril = base_distribution.scale_tril[..., 0, :, :]
         base_distribution = base_distribution.to_event(1)
 
@@ -1652,10 +1864,20 @@ class Gompertz(Distribution):
     However, we call the parameter "eta" a concentration parameter and the parameter
     "b" a rate parameter (as opposed to scale parameter as in wikipedia description.)
 
-    The CDF, in terms of `concentration` (`con`) and `rate`, is
+    The Probability Density Function (PDF), in terms of ``concentration``
+    (:math:`\eta > 0`) and ``rate`` (:math:`b > 0`), is
 
     .. math::
-        F(x) = 1 - \exp \left\{ - \text{con} * \left [ \exp\{x * rate \} - 1 \right ] \right\}
+        f(x ; \eta, b) = b\,\eta\,\exp\!\left(\eta + b x - \eta e^{b x}\right),
+        \quad x > 0
+
+    and the corresponding Cumulative Distribution Function (CDF) is
+
+    .. math::
+        F(x ; \eta, b) = 1 - \exp\!\left\{ -\eta \left[ e^{b x} - 1 \right] \right\}
+
+    where :math:`\eta > 0` is the concentration (:attr:`concentration`) and
+    :math:`b > 0` is the rate (:attr:`rate`).
     """
 
     arg_constraints = {
@@ -1672,6 +1894,13 @@ class Gompertz(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param concentration: Concentration parameter :math:`\eta > 0` (called
+            ``eta`` in the Wikipedia entry). Broadcasts against ``rate``.
+        :param rate: Rate parameter :math:`b > 0` (called ``b`` in the Wikipedia
+            entry). Defaults to ``1.0``.
+        :param validate_args: If True, enforce domain constraints during initialization.
+        """
         self.concentration, self.rate = promote_shapes(concentration, rate)
         super(Gompertz, self).__init__(
             batch_shape=lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate)),
@@ -1681,6 +1910,14 @@ class Gompertz(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Positive samples from the Gompertz distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         random_shape = sample_shape + self.batch_shape + self.event_shape
@@ -1689,6 +1926,15 @@ class Gompertz(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; \eta, b) = \ln \eta + \ln b + b x
+            - \eta \left( e^{b x} - 1 \right)
+
+        :param value: Positive point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Gompertz distribution.
+        """
         scaled_value = value * self.rate
         return (
             jnp.log(self.concentration)
@@ -1698,13 +1944,39 @@ class Gompertz(Distribution):
         )
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Gompertz distribution:
+
+        .. math::
+            F(x ; \eta, b) = 1 - \exp\!\left\{ -\eta \left( e^{b x} - 1 \right) \right\}
+
+        :param value: Positive point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a Gompertz random variable is at most ``value``.
+        """
         return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; \eta, b) = \frac{1}{b}
+            \ln\!\left( 1 - \frac{\ln(1 - q)}{\eta} \right)
+
+        :param q: Quantile level :math:`q \in [0, 1)`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
         return jnp.log1p(-jnp.log1p(jnp.negative(q)) / self.concentration) / self.rate
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Gompertz distribution:
+
+        .. math::
+            \mathbb{E}[X] = -\frac{1}{b}\, e^{\eta}\, \mathrm{Ei}(-\eta)
+
+        where :math:`\mathrm{Ei}` is the exponential integral, evaluated with
+        :func:`~jax.scipy.special.expi`.
+        """
         return -jnp.exp(self.concentration) * expi(-self.concentration) / self.rate
 
 
@@ -2096,11 +2368,31 @@ class LKJ(TransformedDistribution):
     to :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
     uniform distribution over correlation matrices.
 
-    When ``concentration > 1``, the distribution favors samples with large large determinent. This
+    When ``concentration > 1``, the distribution favors samples with large determinant. This
     is useful when we know a priori that the underlying variables are not correlated.
 
-    When ``concentration < 1``, the distribution favors samples with small determinent. This is
+    When ``concentration < 1``, the distribution favors samples with small determinant. This is
     useful when we know a priori that some underlying variables are correlated.
+
+    The probability density of a :math:`D \times D` correlation matrix :math:`M`, with respect to
+    Lebesgue measure on its strictly lower-triangular entries, is
+
+    .. math::
+        p(M \mid \eta) = c_D(\eta) \det(M)^{\eta - 1},
+        \qquad
+        c_D(\eta) = \frac{\Gamma(\alpha)^{D-1}}
+        {\pi^{(D-1)/2} \, \Gamma_{D-1}\!\left(\alpha - \tfrac{1}{2}\right)},
+        \qquad \alpha = \eta + \frac{D-1}{2},
+
+    where :math:`\Gamma_{D-1}` is the multivariate gamma function.
+
+    The support is the set of symmetric positive-definite :math:`D \times D` matrices with unit
+    diagonal. The mean is :math:`\mathbb{E}[M] = I`, and each off-diagonal entry satisfies
+    :math:`\tfrac{M_{ij} + 1}{2} \sim \mathrm{Beta}\!\left(\eta - 1 + \tfrac{D}{2},\,
+    \eta - 1 + \tfrac{D}{2}\right)`, so that
+
+    .. math::
+        \mathrm{Var}[M_{ij}] = \frac{1}{2\eta + D - 1}, \qquad i \neq j.
 
     Sample code for using LKJ in the context of multivariate normal sample::
 
@@ -2134,6 +2426,7 @@ class LKJ(TransformedDistribution):
 
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
+    https://doi.org/10.1016/j.jmva.2009.04.008
     """
 
     arg_constraints = {"concentration": constraints.positive}
@@ -2176,12 +2469,38 @@ class LKJCholesky(Distribution):
     uniform distribution over Cholesky factors of correlation matrices.
 
     When ``concentration > 1``, the distribution favors samples with large diagonal entries
-    (hence large determinent). This is useful when we know a priori that the underlying
+    (hence large determinant). This is useful when we know a priori that the underlying
     variables are not correlated.
 
     When ``concentration < 1``, the distribution favors samples with small diagonal entries
-    (hence small determinent). This is useful when we know a priori that some underlying
+    (hence small determinant). This is useful when we know a priori that some underlying
     variables are correlated.
+
+    Writing :math:`M = LL^\top` for the correlation matrix generated by a lower Cholesky factor
+    :math:`L` of dimension :math:`D \times D` (so :math:`L_{11} = 1`), the probability density of
+    :math:`L`, with respect to Lebesgue measure on its strictly lower-triangular entries, is
+
+    .. math::
+        p(L \mid \eta) = c_D(\eta) \prod_{i=2}^{D} L_{ii}^{\,2\eta - 2 + D - i},
+        \qquad
+        c_D(\eta) = \frac{\Gamma(\alpha)^{D-1}}
+        {\pi^{(D-1)/2} \, \Gamma_{D-1}\!\left(\alpha - \tfrac{1}{2}\right)},
+        \qquad \alpha = \eta + \frac{D-1}{2},
+
+    where :math:`\Gamma_{D-1}` is the multivariate gamma function and :math:`c_D(\eta)` is the
+    same normalizing constant as in :class:`LKJ`. The exponent combines
+    :math:`\det(M)^{\eta - 1} = \prod_{i=2}^{D} L_{ii}^{2\eta - 2}` (recall :math:`L_{11} = 1`)
+    with the Jacobian :math:`\prod_{i=2}^{D} L_{ii}^{D-i}` of the map from the strictly
+    lower-triangular entries of :math:`L` to those of :math:`M`.
+
+    The support is the set of lower-triangular :math:`D \times D` matrices with positive diagonal
+    and unit-norm rows. The correlation matrix :math:`M = LL^\top` has mean
+    :math:`\mathbb{E}[M] = I`, and each off-diagonal entry satisfies
+    :math:`\tfrac{M_{ij} + 1}{2} \sim \mathrm{Beta}\!\left(\eta - 1 + \tfrac{D}{2},\,
+    \eta - 1 + \tfrac{D}{2}\right)`, so that
+
+    .. math::
+        \mathrm{Var}[M_{ij}] = \frac{1}{2\eta + D - 1}, \qquad i \neq j.
 
     Sample code for using LKJCholesky in the context of multivariate normal sample::
 
@@ -2216,6 +2535,7 @@ class LKJCholesky(Distribution):
 
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
+    https://doi.org/10.1016/j.jmva.2009.04.008
     """
 
     arg_constraints = {"concentration": constraints.positive}
@@ -2435,7 +2755,7 @@ class LogNormal(TransformedDistribution):
         .. math::
             \mathrm{Var}(X) = \left(e^{\sigma^{2}} - 1\right) e^{2\mu + \sigma^{2}}
         """
-        return (jnp.exp(self.scale**2) - 1) * jnp.exp(2 * self.loc + self.scale**2)
+        return jnp.expm1(self.scale**2) * jnp.exp(2 * self.loc + self.scale**2)
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Normal distribution:
@@ -2601,8 +2921,7 @@ class LogUniform(TransformedDistribution):
 
     arg_constraints = {"low": constraints.positive, "high": constraints.positive}
     reparametrized_params = ["low", "high"]
-    pytree_data_fields = ("low", "high", "_support")
-    _support: constraints.Constraint
+    pytree_data_fields = ("low", "high")
 
     def __init__(
         self,
@@ -2618,14 +2937,13 @@ class LogUniform(TransformedDistribution):
         """
         base_dist = Uniform(jnp.log(low), jnp.log(high))
         self.low, self.high = promote_shapes(low, high)
-        self._support = constraints.interval(self.low, self.high)
         super(LogUniform, self).__init__(
             base_dist, ExpTransform(), validate_args=validate_args
         )
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self._support
+        return constraints.interval(self.low, self.high)
 
     @property
     def mean(self) -> Array:
@@ -2710,15 +3028,70 @@ def _batch_trace_from_cholesky(L):
 
 
 class MatrixNormal(Distribution):
-    """
-    Matrix variate normal distribution as described in [1] but with a lower_triangular parametrization,
-    i.e. :math:`U=scale_tril_row @ scale_tril_row^{T}` and :math:`V=scale_tril_column @ scale_tril_column^{T}`.
-    The distribution is related to the multivariate normal distribution in the following way.
-    If :math:`X ~ MN(loc,U,V)` then :math:`vec(X) ~ MVN(vec(loc), kron(V,U) )`.
+    r"""
+    Matrix normal distribution on real matrices with ``event_shape = (n, p)``
+    and mean matrix :math:`M` (``loc``), as described in [1]. The row and column
+    covariance matrices are :math:`U = L_r L_r^\top` and
+    :math:`V = L_c L_c^\top`, where :math:`L_r` (``scale_tril_row``) and
+    :math:`L_c` (``scale_tril_column``) are lower Cholesky factors with positive
+    diagonal entries.
 
-    :param array_like loc: Location of the distribution.
-    :param array_like scale_tril_row: Lower cholesky of rows covariance matrix.
-    :param array_like scale_tril_column: Lower cholesky of columns covariance matrix.
+    The probability density function is
+
+    .. math::
+        f(X; M, U, V) =
+        \frac{\exp\left(-\frac{1}{2}\operatorname{tr}\left[
+        U^{-1}(X-M)V^{-1}(X-M)^\top\right]\right)}
+        {(2\pi)^{np/2}|U|^{p/2}|V|^{n/2}},
+        \qquad X \in \mathbb{R}^{n \times p}.
+
+    Equivalently,
+    :math:`\operatorname{vec}(X) \sim \mathcal{N}(\operatorname{vec}(M), V \otimes U)`,
+    where :math:`\operatorname{vec}` stacks the columns of a matrix and
+    :math:`\otimes` denotes the Kronecker product. For an unbatched matrix ``x``,
+    this is ``x.reshape(-1, order="F")``.
+
+    Samples are generated as :math:`X = M + L_r Z L_c^\top`, where :math:`Z`
+    is an :math:`n \times p` matrix of independent standard normal entries.
+    The log density is evaluated using triangular solves and the diagonals of
+    the Cholesky factors, without constructing the :math:`np \times np`
+    Kronecker covariance matrix.
+
+    Leading dimensions of all three parameters must be broadcast-compatible
+    and determine ``batch_shape``. The last two dimensions are matrix dimensions:
+    ``loc`` has shape ``(..., n, p)``, ``scale_tril_row`` has shape
+    ``(..., n, n)``, and ``scale_tril_column`` has shape ``(..., p, p)``.
+    Samples have shape ``sample_shape + batch_shape + (n, p)``, and
+    ``log_prob`` reduces the two event dimensions to give one value per matrix.
+
+    :param array_like loc: Mean matrix with shape ``(..., n, p)``.
+    :param array_like scale_tril_row: Lower Cholesky factor of the row covariance
+        matrix, with shape ``(..., n, n)`` and positive diagonal entries.
+    :param array_like scale_tril_column: Lower Cholesky factor of the column
+        covariance matrix, with shape ``(..., p, p)`` and positive diagonal entries.
+
+    **Example**
+
+    A matrix with two rows and three columns is equivalent to a six-dimensional
+    multivariate normal when its columns are stacked:
+
+    .. doctest::
+
+        >>> import jax.numpy as jnp
+        >>> from numpyro.distributions import MatrixNormal, MultivariateNormal
+        >>> loc = jnp.arange(6.0).reshape(2, 3)
+        >>> row = jnp.array([[1.0, 0.0], [0.4, 0.8]])
+        >>> column = jnp.array([[1.0, 0.0, 0.0], [0.3, 1.2, 0.0], [0.2, -0.1, 0.7]])
+        >>> matrix_normal = MatrixNormal(loc, row, column)
+        >>> vector_normal = MultivariateNormal(
+        ...     loc.reshape(-1, order="F"), scale_tril=jnp.kron(column, row)
+        ... )
+        >>> x = loc + jnp.array([[0.2, -0.3, 0.5], [0.7, 0.1, -0.4]])
+        >>> bool(jnp.allclose(
+        ...     matrix_normal.log_prob(x),
+        ...     vector_normal.log_prob(x.reshape(-1, order="F")),
+        ... ))
+        True
 
     **References**
 
@@ -2851,6 +3224,27 @@ def _batch_mahalanobis(bL, bx):
 
 
 class MultivariateNormal(Distribution):
+    r"""Multivariate normal (Gaussian) distribution on :math:`\mathbb{R}^d`
+    with mean vector :math:`\mu` and positive definite covariance matrix
+    :math:`\Sigma`. Exactly one of :attr:`covariance_matrix`,
+    :attr:`precision_matrix` (:math:`\Sigma^{-1}`) or :attr:`scale_tril` (the
+    lower Cholesky factor :math:`L` with :math:`\Sigma = L L^\top`) must be
+    specified; internally all three are represented by :attr:`scale_tril`.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x ; \mu, \Sigma) =
+        (2 \pi)^{-d/2} |\Sigma|^{-1/2}
+        \exp\left(-\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)\right),
+        \quad x \in \mathbb{R}^d
+
+    where :math:`d` is the event size. Samples are generated as
+    :math:`\mu + L z` with :math:`z \sim \mathrm{Normal}(0, I_d)`, and the
+    quadratic form and log determinant are evaluated from :math:`L` via
+    triangular solves.
+    """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "covariance_matrix": constraints.positive_definite,
@@ -2868,12 +3262,24 @@ class MultivariateNormal(Distribution):
     def __init__(
         self,
         loc: ArrayLike = 0.0,
-        covariance_matrix: Optional[Array] = None,
-        precision_matrix: Optional[Array] = None,
-        scale_tril: Optional[Array] = None,
+        covariance_matrix: Optional[ArrayLike] = None,
+        precision_matrix: Optional[ArrayLike] = None,
+        scale_tril: Optional[ArrayLike] = None,
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Mean vector :math:`\mu \in \mathbb{R}^d`. A scalar is promoted
+            to a vector of length 1. Defaults to ``0.0``.
+        :param covariance_matrix: Covariance matrix :math:`\Sigma` (positive
+            definite). Mutually exclusive with :attr:`precision_matrix` and
+            :attr:`scale_tril`.
+        :param precision_matrix: Precision matrix :math:`\Sigma^{-1}` (positive
+            definite).
+        :param scale_tril: Lower Cholesky factor :math:`L` of :math:`\Sigma`.
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
+        """
         assert_one_of(
             covariance_matrix=covariance_matrix,
             precision_matrix=precision_matrix,
@@ -2905,6 +3311,14 @@ class MultivariateNormal(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples via the reparameterization :math:`X = \mu + L Z` with
+        :math:`Z \sim \mathrm{Normal}(0, I_d)` drawn from
+        :func:`~jax.random.normal` and :math:`L` = :attr:`scale_tril`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples from the multivariate normal distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         eps = random.normal(
@@ -2916,6 +3330,21 @@ class MultivariateNormal(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \mu, \Sigma) =
+            -\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)
+            -\frac{1}{2} \ln |\Sigma| - \frac{d}{2} \ln(2 \pi)
+
+        The Mahalanobis quadratic form and :math:`\ln |\Sigma|` are evaluated
+        from the Cholesky factor :attr:`scale_tril` via triangular solves.
+
+        :param value: Point :math:`x \in \mathbb{R}^d` at which to evaluate the
+            log PDF.
+        :return: Log probability density evaluated under the multivariate normal
+            distribution.
+        """
         M = _batch_mahalanobis(self.scale_tril, value - self.loc)
         half_log_det = tri_logabsdet(self.scale_tril)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * jnp.log(
@@ -2925,10 +3354,14 @@ class MultivariateNormal(Distribution):
 
     @lazy_property
     def covariance_matrix(self):
+        r"""Covariance matrix :math:`\Sigma = L L^\top`, recovered from
+        :attr:`scale_tril`."""
         return jnp.matmul(self.scale_tril, jnp.swapaxes(self.scale_tril, -1, -2))
 
     @lazy_property
     def precision_matrix(self):
+        r"""Precision matrix :math:`\Sigma^{-1} = L^{-\top} L^{-1}`, recovered
+        from :attr:`scale_tril`."""
         identity = jnp.broadcast_to(
             jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
         )
@@ -2936,10 +3369,21 @@ class MultivariateNormal(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the multivariate normal distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.broadcast_to(self.loc, self.shape())
 
     @property
     def variance(self) -> Array:
+        r"""Variance (diagonal of :math:`\Sigma`) of the multivariate normal
+        distribution:
+
+        .. math::
+            \mathrm{Var}(X_i) = \Sigma_{ii} = \sum_j L_{ij}^2
+        """
         return jnp.broadcast_to(
             jnp.sum(self.scale_tril**2, axis=-1), self.batch_shape + self.event_shape
         )
@@ -2948,6 +3392,10 @@ class MultivariateNormal(Distribution):
     def infer_shapes(
         cls, loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None
     ):
+        r"""Infer the batch and event shapes from the shapes of the arguments.
+
+        :return: A tuple ``(batch_shape, event_shape)``.
+        """
         assert_one_of(
             covariance_matrix=covariance_matrix,
             precision_matrix=precision_matrix,
@@ -2961,6 +3409,13 @@ class MultivariateNormal(Distribution):
                 return batch_shape, event_shape
 
     def entropy(self) -> Array:
+        r"""Differential entropy of the multivariate normal distribution:
+
+        .. math::
+            H(X) = \frac{d}{2} \ln(2 \pi e) + \frac{1}{2} \ln |\Sigma|
+
+        :return: Entropy in nats.
+        """
         (n,) = self.event_shape
         half_log_det = tri_logabsdet(self.scale_tril)
         return n * (jnp.log(2 * np.pi) + 1) / 2 + half_log_det
@@ -2980,22 +3435,128 @@ def _to_sparse(A):
 
 class CAR(Distribution):
     r"""
-    The Conditional Autoregressive (CAR) distribution is a special case of the multivariate
-    normal in which the precision matrix is structured according to the adjacency matrix of
-    sites. The amount of autocorrelation between sites is controlled by ``correlation``. The
-    distribution is a popular prior for areal spatial data.
+    The Conditional Autoregressive (CAR) distribution is a multivariate normal
+    whose precision matrix is structured by an adjacency matrix. It is commonly
+    used as a prior for areal spatial data.
+
+    Let :math:`W` be ``adj_matrix``, let
+    :math:`n_i = \sum_j W_{ij}`, and define
+    :math:`D = \operatorname{diag}(n_1, \ldots, n_N)`. With
+    :math:`\rho` denoting ``correlation`` and :math:`\tau` denoting
+    ``conditional_precision``, the precision matrix is
+
+    .. math::
+        Q = \tau (D - \rho W).
+
+    Therefore, for :math:`x, \mu \in \mathbb{R}^N`, with :math:`\mu`
+    denoting ``loc``, the density is
+
+    .. math::
+        p(x) = \frac{|Q|^{1/2}}{(2\pi)^{N/2}}
+        \exp\left(-\frac{1}{2}(x-\mu)^\top Q(x-\mu)\right).
+
+    If :math:`W` has a zero diagonal, the corresponding full conditional is
+
+    .. math::
+        x_i \mid x_{-i} \sim \mathcal{N}\left(
+        \mu_i + \frac{\rho}{n_i}\sum_j W_{ij}(x_j-\mu_j),
+        \frac{1}{\tau n_i}\right).
+
+    Here :math:`n_i` is the weighted row sum; it equals the number of neighbors
+    only for a binary adjacency matrix. Let :math:`\lambda_{\min}` and
+    :math:`\lambda_{\max}` be the extreme eigenvalues of
+    :math:`D^{-1/2} W D^{-1/2}`. Then :math:`Q` is positive definite exactly
+    when :math:`\rho\lambda_i < 1` for every eigenvalue, which for
+    :math:`\lambda_{\min} < 0 < \lambda_{\max}` is the interval
+
+    .. math::
+        \frac{1}{\lambda_{\min}} < \rho
+        < \frac{1}{\lambda_{\max}}.
+
+    For symmetric, nonnegative :math:`W` with positive row sums,
+    :math:`\lambda_{\max}=1` and :math:`\lambda_{\min}\geq -1`, with equality
+    exactly when some connected component is bipartite; a zero diagonal also
+    gives :math:`\lambda_{\min}<0`. Thus :math:`|\rho| < 1` is always
+    sufficient, but it can exclude admissible negative values. This class
+    restricts ``correlation`` to :math:`(-1, 1)`.
+
+    ``log_prob`` computes the log determinant without factorizing :math:`Q`.
+    If :math:`\lambda_1,\ldots,\lambda_N` are the eigenvalues above, it uses
+    the identity [2]
+
+    .. math::
+        \log |Q| = N\log\tau + \sum_i\log n_i
+        + \sum_i\log(1-\rho\lambda_i).
+
+    With a NumPy or SciPy sparse adjacency matrix, ``log_prob`` computes the
+    eigenvalues with NumPy on the host; when the distribution is constructed
+    inside a traced function, as in a model, they enter the compiled
+    computation as constants. With a JAX adjacency matrix, the eigendecomposition
+    remains in the traced graph and is recomputed on each evaluation; JAX
+    adjacency inputs are therefore supported but not recommended.
+
+    When validation is enabled, symmetry and positive row sums are checked by
+    assertions for NumPy and SciPy sparse inputs. JAX adjacency inputs are not
+    validated. Nonnegative weights and a zero diagonal are the caller's
+    responsibility. With ``is_sparse=True``, the adjacency matrix
+    is stored in SciPy CSR format and converted to JAX ``BCOO`` for the
+    quadratic form in ``log_prob``. The normalized adjacency is nevertheless
+    densified on the host for NumPy eigenvalue computation, and
+    ``precision_matrix`` and sampling are dense. Thus, ``is_sparse=True`` does
+    not provide fully sparse inference. This mode accepts only two-dimensional
+    NumPy or SciPy sparse adjacency inputs.
 
     :param float or ndarray loc: mean of the multivariate normal
-    :param float correlation: autoregression parameter. For most cases, the value should lie
-        between 0 (sites are independent, collapses to an iid multivariate normal) and
-        1 (perfect autocorrelation between sites), but the specification allows for negative
+    :param float correlation: autoregression parameter. At zero, sites are
+        independent with variances :math:`1/(\tau n_i)`, which need not be
+        identical. The value one is the excluded intrinsic-CAR boundary; this
+        class implements the proper CAR distribution and also permits negative
         correlations.
-    :param float conditional_precision: positive precision for the multivariate normal
-    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric adjacency matrix where 1
-        indicates adjacency between sites and 0 otherwise. :class:`jax.numpy.ndarray` ``adj_matrix`` is
-        supported but is **not** recommended over :class:`numpy.ndarray` or :class:`scipy.sparse.spmatrix`.
+    :param float conditional_precision: positive multiplier :math:`\tau` of the
+        conditional precision, so that
+        :math:`\operatorname{Var}(x_i \mid x_{-i}) = 1/(\tau n_i)` when the
+        adjacency diagonal is zero
+    :param ndarray or scipy.sparse.csr_matrix adj_matrix: symmetric,
+        nonnegative weight matrix :math:`W` with zero diagonal and positive row
+        sums, shape ``(..., N, N)`` (two-dimensional only when
+        ``is_sparse=True``). The standard CAR uses a binary matrix (one for
+        neighboring sites, zero otherwise). A :class:`jax.numpy.ndarray` is
+        supported but not recommended (see above).
     :param bool is_sparse: whether to use a sparse form of ``adj_matrix`` in calculations (must be True if
         ``adj_matrix`` is a :class:`scipy.sparse.spmatrix`)
+
+    **Example**
+
+    ``CAR.log_prob`` agrees with a multivariate normal constructed from the
+    precision matrix above:
+
+    .. doctest::
+
+        >>> import jax.numpy as jnp
+        >>> import numpy as np
+        >>> from numpyro.distributions import CAR, MultivariateNormal
+        >>> loc = jnp.zeros(3)
+        >>> adjacency = np.array([[0.0, 1.0, 1.0],
+        ...                       [1.0, 0.0, 1.0],
+        ...                       [1.0, 1.0, 0.0]])
+        >>> rho, tau = 0.4, 2.0
+        >>> degree = adjacency.sum(axis=-1)
+        >>> precision = tau * (jnp.diag(degree) - rho * adjacency)
+        >>> car = CAR(loc, rho, tau, adjacency)
+        >>> normal = MultivariateNormal(loc, precision_matrix=precision)
+        >>> value = jnp.array([0.2, -0.1, 0.3])
+        >>> bool(jnp.allclose(car.log_prob(value), normal.log_prob(value)))
+        True
+
+    **References**
+
+    [1] Besag, J. (1974). Spatial interaction and the statistical analysis of
+    lattice systems. *Journal of the Royal Statistical Society: Series B*,
+    36(2), 192--225. https://doi.org/10.1111/j.2517-6161.1974.tb00999.x
+
+    [2] Jin, X., Carlin, B. P., and Banerjee, S. (2005). Generalized
+    hierarchical multivariate CAR models for areal data. *Biometrics*, 61(4),
+    950--961. https://doi.org/10.1111/j.1541-0420.2005.00359.x
     """
 
     arg_constraints = {
@@ -3189,6 +3750,33 @@ class CAR(Distribution):
 
 
 class MultivariateStudentT(Distribution):
+    r"""Multivariate Student's t-distribution on :math:`\mathbb{R}^d` with
+    degrees of freedom :math:`\nu > 0`, location vector :math:`\mu` and
+    positive definite scale matrix :math:`\Sigma = L L^\top`, given by its
+    lower Cholesky factor :attr:`scale_tril`. It is the distribution of
+    :math:`\mu + L Z / \sqrt{V / \nu}` where
+    :math:`Z \sim \mathrm{Normal}(0, I_d)` is independent of
+    :math:`V \sim \chi^2(\nu)`; equivalently, a multivariate normal with a
+    shared :math:`\chi^2` scale mixture. As :math:`\nu \to \infty` it
+    approaches :class:`MultivariateNormal`, and :math:`\nu = 1` gives the
+    multivariate Cauchy distribution.
+
+    The Probability Density Function (PDF) is:
+
+    .. math::
+        f(x ; \nu, \mu, \Sigma) =
+        \frac{\Gamma\left(\displaystyle\frac{\nu + d}{2}\right)}
+        {\Gamma\left(\displaystyle\frac{\nu}{2}\right) (\nu \pi)^{d/2} |\Sigma|^{1/2}}
+        \left(1 + \frac{1}{\nu} (x - \mu)^\top \Sigma^{-1}
+        (x - \mu)\right)^{-\frac{\nu + d}{2}},
+        \quad x \in \mathbb{R}^d
+
+    where :math:`d` is the event size. Note that :math:`\Sigma` is a scale
+    matrix, not the covariance: the covariance is
+    :math:`\frac{\nu}{\nu - 2} \Sigma` for :math:`\nu > 2`, and the mean
+    equals :math:`\mu` only for :math:`\nu > 1`.
+    """
+
     arg_constraints = {
         "df": constraints.positive,
         "loc": constraints.real_vector,
@@ -3206,6 +3794,15 @@ class MultivariateStudentT(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param df: Degrees of freedom :math:`\nu > 0`.
+        :param loc: Location vector :math:`\mu`. A scalar is promoted to a vector
+            of length 1. Defaults to ``0.0``.
+        :param scale_tril: Lower Cholesky factor :math:`L` of the scale matrix
+            :math:`\Sigma` (required).
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
+        """
         assert scale_tril is not None
         if jnp.ndim(loc) == 0:
             (loc,) = promote_shapes(loc, shape=(1,))
@@ -3228,6 +3825,15 @@ class MultivariateStudentT(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples via the scale-mixture representation
+        :math:`X = \mu + L Z / \sqrt{V / \nu}` with
+        :math:`Z \sim \mathrm{Normal}(0, I_d)` independent of
+        :math:`V \sim \chi^2(\nu)` and :math:`L` = :attr:`scale_tril`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Samples from the multivariate Student's t-distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         key_normal, key_chi2 = random.split(key)
@@ -3243,6 +3849,27 @@ class MultivariateStudentT(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \nu, \mu, \Sigma) =
+            -\frac{\nu + d}{2}
+            \ln\!\left(1 + \frac{1}{\nu}
+            (x - \mu)^\top \Sigma^{-1} (x - \mu)\right)
+            - \ln Z,
+            \quad
+            Z = \frac{\Gamma\!\left(\frac{\nu}{2}\right)
+                (\nu \pi)^{d/2} |\Sigma|^{1/2}}
+                {\Gamma\!\left(\frac{\nu + d}{2}\right)}
+
+        The Mahalanobis quadratic form and :math:`\ln |\Sigma|` are evaluated
+        from the Cholesky factor :attr:`scale_tril` via triangular solves.
+
+        :param value: Point :math:`x \in \mathbb{R}^d` at which to evaluate the
+            log PDF.
+        :return: Log probability density evaluated under the multivariate
+            Student's t-distribution.
+        """
         n = self.scale_tril.shape[-1]
         Z = (
             tri_logabsdet(self.scale_tril)
@@ -3256,12 +3883,18 @@ class MultivariateStudentT(Distribution):
 
     @lazy_property
     def covariance_matrix(self):
+        r"""Scale matrix :math:`\Sigma = L L^\top`, recovered from
+        :attr:`scale_tril`. Note this is *not* the covariance of the
+        distribution; the actual covariance is
+        :math:`\frac{\nu}{\nu - 2} \Sigma` for :math:`\nu > 2`."""
         # NB: this is not covariance of this distribution;
         # the actual covariance is df / (df - 2) * covariance_matrix
         return jnp.matmul(self.scale_tril, jnp.swapaxes(self.scale_tril, -1, -2))
 
     @lazy_property
     def precision_matrix(self) -> Array:
+        r"""Inverse of the scale matrix, :math:`\Sigma^{-1} = L^{-\top} L^{-1}`,
+        recovered from :attr:`scale_tril`."""
         identity = jnp.broadcast_to(
             jnp.eye(self.scale_tril.shape[-1]), self.scale_tril.shape
         )
@@ -3269,6 +3902,14 @@ class MultivariateStudentT(Distribution):
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the multivariate Student's t-distribution:
+
+        .. math::
+            \mathbb{E}[X] = \mu, \quad \nu > 1
+
+        Returns ``inf`` for :math:`\nu \leq 1`, where the mean is undefined
+        (matching SciPy).
+        """
         # for df <= 1. should be jnp.nan (keeping jnp.inf for consistency with scipy)
         return jnp.broadcast_to(
             jnp.where(jnp.expand_dims(self.df, -1) <= 1, jnp.inf, self.loc),
@@ -3277,6 +3918,15 @@ class MultivariateStudentT(Distribution):
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the multivariate Student's t-distribution:
+
+        .. math::
+            \mathrm{Var}(X_i) = \frac{\nu}{\nu - 2} \, \Sigma_{ii},
+            \quad \nu > 2
+
+        Returns ``nan`` for :math:`\nu \leq 1` and ``inf`` for
+        :math:`1 < \nu \leq 2`, where the variance is undefined.
+        """
         df = jnp.expand_dims(self.df, -1)
         var = jnp.power(self.scale_tril, 2).sum(-1) * (df / (df - 2))
         var = jnp.where(df > 2, var, jnp.inf)
@@ -3285,6 +3935,10 @@ class MultivariateStudentT(Distribution):
 
     @classmethod
     def infer_shapes(cls, df, loc, scale_tril):
+        r"""Infer the batch and event shapes from the shapes of the arguments.
+
+        :return: A tuple ``(batch_shape, event_shape)``.
+        """
         event_shape = (scale_tril[-1],)
         batch_shape = lax.broadcast_shapes(df, loc[:-1], scale_tril[:-2])
         return batch_shape, event_shape
@@ -3340,6 +3994,46 @@ def _batch_lowrank_mahalanobis(
 
 
 class LowRankMultivariateNormal(Distribution):
+    r"""Multivariate normal distribution on :math:`\mathbb{R}^d` whose covariance
+    matrix is the sum of a low-rank matrix and a positive diagonal matrix,
+
+    .. math::
+        \Sigma = W W^\top + \operatorname{diag}(D),
+
+    where :math:`W \in \mathbb{R}^{d \times m}` is the covariance factor (usually
+    with :math:`m \ll d`) and :math:`D \in \mathbb{R}_{>0}^{d}` is the diagonal
+    part. The Probability Density Function (PDF) is
+
+    .. math::
+        f(x ; \mu, W, D) =
+        (2 \pi)^{-d/2} |\Sigma|^{-1/2}
+        \exp\left(-\frac{1}{2} (x - \mu)^\top \Sigma^{-1} (x - \mu)\right),
+        \quad x \in \mathbb{R}^d
+
+    The mean is :math:`\mu` and the marginal variances are
+    :math:`\operatorname{Var}(x_i) = \sum_{j=1}^{m} W_{ij}^2 + D_i`.
+
+    A sample is generated as
+    :math:`x = \mu + W \epsilon_W + \sqrt{D} \odot \epsilon_D` with
+    :math:`\epsilon_W \sim \mathrm{Normal}(0, I_m)` and
+    :math:`\epsilon_D \sim \mathrm{Normal}(0, I_d)`. The log density avoids
+    forming the :math:`d \times d` matrix :math:`\Sigma` by using the
+    Woodbury matrix identity and the matrix determinant lemma with the
+    :math:`m \times m` capacitance matrix :math:`C = I_m + W^\top \operatorname{diag}(D)^{-1} W`:
+
+    .. math::
+        \Sigma^{-1} = \operatorname{diag}(D)^{-1}
+        - \operatorname{diag}(D)^{-1} W C^{-1} W^\top \operatorname{diag}(D)^{-1},
+        \qquad
+        \log |\Sigma| = \log |C| + \sum_{i=1}^{d} \log D_i.
+
+    :param loc: Mean vector :math:`\mu \in \mathbb{R}^d`.
+    :param cov_factor: Factor :math:`W` of the low-rank part of the covariance,
+        with shape ``(..., d, m)``.
+    :param cov_diag: Diagonal part :math:`D > 0` of the covariance, with shape
+        ``(..., d)``.
+    """
+
     arg_constraints = {
         "loc": constraints.real_vector,
         "cov_factor": constraints.independent(constraints.real, 2),
@@ -3434,7 +4128,7 @@ class LowRankMultivariateNormal(Distribution):
         Wt_Dinv = jnp.swapaxes(self.cov_factor, -1, -2) / jnp.expand_dims(
             self.cov_diag, axis=-2
         )
-        A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
+        A = solve_triangular(self._capacitance_tril, Wt_Dinv, lower=True)
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
         return add_diag(-jnp.matmul(jnp.swapaxes(A, -1, -2), A), inverse_cov_diag)
 
@@ -3701,6 +4395,36 @@ class Pareto(TransformedDistribution):
 
 
 class RelaxedBernoulliLogits(TransformedDistribution):
+    r"""Continuous relaxation of the Bernoulli distribution on the unit interval
+    (also known as the binary Concrete distribution), parameterized by a
+    temperature :math:`\lambda > 0` and logits :math:`\ell \in \mathbb{R}`.
+
+    A sample is generated by drawing
+    :math:`z \sim \mathrm{Logistic}(\ell / \lambda, 1 / \lambda)` and applying
+    the sigmoid function,
+
+    .. math::
+        x = \sigma(z) = \frac{1}{1 + e^{-z}}, \quad x \in (0, 1),
+
+    which is the reparameterized form of
+    :math:`x = \sigma\left((\ell + \log u - \log(1 - u)) / \lambda\right)` with
+    :math:`u \sim \mathrm{Uniform}(0, 1)`. The Probability Density Function (PDF) is
+
+    .. math::
+        f(x ; \lambda, \ell) =
+        \frac{\lambda e^{\ell} x^{-\lambda - 1} (1 - x)^{-\lambda - 1}}
+        {\left(e^{\ell} x^{-\lambda} + (1 - x)^{-\lambda}\right)^{2}},
+        \quad x \in (0, 1)
+
+    As :math:`\lambda \to 0` the samples concentrate on :math:`\{0, 1\}` with
+    :math:`\mathbb{P}(x \to 1) = \sigma(\ell)`, recovering a Bernoulli
+    distribution with the same logits.
+
+    :param temperature: Temperature parameter :math:`\lambda > 0`.
+    :param logits: Logits :math:`\ell \in \mathbb{R}` of the corresponding
+        Bernoulli distribution.
+    """
+
     arg_constraints = {"temperature": constraints.positive, "logits": constraints.real}
     support = constraints.unit_interval
 
@@ -3718,20 +4442,45 @@ class RelaxedBernoulliLogits(TransformedDistribution):
 
 
 def RelaxedBernoulli(
-    temperature, probs=None, logits=None, *, validate_args: Optional[bool] = None
-):
-    if probs is None and logits is None:
-        raise ValueError("One of `probs` or `logits` must be specified.")
+    temperature: ArrayLike,
+    probs: Optional[ArrayLike] = None,
+    logits: Optional[ArrayLike] = None,
+    *,
+    validate_args: Optional[bool] = None,
+) -> RelaxedBernoulliLogits:
+    r"""Continuous relaxation of the Bernoulli distribution on the unit interval.
+
+    At least one of ``probs`` or ``logits`` must be specified; if both are
+    given, ``probs`` takes precedence and ``logits`` is ignored. A probability
+    :math:`p` is converted to logits :math:`\ell = \log p - \log(1 - p)` and a
+    :class:`RelaxedBernoulliLogits` distribution is returned; see that class for
+    the density and the sampling procedure.
+
+    :param temperature: Temperature parameter :math:`\lambda > 0`.
+    :param probs: Probability :math:`p \in (0, 1)` of the corresponding
+        Bernoulli distribution.
+    :param logits: Logits :math:`\ell \in \mathbb{R}` of the corresponding
+        Bernoulli distribution.
+    :raises ValueError: If neither ``probs`` nor ``logits`` is specified.
+    """
     if probs is not None:
         logits = _to_logits_bernoulli(probs)
+    elif logits is None:
+        raise ValueError("One of `probs` or `logits` must be specified.")
     return RelaxedBernoulliLogits(temperature, logits, validate_args=validate_args)
 
 
 class SoftLaplace(Distribution):
-    """
-    Smooth distribution with Laplace-like tail behavior.
+    r"""Smooth distribution with Laplace-like tail behavior.
 
-    This distribution corresponds to the log-convex density::
+    The Probability Density Function (PDF), in terms of location
+    :math:`\mu \in \mathbb{R}` and scale :math:`\sigma > 0`, is
+
+    .. math::
+        f(x ; \mu, \sigma) = \frac{1}{\pi\,\sigma\,\cosh\!\left(\displaystyle\frac{x-\mu}{\sigma}\right)},
+        \quad x \in \mathbb{R}
+
+    which is the log-convex density::
 
         z = (value - loc) / scale
         log_prob = log(2 / pi) - log(scale) - logaddexp(z, -z)
@@ -3741,8 +4490,8 @@ class SoftLaplace(Distribution):
     distribution, this distribution is infinitely differentiable everywhere,
     and is thus suitable for HMC and Laplace approximation.
 
-    :param loc: Location parameter.
-    :param scale: Scale parameter.
+    :param loc: Location parameter :math:`\mu \in \mathbb{R}`.
+    :param scale: Scale parameter :math:`\sigma > 0`.
     """
 
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
@@ -3762,12 +4511,29 @@ class SoftLaplace(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \log f(x ; \mu, \sigma) = \log\frac{2}{\pi} - \log\sigma
+            - \log\!\left(e^{z} + e^{-z}\right), \quad z = \frac{x-\mu}{\sigma}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the SoftLaplace distribution.
+        """
         z = (value - self.loc) / self.scale
         return jnp.log(2 / jnp.pi) - jnp.log(self.scale) - jnp.logaddexp(z, -z)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the SoftLaplace distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         dtype = jnp.result_type(float)
@@ -3778,18 +4544,56 @@ class SoftLaplace(Distribution):
 
     # TODO: refactor validate_sample to only does validation check and use it here
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the SoftLaplace distribution:
+
+        .. math::
+            F(x ; \mu, \sigma) = \frac{2}{\pi}\,\arctan\!\left(e^{z}\right),
+            \quad z = \frac{x-\mu}{\sigma}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a SoftLaplace random variable is at most ``value``.
+        """
         z = (value - self.loc) / self.scale
         return jnp.arctan(jnp.exp(z)) * (2 / jnp.pi)
 
     def icdf(self, q: ArrayLike) -> Array:
-        return jnp.log(jnp.tan(q * (jnp.pi / 2))) * self.scale + self.loc
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; \mu, \sigma) = \mu + \sigma\,
+            \log\!\left(\tan\!\left(\frac{\pi q}{2}\right)\right)
+
+        :param q: Quantile level :math:`q \in [0, 1]`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
+        # Use tan(pi * q / 2) = 1 / tan(pi * (1 - q) / 2) for q > 1/2 so that tan is
+        # evaluated away from pi / 2, which is inaccurate in the upper tail and gives
+        # NaN at q = 1.
+        q = jnp.asarray(q)
+        z = jnp.where(
+            q <= 0.5,
+            jnp.log(jnp.tan(q * (jnp.pi / 2))),
+            -jnp.log(jnp.tan((1 - q) * (jnp.pi / 2))),
+        )
+        return z * self.scale + self.loc
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the SoftLaplace distribution, equal to the location by symmetry:
+
+        .. math::
+            \mathbb{E}[X] = \mu
+        """
         return jnp.asarray(self.loc)
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the SoftLaplace distribution:
+
+        .. math::
+            \mathrm{Var}[X] = \left(\frac{\pi \sigma}{2}\right)^{2}
+        """
         return jnp.asarray((jnp.pi / 2 * self.scale) ** 2)
 
 
@@ -4044,8 +4848,7 @@ class Uniform(Distribution):
         "high": constraints.dependent(is_discrete=False, event_dim=0),
     }
     reparametrized_params = ["low", "high"]
-    pytree_data_fields = ("low", "high", "_support")
-    _support: constraints.Constraint
+    pytree_data_fields = ("low", "high")
 
     def __init__(
         self,
@@ -4056,12 +4859,11 @@ class Uniform(Distribution):
     ) -> None:
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
-        self._support = constraints.interval(cast(NumLike, low), cast(NumLike, high))
         super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self._support
+        return constraints.interval(self.low, self.high)
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
@@ -4222,7 +5024,14 @@ class Weibull(Distribution):
         return ll
 
     def cdf(self, value: ArrayLike) -> Array:
-        return 1 - jnp.exp(-((value / self.scale) ** self.concentration))
+        scaled_value = (value / self.scale) ** self.concentration
+        # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
+        # Use exp there to retain its derivative, and expm1 near zero.
+        return jnp.where(
+            scaled_value < jnp.log(2),
+            -jnp.expm1(-scaled_value),
+            1 - jnp.exp(-scaled_value),
+        )
 
     @property
     def mean(self) -> Array:
@@ -4298,7 +5107,7 @@ class BetaProportion(Beta):
 
 
 class AsymmetricLaplaceQuantile(Distribution):
-    """An alternative parameterization of AsymmetricLaplace commonly applied in
+    r"""An alternative parameterization of AsymmetricLaplace commonly applied in
     Bayesian quantile regression.
 
     Instead of the `asymmetry` parameter employed by AsymmetricLaplace, to
@@ -4311,6 +5120,28 @@ class AsymmetricLaplaceQuantile(Distribution):
     AsymmetricLaplace. When `loc=0` and `scale=1`, AsymmetricLaplace(0,1,1)
     is equivalent to Laplace(0,1), while AsymmetricLaplaceQuantile(0,1,0.5) is
     equivalent to Laplace(0,2).
+
+    Equivalently, this is an :class:`AsymmetricLaplace` with asymmetry
+    :math:`\kappa = \sqrt{q / (1 - q)}` and scale
+    :math:`\sigma' = \sigma \kappa / q`, under which :attr:`loc` is exactly
+    the :math:`q`-th quantile. The Probability Density Function (PDF) is the
+    standard asymmetric-Laplace form used in Bayesian quantile regression [1]:
+
+    .. math::
+        f(x ; \mu, \sigma, q) =
+        \frac{q (1 - q)}{\sigma}
+        \exp\left(-\frac{\rho_q(x - \mu)}{\sigma}\right),
+        \qquad
+        \rho_q(u) = u \left(q - \mathbb{1}[u < 0]\right),
+
+    where :math:`q` is :attr:`quantile`, so the density decays at rate
+    :math:`(1 - q) / \sigma` below :math:`\mu` and :math:`q / \sigma` above
+    it.
+
+    **References:**
+
+    1. Yu, K. and Moyeed, R. A. (2001). Bayesian quantile regression.
+       *Statistics & Probability Letters*, 54(4), 437-447.
     """
 
     arg_constraints = {
@@ -4330,6 +5161,17 @@ class AsymmetricLaplaceQuantile(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        r"""
+        :param loc: Location :math:`\mu \in \mathbb{R}`; exactly the
+            :math:`q`-th quantile of the distribution. Defaults to ``0.0``.
+        :param scale: Scale :math:`\sigma > 0`. Note
+            ``AsymmetricLaplaceQuantile(0, 1, 0.5)`` is equivalent to
+            ``Laplace(0, 2)``. Defaults to ``1.0``.
+        :param quantile: Quantile :math:`q \in (0, 1)`; the proportion of
+            probability mass below :attr:`loc`. Defaults to ``0.5``.
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
+        """
         batch_shape = lax.broadcast_shapes(
             jnp.shape(loc), jnp.shape(scale), jnp.shape(quantile)
         )
@@ -4346,6 +5188,20 @@ class AsymmetricLaplaceQuantile(Distribution):
     def log_prob(
         self, value: ArrayLike, intermediates: Optional[list[Any]] = None
     ) -> Array:
+        r"""Evaluate the log probability density function at ``value``:
+
+        .. math::
+            \ln f(x ; \mu, \sigma, q) =
+            -\frac{\rho_q(x - \mu)}{\sigma}
+            + \ln\!\frac{q (1 - q)}{\sigma},
+            \qquad
+            \rho_q(u) = u \left(q - \mathbb{1}[u < 0]\right)
+
+        :param value: Real-valued point :math:`x` at which to evaluate the log PDF.
+        :param intermediates: Not used.
+        :return: Log probability density evaluated under the asymmetric Laplace
+            quantile distribution.
+        """
         if self._validate_args:
             self._validate_sample(value)
         return self._ald.log_prob(value)
@@ -4353,38 +5209,109 @@ class AsymmetricLaplaceQuantile(Distribution):
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> Array:
+        r"""Draw samples by delegating to the equivalent
+        :class:`AsymmetricLaplace` representation with asymmetry
+        :math:`\kappa = \sqrt{q / (1 - q)}` and scale
+        :math:`\sigma \kappa / q`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Real-valued samples from the asymmetric Laplace quantile
+            distribution.
+        """
         return self._ald.sample(key, sample_shape=sample_shape)
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the asymmetric Laplace quantile distribution, delegated to
+        the equivalent :class:`AsymmetricLaplace` representation:
+
+        .. math::
+            \mathbb{E}[X] = \mu + \frac{\sigma (1 - 2 q)}{q (1 - q)}
+        """
         return self._ald.mean
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the asymmetric Laplace quantile distribution, delegated
+        to the equivalent :class:`AsymmetricLaplace` representation:
+
+        .. math::
+            \mathrm{Var}(X) =
+            \frac{\sigma^2 (1 - 2 q + 2 q^2)}{q^2 (1 - q)^2}
+        """
         return self._ald.variance
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the asymmetric Laplace
+        quantile distribution, delegated to the equivalent
+        :class:`AsymmetricLaplace` representation:
+
+        .. math::
+            F(x ; \mu, \sigma, q) =
+            \begin{cases}
+                q \, \exp\left(\displaystyle\frac{(1 - q) (x - \mu)}{\sigma}\right)
+                & x < \mu, \\
+                1 - (1 - q)
+                \exp\left(-\displaystyle\frac{q (x - \mu)}{\sigma}\right)
+                & x \geq \mu.
+            \end{cases}
+
+        :param value: Real-valued point :math:`x` at which to evaluate the CDF.
+        :return: CDF values in :math:`[0, 1]`.
+        """
         return self._ald.cdf(value)
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse CDF (quantile function) of the asymmetric Laplace quantile
+        distribution, delegated to the equivalent :class:`AsymmetricLaplace`
+        representation:
+
+        .. math::
+            F^{-1}(q ; \mu, \sigma, q_0) =
+            \begin{cases}
+                \mu + \displaystyle\frac{\sigma}{1 - q_0}
+                \ln\!\left(\frac{q}{q_0}\right) & q \leq q_0, \\
+                \mu - \displaystyle\frac{\sigma}{q_0}
+                \ln\!\left(\frac{1 - q}{1 - q_0}\right) & q > q_0.
+            \end{cases}
+
+        where :math:`q_0` is :attr:`quantile`.
+
+        :param q: Quantile(s) in :math:`[0, 1]`.
+        :return: Quantile values :math:`x` such that :math:`F(x) = q`.
+        """
         return self._ald.icdf(q)
 
 
 class ZeroSumNormal(TransformedDistribution):
     r"""
-    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3]. This is a Normal distribution where one or
-    more axes are constrained to sum to zero (the last axis by default).
+    Zero Sum Normal distribution adapted from PyMC [1] as described in [2,3].
+    All axes in ``event_shape`` are constrained to sum to zero. For example,
+    ``event_shape=(3, 4)`` constrains both rows and columns to sum to zero.
+
+    For a single constrained axis, ``event_shape=(n,)``, and scalar ``scale``
+    :math:`\sigma`, the distribution is
 
     .. math::
-        \begin{align*}
-        ZSN(\sigma) = N(0, \sigma^2 (I - \tfrac{1}{n}J)) \\
-        \text{where} \ ~ J_{ij} = 1 \ ~ \text{and} \\
-        n = \text{number of zero-sum axes}
-        \end{align*}
+        ZSN(\sigma) = N(0, \sigma^2 (I_n - \tfrac{1}{n}J_n)).
+
+    Here :math:`n` is the length of the constrained axis, and :math:`I_n` and
+    :math:`J_n` are the :math:`n \times n` identity and all-ones matrices.
+    Each entry has variance :math:`\sigma^2(1 - 1/n)`.
 
     :param array_like scale: Standard deviation of the underlying normal distribution before the zerosum constraint is
         enforced.
     :param tuple event_shape: The event shape of the distribution, the axes of which get constrained to sum to zero.
+
+    For ``event_shape=(4,)``, there is one constrained axis of length four:
+
+    .. doctest::
+
+        >>> from numpy.testing import assert_allclose
+        >>> import numpyro.distributions as dist
+        >>> d = dist.ZeroSumNormal(1.0, event_shape=(4,))
+        >>> assert_allclose(d.variance, [0.75, 0.75, 0.75, 0.75])
 
     **Example:**
 
@@ -4471,15 +5398,39 @@ class ZeroSumNormal(TransformedDistribution):
 
 
 class Wishart(TransformedDistribution):
-    """
+    r"""
     Wishart distribution for covariance matrices.
 
-    :param concentration: Positive concentration parameter analogous to the
-        concentration of a :class:`Gamma` distribution. The concentration must be larger
-        than the dimensionality of the scale matrix.
+    The Wishart distribution is the multivariate generalization of the
+    :class:`Gamma` distribution and the conjugate prior for the precision matrix of a
+    multivariate normal distribution. If :math:`\mathbf{X} \sim W(\mathbf{V}, \nu)`,
+    its density over the :math:`p \times p` positive definite matrix
+    :math:`\mathbf{X}` is
+
+    .. math::
+
+        p(\mathbf{X} \mid \mathbf{V}, \nu) =
+        \frac{|\mathbf{X}|^{(\nu - p - 1)/2}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{V}^{-1} \mathbf{X})\right)}
+        {2^{\nu p/2} |\mathbf{V}|^{\nu/2} \Gamma_p(\nu/2)},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{V}` is the positive definite scale matrix and :math:`\Gamma_p` is
+    the multivariate gamma function. The rate matrix is :math:`\mathbf{V}^{-1}`.
+
+    The mean and the elementwise variance are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{X}] = \nu \mathbf{V}, \qquad
+        \mathrm{Var}[X_{ij}] = \nu \left(V_{ij}^2 + V_{ii} V_{jj}\right).
+
+    :param concentration: Degrees of freedom :math:`\nu`, analogous to the
+        concentration of a :class:`Gamma` distribution. Must be greater than
+        :math:`p - 1`, where :math:`p` is the dimension of the scale matrix.
     :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
         distribution.
-    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+    :param rate_matrix: Rate matrix analogous to the rate of a :class:`Gamma`
         distribution.
     :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
     """
@@ -4565,15 +5516,40 @@ class Wishart(TransformedDistribution):
 
 
 class WishartCholesky(Distribution):
-    """
+    r"""
     Cholesky factor of a Wishart distribution for covariance matrices.
 
-    :param concentration: Positive concentration parameter analogous to the
-        concentration of a :class:`Gamma` distribution. The concentration must be larger
-        than the dimensionality of the scale matrix.
+    If :math:`\mathbf{X} \sim W(\mathbf{V}, \nu)` is a :class:`Wishart` distributed
+    :math:`p \times p` positive definite matrix, this distribution describes its lower
+    triangular Cholesky factor :math:`\mathbf{L}` with positive diagonal, such that
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`. By the change of variables
+    :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^\top`, with Jacobian
+    :math:`|\partial \mathbf{X} / \partial \mathbf{L}| = 2^p \prod_{i=1}^p L_{ii}^{p - i + 1}`,
+    its density is
+
+    .. math::
+
+        p(\mathbf{L} \mid \mathbf{V}, \nu) =
+        \frac{|\mathbf{L} \mathbf{L}^\top|^{(\nu - p - 1)/2}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{V}^{-1} \mathbf{L} \mathbf{L}^\top)\right)}
+        {2^{\nu p/2} |\mathbf{V}|^{\nu/2} \Gamma_p(\nu/2)}
+        \, 2^p \prod_{i=1}^p L_{ii}^{p - i + 1},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{V}` is the positive definite scale matrix and :math:`\Gamma_p` is
+    the multivariate gamma function. The rate matrix is :math:`\mathbf{V}^{-1}`.
+
+    Samples are drawn with the Bartlett decomposition,
+    :math:`\mathbf{L} = \mathbf{L}_V \mathbf{A}`, where :math:`\mathbf{L}_V` is
+    :code:`scale_tril`, :math:`A_{ii} \sim \sqrt{\chi^2_{\nu - i + 1}}` and
+    :math:`A_{ij} \sim \mathcal{N}(0, 1)` for :math:`i > j`.
+
+    :param concentration: Degrees of freedom :math:`\nu`, analogous to the
+        concentration of a :class:`Gamma` distribution. Must be greater than
+        :math:`p - 1`, where :math:`p` is the dimension of the scale matrix.
     :param scale_matrix: Scale matrix analogous to the inverse rate of a :class:`Gamma`
         distribution.
-    :param rate_matrix: Rate matrix anaologous to the rate of a :class:`Gamma`
+    :param rate_matrix: Rate matrix analogous to the rate of a :class:`Gamma`
         distribution.
     :param scale_tril: Cholesky decomposition of the :code:`scale_matrix`.
     """
@@ -4754,6 +5730,45 @@ class InverseWishart(TransformedDistribution):
     where :math:`p` is the dimension of the matrix, :math:`\nu > p - 1` is the degrees
     of freedom, and :math:`\mathbf{\Psi}` is the positive definite scale matrix.
 
+    The scale may be given as :math:`\mathbf{\Psi}` (``scale_matrix``), as its inverse
+    :math:`\mathbf{\Psi}^{-1}` (``rate_matrix``), or as a lower-triangular factor
+    :math:`\mathbf{T}` with :math:`\mathbf{\Psi} = \mathbf{T}\mathbf{T}^\top`
+    (``scale_tril``); exactly one of the three must be provided.
+
+    The mean, mode and elementwise variance are
+
+    .. math::
+
+        \mathbb{E}[\mathbf{X}] = \frac{\mathbf{\Psi}}{\nu - p - 1}
+        \quad (\nu > p + 1), \qquad
+        \operatorname{mode}[\mathbf{X}] = \frac{\mathbf{\Psi}}{\nu + p + 1},
+
+    .. math::
+
+        \operatorname{Var}[X_{ij}] =
+        \frac{(\nu - p + 1)\Psi_{ij}^2 + (\nu - p - 1)\Psi_{ii}\Psi_{jj}}
+        {(\nu - p)(\nu - p - 1)^2(\nu - p - 3)}
+        \quad (\nu > p + 3).
+
+    This class is a
+    :class:`~numpyro.distributions.distribution.TransformedDistribution` over
+    :class:`InverseWishartCholesky` with the inverse ``CholeskyTransform``. ``sample``
+    returns :math:`\mathbf{X} = \mathbf{L}\mathbf{L}^\top` with
+    :math:`\mathbf{L} \sim` :class:`InverseWishartCholesky`, itself generated by a
+    Bartlett decomposition so that
+    :math:`\mathbf{X}^{-1} \sim W(\mathbf{\Psi}^{-1}, \nu)`.
+    ``log_prob`` is evaluated through the Cholesky factor,
+
+    .. math::
+
+        \log p(\mathbf{X}) = \log p_{\mathbf{L}}(\operatorname{chol}\mathbf{X})
+        - \log\left|\det J\right|,
+
+    where :math:`J` is the Jacobian of
+    :math:`\mathbf{L} \mapsto \mathbf{L}\mathbf{L}^\top` and the trace term is
+    computed as
+    :math:`\mathrm{tr}(\Psi\mathbf{X}^{-1}) = \|\mathbf{L}^{-1}\mathbf{T}\|_F^2`.
+
     :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
         Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
     :param scale_matrix: Positive definite scale matrix :math:`\mathbf{\Psi}`, analogous
@@ -4762,10 +5777,12 @@ class InverseWishart(TransformedDistribution):
         :class:`Gamma` distribution.
     :param scale_tril: Cholesky decomposition of the scale matrix.
 
-    **Properties**
-
-    - **Mean**: :math:`\frac{\mathbf{\Psi}}{\nu - p - 1}` for :math:`\nu > p + 1`
-    - **Mode**: :math:`\frac{\mathbf{\Psi}}{\nu + p + 1}`
+    .. note::
+        ``mean`` returns ``nan`` where :math:`\nu \le p + 1` and ``variance`` returns
+        ``nan`` where :math:`\nu \le p + 3`; ``mode`` is always defined.
+        ``concentration`` must satisfy :math:`\nu > p - 1` for the density to be
+        normalizable; this is not validated (the constraint is ``dependent``) and
+        invalid values yield ``nan`` or ``-inf`` log densities.
 
     **References**
 
@@ -4839,15 +5856,17 @@ class InverseWishart(TransformedDistribution):
 
     @lazy_property
     def variance(self) -> Array:
-        # Variance of entry (i,j) for nu > p + 3
-        # Var(X_ij) = (Psi_ij^2 + Psi_ii * Psi_jj) / ((nu - p - 1)^2 * (nu - p - 3))
+        # Variance of entry (i,j) for nu > p + 3, see
+        # https://en.wikipedia.org/wiki/Inverse-Wishart_distribution#Moments
+        # Var(X_ij) = ((nu - p + 1) Psi_ij^2 + (nu - p - 1) Psi_ii Psi_jj)
+        #             / ((nu - p) (nu - p - 1)^2 (nu - p - 3))
         p = self.scale_matrix.shape[-1]
         nu = jnp.expand_dims(self.concentration, axis=(-1, -2))
         psi = self.scale_matrix
-        denom = (nu - p - 1) ** 2 * (nu - p - 3)
+        denom = (nu - p) * (nu - p - 1) ** 2 * (nu - p - 3)
         psi_ii = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., :, None]
         psi_jj = jnp.diagonal(psi, axis1=-2, axis2=-1)[..., None, :]
-        var = (psi**2 + psi_ii * psi_jj) / denom
+        var = ((nu - p + 1) * psi**2 + (nu - p - 1) * psi_ii * psi_jj) / denom
         return jnp.where(nu > p + 3, var, jnp.full_like(var, jnp.nan))
 
     @classmethod
@@ -4865,6 +5884,35 @@ class InverseWishartCholesky(Distribution):
 
     This distribution samples the Cholesky factor :math:`\mathbf{L}` such that
     :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^T \sim W^{-1}(\mathbf{\Psi}, \nu)`.
+    Here :math:`\mathbf{L}` is lower triangular with positive diagonal, and its density is
+    taken with respect to Lebesgue measure on its :math:`p(p+1)/2` free entries. By the
+    change of variables :math:`\mathbf{X} = \mathbf{L} \mathbf{L}^T`, with Jacobian
+    :math:`|\partial \mathbf{X} / \partial \mathbf{L}| = 2^p \prod_{i=1}^p L_{ii}^{p - i + 1}`,
+    and :math:`|\mathbf{X}| = \prod_{i=1}^p L_{ii}^2`, its density is
+
+    .. math::
+
+        p(\mathbf{L} \mid \mathbf{\Psi}, \nu) =
+        \frac{|\mathbf{\Psi}|^{\nu/2}}{2^{\nu p/2} \Gamma_p(\nu/2)}
+        \exp\left(-\frac{1}{2} \mathrm{tr}(\mathbf{\Psi} \mathbf{L}^{-T} \mathbf{L}^{-1})\right)
+        \, 2^p \prod_{i=1}^p L_{ii}^{-(\nu + i)},
+
+    where :math:`\nu > p - 1` is the concentration (degrees of freedom),
+    :math:`\mathbf{\Psi}` is the positive definite scale matrix and :math:`\Gamma_p`
+    is the multivariate gamma function. The rate matrix is :math:`\mathbf{\Psi}^{-1}`.
+
+    .. note:: :code:`mean` returns the Cholesky factor of
+        :math:`\mathbb{E}[\mathbf{X}] = \mathbf{\Psi} / (\nu - p - 1)`, not
+        :math:`\mathbb{E}[\mathbf{L}]`, and :code:`variance` is not implemented (NaN).
+
+    Samples are drawn with a Bartlett decomposition of the precision
+    :math:`\mathbf{X}^{-1}`: :math:`\mathbf{L} = \mathbf{L}_\Psi \mathbf{A}^{-1}`, where
+    :math:`\mathbf{L}_\Psi` is :code:`scale_tril` and :math:`\mathbf{A}` is lower
+    triangular with :math:`A_{ii} \sim \sqrt{\chi^2_{\nu - p + i}}` and
+    :math:`A_{ij} \sim \mathcal{N}(0, 1)` for :math:`i > j`, so that
+    :math:`\mathbf{A}^T \mathbf{A} \sim W(\mathbf{I}, \nu)`. The degrees of freedom
+    increase with :math:`i`, unlike :class:`WishartCholesky`, because
+    :math:`\mathbf{A}^T` is the upper-triangular Bartlett factor.
 
     :param concentration: Degrees of freedom parameter (often denoted :math:`\nu`).
         Must be greater than `p - 1` where `p` is the dimension of the scale matrix.
@@ -4877,6 +5925,7 @@ class InverseWishartCholesky(Distribution):
     **References**
 
     [1] https://en.wikipedia.org/wiki/Inverse-Wishart_distribution
+    [2] https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition
     """
 
     arg_constraints = {
@@ -5046,16 +6095,44 @@ class Levy(Distribution):
         f(x\mid \mu, c) = \sqrt{\frac{c}{2\pi(x-\mu)^{3}}} \exp\left(-\frac{c}{2(x-\mu)}\right), \qquad x > \mu
 
     where :math:`\mu` is the location parameter and :math:`c` is the scale parameter.
+    The support is :math:`x > \mu`. The cumulative distribution function and its
+    inverse are
 
-    :param loc: Location parameter.
-    :param scale: Scale parameter.
+    .. math::
+        F(x \mid \mu, c) = \operatorname{erfc}\!\left(\sqrt{\frac{c}{2(x-\mu)}}\right)
+        = 2 - 2\Phi\!\left(\sqrt{\frac{c}{x - \mu}}\right), \qquad
+        F^{-1}(q \mid \mu, c) = \mu + \frac{c}{\big(\Phi^{-1}(1 - q/2)\big)^2},
+
+    where :math:`\Phi` is the standard normal cumulative distribution function. The
+    density has an :math:`x^{-3/2}` tail, so no moment of order :math:`\ge 1/2`
+    exists: :math:`\mathbb{E}[X] = \operatorname{Var}[X] = \infty`. The median is
+    :math:`\mu + c / \big(\Phi^{-1}(3/4)\big)^2 \approx \mu + 2.198\,c`, the mode is
+    :math:`\mu + c/3`, and the entropy is
+
+    .. math::
+        H(X) = \frac{1 + 3\gamma + \ln(16\pi c^2)}{2},
+
+    with Euler–Mascheroni constant :math:`\gamma`. If :math:`Z \sim \mathcal{N}(0, 1)`
+    then :math:`\mu + c/Z^2 \sim \mathrm{Levy}(\mu, c)`; the Lévy distribution is the
+    stable distribution with :math:`\alpha = 1/2` and :math:`\beta = 1`.
+
+    :param loc: Location parameter :math:`\mu`.
+    :param scale: Scale parameter :math:`c`.
+
+    .. note::
+        ``sample`` draws by inverse-cdf transform of uniform variates (``ndtri``);
+        ``mean`` and ``variance`` return ``inf`` arrays; no parameter is marked as
+        reparametrized, so ``has_rsample`` is ``False``.
+
+    **References**
+
+    [1] https://en.wikipedia.org/wiki/L%C3%A9vy_distribution
     """
 
     arg_constraints = {
         "loc": constraints.real,
         "scale": constraints.positive,
     }
-    _support: constraints.Constraint
 
     def __init__(
         self,
@@ -5066,12 +6143,11 @@ class Levy(Distribution):
     ) -> None:
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        self._support = constraints.greater_than(cast(NumLike, loc))
         super(Levy, self).__init__(batch_shape, validate_args=validate_args)
 
-    @constraints.dependent_property(is_discrete=False)
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
-        return self._support
+        return constraints.greater_than(self.loc)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
@@ -5165,6 +6241,41 @@ class CirculantNormal(TransformedDistribution):
     Fourier transform [1], allowing the log likelihood to be evaluated in
     :math:`n \log n` time for :math:`n` observations [2].
 
+    Concretely, let :math:`\mathbf{c}` be the first row of :math:`\mathbf{C}` and
+
+    .. math::
+
+        \lambda_k = \sum_{j=0}^{n-1} c_j e^{-2\pi i jk/n}, \qquad k = 0, \ldots, n-1,
+
+    its discrete Fourier transform. The :math:`\lambda_k` are the eigenvalues of
+    :math:`\mathbf{C}`; they are real and satisfy :math:`\lambda_k = \lambda_{n-k}`
+    because :math:`\mathbf{C}` is symmetric, and ``covariance_rfft`` holds
+    :math:`\lambda_0, \ldots, \lambda_{\lfloor n/2 \rfloor}`. With the DFT matrix
+    :math:`\mathbf{F}` and :math:`\mathbf{\Lambda} = \mathrm{diag}(\boldsymbol\lambda)`,
+    :math:`\mathbf{C} = \tfrac{1}{n}\mathbf{F}^{*}\mathbf{\Lambda}\mathbf{F}` and,
+    writing :math:`\hat{\mathbf{z}} = \mathbf{F}(\mathbf{x} - \boldsymbol\mu)`
+    for the DFT of the centered value, the log density is
+
+    .. math::
+
+        \log p(\mathbf{x} \mid \boldsymbol\mu, \mathbf{C}) =
+        -\frac{n}{2}\log 2\pi - \frac{1}{2}\sum_{k=0}^{n-1}\log\lambda_k
+        - \frac{1}{2n}\sum_{k=0}^{n-1}\frac{|\hat z_k|^2}{\lambda_k}.
+
+    :math:`\mathbf{C}` is positive definite if and only if :math:`\lambda_k > 0` for
+    all :math:`k` (``positive_definite_circulant_vector`` checks that
+    ``rfft(covariance_row)`` is real — the row is symmetric — and non-negative up
+    to a tolerance of ``10 * eps``). The moments are
+    :math:`\mathbb{E}[\mathbf{X}] = \boldsymbol\mu` and
+    :math:`\operatorname{Cov}[\mathbf{X}] = \mathbf{C}` (``covariance_matrix``) with
+    marginal :math:`\operatorname{Var}[X_j] = c_0`
+    (``variance``), and the entropy is
+
+    .. math::
+
+        H(\mathbf{X}) = \frac{n}{2}\log(2\pi e)
+        + \frac{1}{2}\sum_{k=0}^{n-1}\log\lambda_k.
+
     :param loc: Mean of the distribution :math:`\boldsymbol{\mu}`.
     :param covariance_row: First row of the circulant covariance matrix
         :math:`\boldsymbol{C}`. Because of periodic boundary conditions, the covariance
@@ -5173,6 +6284,18 @@ class CirculantNormal(TransformedDistribution):
     :param covariance_rfft: Real part of the real fast Fourier transform of
         :code:`covariance_row`, the first row of the circulant covariance matrix
         :math:`\boldsymbol{C}`.
+
+    .. note::
+        This class is a
+        :class:`~numpyro.distributions.distribution.TransformedDistribution` whose
+        base is a diagonal normal over the :math:`n` packed real FFT coefficients, with
+        variances :math:`n\lambda_0` (DC), :math:`n\lambda_{n/2}` (Nyquist, even
+        :math:`n` only) and :math:`n\lambda_k/2` for both the real and imaginary parts
+        of the remaining frequencies, followed by
+        ``PackRealFastFourierCoefficientsTransform``, the inverse
+        ``RealFastFourierTransform`` and a shift by ``loc``. Hence ``sample`` costs one
+        inverse FFT and ``log_prob`` one FFT plus the Jacobian terms.
+        ``covariance_rfft`` is taken as the real part of ``rfft(covariance_row)``.
 
     **References:**
 
@@ -5297,6 +6420,38 @@ class CirculantNormal(TransformedDistribution):
 
 
 class Dagum(Distribution):
+    r"""Dagum distribution (also known as the Mielke Beta-Kappa distribution).
+
+    A continuous distribution with support on the positive real line, commonly
+    used to model income and wealth. This implementation follows the notation of
+    the Wikipedia entry, using :math:`p` for ``concentration``, :math:`a` for
+    ``sharpness`` and :math:`b` for ``scale``. See
+    https://en.wikipedia.org/wiki/Dagum_distribution.
+
+    The Probability Density Function (PDF), in terms of ``concentration``
+    (:math:`p > 0`), ``sharpness`` (:math:`a > 0`) and ``scale``
+    (:math:`b > 0`), is
+
+    .. math::
+        f(x ; p, a, b) = \frac{a p}{x}
+        \left(\frac{(x/b)^{a p}}{\left((x/b)^{a} + 1\right)^{p + 1}}\right),
+        \quad x > 0
+
+    and the corresponding Cumulative Distribution Function (CDF) is
+
+    .. math::
+        F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
+
+    where :math:`p > 0` is the concentration (:attr:`concentration`),
+    :math:`a > 0` is the sharpness (:attr:`sharpness`) and :math:`b > 0` is the
+    scale (:attr:`scale`).
+
+    **References:**
+
+    1. Wikipedia. (n.d.). Dagum distribution. Retrieved March 31, 2025, from
+       https://en.wikipedia.org/wiki/Dagum_distribution
+    """
+
     arg_constraints = {
         "concentration": constraints.positive,
         "sharpness": constraints.positive,
@@ -5313,20 +6468,15 @@ class Dagum(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        r"""The Dagum distribution (or Mielke Beta-Kappa distribution) is a continuous
-        probability distribution defined over positive real numbers. If :math:`p`,
-        :math:`a` and :math:`b` are concentration, sharpness and scale values respectively,
-        then Dagum distribution is defined as,
-
-        .. math::
-
-            f(x\mid p,a,b):=\frac{ap}{x}
-            \left(\frac{(x/b)^{ap}}{\left((x/b)^{a}+1\right)^{p+1}}\right)
-
-        **References:**
-
-        1. Wikipedia. (n.d.). Dagum distribution. Retrieved March 31, 2025, from
-           https://en.wikipedia.org/wiki/Dagum_distribution
+        r"""
+        :param concentration: Concentration parameter :math:`p > 0` (called
+            ``p`` in the Wikipedia entry).
+        :param sharpness: Sharpness parameter :math:`a > 0` (called ``a`` in the
+            Wikipedia entry).
+        :param scale: Scale parameter :math:`b > 0` (called ``b`` in the
+            Wikipedia entry).
+        :param validate_args: If True, enforce domain constraints during
+            initialization.
         """
         self.concentration, self.sharpness, self.scale = promote_shapes(
             concentration, sharpness, scale
@@ -5338,6 +6488,16 @@ class Dagum(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        r"""Evaluate the log probability density function at ``value``.
+
+        .. math::
+            \ln f(x ; p, a, b) = \ln a + \ln p - \ln x
+            + a p \ln\left(\frac{x}{b}\right)
+            - (p + 1) \ln\!\left(\left(\frac{x}{b}\right)^{a} + 1\right)
+
+        :param value: Positive point :math:`x` at which to evaluate the log PDF.
+        :return: Log probability density evaluated under the Dagum distribution.
+        """
         a_ln_x_m_ln_b = xlogy(self.sharpness, value) - xlogy(self.sharpness, self.scale)
         return (
             jnp.log(self.sharpness)
@@ -5348,6 +6508,14 @@ class Dagum(Distribution):
         )
 
     def cdf(self, value: ArrayLike) -> Array:
+        r"""Cumulative Distribution Function (CDF) of the Dagum distribution:
+
+        .. math::
+            F(x ; p, a, b) = \left(1 + \left(\frac{b}{x}\right)^{a}\right)^{-p}
+
+        :param value: Positive point :math:`x` at which to evaluate the CDF.
+        :return: Probability that a Dagum random variable is at most ``value``.
+        """
         return jnp.exp(
             -self.concentration
             * nn.softplus(
@@ -5356,18 +6524,44 @@ class Dagum(Distribution):
         )
 
     def icdf(self, q: ArrayLike) -> Array:
+        r"""Inverse Cumulative Distribution Function (quantile function),
+        the inverse of :meth:`cdf`:
+
+        .. math::
+            F^{-1}(q ; p, a, b) = b\,\left(q^{-1/p} - 1\right)^{-1/a}
+
+        :param q: Quantile level :math:`q \in (0, 1)`.
+        :return: The value :math:`x` such that :math:`F(x) = q`.
+        """
         q_root_p = jnp.power(q, -jnp.reciprocal(self.concentration))
         return self.scale * jnp.power(q_root_p - 1.0, -jnp.reciprocal(self.sharpness))
 
     def sample(
         self, key: Optional[jax.Array], sample_shape: tuple[int, ...] = ()
     ) -> jnp.ndarray:
+        r"""Draw samples by inverse-transform sampling: draw
+        :math:`U \sim \mathrm{Uniform}(0, 1)` and return :math:`F^{-1}(U)`,
+        where :math:`F^{-1}` is :meth:`icdf`.
+
+        :param key: A JAX PRNG key.
+        :param sample_shape: Sample dimensions to prepend to the batch shape.
+        :return: Positive samples from the Dagum distribution.
+        """
         assert is_prng_key(key)
         assert key is not None
         return self.icdf(random.uniform(key, shape=self.shape(sample_shape)))
 
     @property
     def mean(self) -> Array:
+        r"""Mean of the Dagum distribution, finite only when :math:`a > 1`:
+
+        .. math::
+            \mathbb{E}[X] = b\,p\,\mathrm{B}\!\left(1 - \frac{1}{a},\;
+            p + \frac{1}{a}\right), \quad a > 1
+
+        where :math:`\mathrm{B}` is the Beta function; the mean is
+        :math:`+\infty` when :math:`a \le 1`.
+        """
         safe_a = jnp.where(self.sharpness > 1.0, self.sharpness, 2.0)
         return jnp.where(
             self.sharpness > 1.0,
@@ -5378,6 +6572,16 @@ class Dagum(Distribution):
 
     @property
     def variance(self) -> Array:
+        r"""Variance of the Dagum distribution, finite only when :math:`a > 2`:
+
+        .. math::
+            \mathrm{Var}[X] = b^{2}\,p\,\mathrm{B}\!\left(1 - \frac{2}{a},\;
+            p + \frac{2}{a}\right) - \left(\mathbb{E}[X]\right)^{2},
+            \quad a > 2
+
+        where :math:`\mathrm{B}` is the Beta function; the variance is
+        :math:`+\infty` when :math:`a \le 2`.
+        """
         safe_a = jnp.where(self.sharpness > 2.0, self.sharpness, 3.0)
         return jnp.where(
             self.sharpness > 2.0,
