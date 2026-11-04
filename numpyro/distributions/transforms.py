@@ -1289,7 +1289,7 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
         gaps = gaps.at[..., 0].set(jnp.inf).at[..., -1].set(jnp.inf)
         # Repeated infinite cutpoints have zero mass. Keep expm1's input finite
         # when their undefined gap is multiplied by a zero sigmoid factor.
-        gaps = jnp.where(jnp.isnan(gaps) & ((upper == 0) | (lower == 0)), 0, gaps)
+        gaps = jnp.where(jnp.isnan(gaps), 0, gaps)
         return upper * lower * (-jnp.expm1(-gaps))
 
     def log_abs_det_jacobian(
