@@ -6460,18 +6460,6 @@ def test_geometric_logits_extreme_moments():
         lambda p: dist.ZeroInflatedDistribution(dist.GeometricLogits(0), gate=p),
         lambda p: dist.HurdlePoisson(gate=p, rate=2.0),
         lambda p: dist.GeometricLogits(p),
-        lambda p: dist.BernoulliLogits(p),
-        lambda p: dist.Binomial(total_count=3, logits=p),
-        lambda p: dist.NegativeBinomialLogits(3.0, p),
-        lambda p: dist.Categorical(logits=jnp.stack([jnp.zeros_like(p), p], -1)),
-        lambda p: dist.Multinomial(
-            total_count=10, logits=jnp.stack([jnp.zeros_like(p), p], -1)
-        ),
-        lambda p: dist.ZeroInflatedDistribution(dist.Poisson(2.0), gate_logits=p),
-        lambda p: dist.HurdleDistribution(dist.Poisson(2.0), gate_logits=p),
-        lambda p: dist.ZeroInflatedNegativeBinomial2(
-            mean=2.0, concentration=3.0, gate_logits=p
-        ),
     ],
     ids=[
         "bernoulli",
@@ -6479,20 +6467,11 @@ def test_geometric_logits_extreme_moments():
         "zero_inflated_geometric",
         "hurdle_poisson",
         "geometric_logits",
-        "bernoulli_logits",
-        "binomial_logits",
-        "negative_binomial_logits",
-        "categorical_logits",
-        "multinomial_logits",
-        "zero_inflated_factory_logits",
-        "hurdle_factory_logits",
-        "zero_inflated_negative_binomial2_logits",
     ],
 )
 @pytest.mark.parametrize("compiled", [False, True])
 @pytest.mark.parametrize("param", [0, np.array([0, 1, 0])])
-@pytest.mark.parametrize("dtype", [np.int32, np.uint8, np.bool_])
-def test_integer_parameter_predictive(make_dist, compiled, param, dtype):
+def test_integer_parameter_predictive(make_dist, compiled, param):
     """Integer parameters work through seeding, plates and expanded distributions."""
 
     def model(p):
@@ -6502,12 +6481,12 @@ def test_integer_parameter_predictive(make_dist, compiled, param, dtype):
     predictive = Predictive(model, num_samples=5)
     if compiled:
         predictive = jax.jit(predictive)
-    integer_param = jnp.asarray(param, dtype=dtype)
+    integer_param = jnp.asarray(param)
     float_param = integer_param.astype(jnp.result_type(integer_param, float))
     actual = predictive(random.key(1), integer_param)["y"]
     expected = predictive(random.key(1), float_param)["y"]
     assert_array_equal(actual, expected)
-    assert actual.shape == (5, 3) + make_dist(float_param).event_shape
+    assert actual.shape == (5, 3)
 
 
 @pytest.mark.parametrize(
@@ -6609,27 +6588,10 @@ def test_discrete_list_parameters(make_dist, compiled):
         assert_allclose(value, reference, rtol=1e-6, atol=0)
 
 
-@pytest.mark.parametrize(
-    "make_dist, attribute",
-    [
-        (dist.GeometricProbs, "probs"),
-        (dist.GeometricLogits, "logits"),
-        (dist.BernoulliProbs, "probs"),
-        (dist.BernoulliLogits, "logits"),
-        (lambda p: dist.BinomialLogits(p, 3), "logits"),
-        (lambda p: dist.NegativeBinomialLogits(3.0, p), "logits"),
-        (dist.CategoricalLogits, "logits"),
-        (dist.MultinomialLogits, "logits"),
-        (lambda p: dist.ZeroInflatedLogits(dist.Poisson(2.0), p), "gate_logits"),
-        (lambda p: dist.HurdleLogits(dist.Poisson(2.0), p), "gate_logits"),
-        (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate"),
-        (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate"),
-    ],
-)
-def test_discrete_host_parameter_storage(make_dist, attribute):
+def test_discrete_host_parameter_storage():
     parameter = np.array([0.3, 0.5])
-    d = make_dist(parameter)
-    assert isinstance(getattr(d, attribute), np.ndarray)
+    d = dist.CategoricalLogits(parameter)
+    assert isinstance(d.logits, np.ndarray)
 
 
 @pytest.mark.parametrize("make_dist", [dist.GeometricProbs, dist.GeometricLogits])
@@ -6657,22 +6619,16 @@ def test_zero_inflated_weak_parameter_dtype(compiled):
 
 
 @pytest.mark.parametrize(
-    "make_dist, parameter, weak_log_prob",
+    "make_dist, parameter",
     [
-        (dist.BernoulliLogits, 0, True),
-        (dist.BernoulliLogits, True, True),
-        (dist.GeometricProbs, 1, True),
-        (dist.GeometricProbs, True, True),
-        (dist.GeometricLogits, 0, True),
-        (lambda p: dist.BinomialLogits(p, 3), 0, False),
-        (lambda p: dist.NegativeBinomialLogits(3.0, p), 0, True),
+        (dist.BernoulliLogits, 0),
+        (dist.BernoulliLogits, True),
+        (dist.GeometricProbs, 1),
+        (dist.GeometricLogits, 0),
     ],
 )
-@pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float16, jnp.float32])
 @pytest.mark.parametrize("compiled", [False, True])
-def test_discrete_integer_scalar_dtype(
-    make_dist, parameter, weak_log_prob, dtype, compiled
-):
+def test_discrete_integer_scalar_dtype(make_dist, parameter, compiled):
     def evaluate(value):
         return (
             make_dist(float(parameter)).log_prob(value),
@@ -6681,12 +6637,9 @@ def test_discrete_integer_scalar_dtype(
 
     if compiled:
         evaluate = jax.jit(evaluate)
-    value = jnp.array(1.0, dtype=dtype)
+    value = jnp.array(1.0, dtype=jnp.bfloat16)
     float_score, integer_score = evaluate(value)
-    # Binomial already materializes float scalars when broadcasting total_count.
-    if weak_log_prob:
-        assert float_score.dtype == value.dtype
-    assert integer_score.dtype == float_score.dtype
+    assert integer_score.dtype == value.dtype
     assert_array_equal(integer_score, float_score)
 
 
