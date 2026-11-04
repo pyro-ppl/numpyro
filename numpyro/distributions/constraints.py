@@ -79,6 +79,7 @@ from jax.typing import ArrayLike
 
 from numpyro._typing import NonScalarArray, NumLike, NumLikeT
 from numpyro.distributions.util import array_equiv
+from numpyro.util import not_jax_tracer
 
 
 class Constraint(Generic[NumLikeT]):
@@ -123,6 +124,55 @@ class Constraint(Generic[NumLikeT]):
 
     def __eq__(self, other: object) -> bool:
         return bool(self.eq(other, static=True))
+
+    def _bounds_within(
+        self, other: "Constraint", strict: bool = False
+    ) -> Optional[bool]:
+        """
+        Compares the bounds of this constraint with the bounds of `other`.
+
+        Returns `True` if the closure of the feasible set of this constraint is
+        contained in the closure of the feasible set of `other`, `False` if it is
+        not, and `None` if this cannot be decided, e.g. for constraints that are
+        not intervals of the real line. End points and integrality are ignored,
+        so `nonnegative` is within `positive`, but a continuous constraint is
+        never reported as within a discrete one.
+
+        :param strict: Raise a `RuntimeError` instead of returning `None` when
+            the bounds are traced inside jitted code.
+        """
+        if self == other:
+            return True
+        if isinstance(other, _IndependentConstraint):
+            other = other.base_constraint
+        bounds = self._interval_bounds()
+        other_bounds = other._interval_bounds()
+        if bounds is None or other_bounds is None:
+            return None
+        if other.is_discrete and not self.is_discrete:
+            return None
+        if not all(not_jax_tracer(b) for b in bounds + other_bounds):
+            if strict:
+                raise RuntimeError(
+                    "Cannot compare constraint bounds inside jitted code."
+                )
+            return None
+        lower, upper = bounds
+        other_lower, other_upper = other_bounds
+        try:
+            return not bool(
+                np.any(np.less(lower, other_lower))
+                or np.any(np.greater(upper, other_upper))
+            )
+        except ValueError:  # bounds with incompatible shapes
+            return None
+
+    def _interval_bounds(self) -> Optional[tuple[NumLike, NumLike]]:
+        """
+        Returns the `(lower, upper)` bounds if the feasible set is an interval
+        of the real line (whether or not the end points are included), else `None`.
+        """
+        return None
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -317,6 +367,9 @@ class _GreaterThan(Constraint[NumLike]):
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.broadcast_to(self.lower_bound + 1, jnp.shape(prototype))
 
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return self.lower_bound, np.inf
+
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
 
@@ -415,6 +468,9 @@ class _IndependentConstraint(Constraint[NumLikeT]):
 
     def feasible_like(self, prototype: NumLikeT) -> NumLikeT:
         return self.base_constraint.feasible_like(prototype)
+
+    def _bounds_within(self, other: Constraint, strict: bool = False) -> Optional[bool]:
+        return self.base_constraint._bounds_within(other, strict=strict)
 
     def tree_flatten(self):
         return (self.base_constraint,), (
@@ -559,6 +615,9 @@ class _LessThan(Constraint[NumLike]):
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.broadcast_to(self.upper_bound - 1, jnp.shape(prototype))
 
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return -np.inf, self.upper_bound
+
     def tree_flatten(self):
         return (self.upper_bound,), (("upper_bound",), dict())
 
@@ -604,6 +663,9 @@ class _IntegerInterval(Constraint[NumLike]):
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.broadcast_to(self.lower_bound, jnp.shape(prototype))
 
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return self.lower_bound, self.upper_bound
+
     def tree_flatten(self):
         return (self.lower_bound, self.upper_bound), (
             ("lower_bound", "upper_bound"),
@@ -635,6 +697,9 @@ class _IntegerGreaterThan(Constraint[NumLike]):
 
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.broadcast_to(self.lower_bound, jnp.shape(prototype))
+
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return self.lower_bound, np.inf
 
     def tree_flatten(self):
         return (self.lower_bound,), (("lower_bound",), dict())
@@ -689,6 +754,9 @@ class _Interval(Constraint[NumLike]):
         return jnp.broadcast_to(
             (self.lower_bound + self.upper_bound) / 2, jnp.shape(prototype)
         )
+
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return self.lower_bound, self.upper_bound
 
     def eq(self, other: object, static: bool = False) -> ArrayLike:
         if not isinstance(other, _Interval):
@@ -892,6 +960,9 @@ class _Real(_SingletonConstraint[NumLike]):
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.zeros_like(prototype)
 
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return -np.inf, np.inf
+
 
 class _ExtendedReal(_SingletonConstraint[NumLike]):
     """
@@ -907,6 +978,9 @@ class _ExtendedReal(_SingletonConstraint[NumLike]):
 
     def feasible_like(self, prototype: NumLike) -> NumLike:
         return jnp.zeros_like(prototype)
+
+    def _interval_bounds(self) -> tuple[NumLike, NumLike]:
+        return -np.inf, np.inf
 
 
 class _Simplex(_SingletonConstraint[NonScalarArray]):
