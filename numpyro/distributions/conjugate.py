@@ -20,7 +20,7 @@ from numpyro.distributions.discrete import (
     Poisson,
     ZeroInflatedDistribution,
 )
-from numpyro.distributions.distribution import Distribution
+from numpyro.distributions.distribution import Distribution, _BoundedTotalCountMixin
 from numpyro.distributions.util import promote_shapes, validate_sample
 from numpyro.util import is_prng_key
 
@@ -313,7 +313,7 @@ class BetaNegativeBinomial(Distribution):
         return jnp.where(beta > 2, var, jnp.inf)
 
 
-class DirichletMultinomial(Distribution):
+class DirichletMultinomial(_BoundedTotalCountMixin):
     r"""A Dirichlet-Multinomial compound distribution: the class probabilities
     (``probs`` for the :class:`~numpyro.distributions.Multinomial` distribution)
     are unknown and randomly drawn from a :class:`~numpyro.distributions.Dirichlet`
@@ -342,7 +342,10 @@ class DirichletMultinomial(Distribution):
     :param numpy.ndarray concentration: concentration parameter (alpha) for the
         Dirichlet distribution.
     :param numpy.ndarray total_count: number of Categorical trials.
-    :param int total_count_max: the maximum number of trials, i.e. `max(total_count)`
+    :param int total_count_max: An upper bound on ``total_count``, required when
+        the count is an array or traced value. With a bound, ``total_count`` is
+        a pytree data leaf and is returned from ``jax.jit`` as an Array, even
+        when initialized with a Python int.
     """
 
     arg_constraints = {
@@ -350,7 +353,6 @@ class DirichletMultinomial(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("concentration", "_dirichlet")
-    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self,

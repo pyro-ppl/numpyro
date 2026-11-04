@@ -710,6 +710,35 @@ class Distribution(metaclass=DistributionMeta):
         )
 
 
+class _BoundedTotalCountMixin(Distribution):
+    """Keep bounded counts as data and unbounded counts as static metadata."""
+
+    total_count: ArrayLike
+    total_count_max: Optional[int]
+    pytree_data_fields = ("total_count",)
+    pytree_aux_fields = ("total_count", "total_count_max")
+
+    def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+        data, aux = super().tree_flatten()
+        if self.total_count_max is None:
+            index = type(self).gather_pytree_data_fields().index("total_count")
+            data = data[:index] + (None,) + data[index + 1 :]
+        else:
+            index = type(self).gather_pytree_aux_fields().index("total_count")
+            aux = aux[:index] + (None,) + aux[index + 1 :]
+        return data, aux
+
+    @classmethod
+    def tree_unflatten(
+        cls, aux_data: tuple[Any, ...], params: tuple[Any, ...]
+    ) -> "_BoundedTotalCountMixin":
+        d = cast(_BoundedTotalCountMixin, super().tree_unflatten(aux_data, params))
+        if d.total_count_max is not None:
+            index = cls.gather_pytree_data_fields().index("total_count")
+            d.total_count = params[index]
+        return d
+
+
 class ExpandedDistribution(Distribution):
     r"""
     Broadcasts the batch shape of a distribution to a larger ``batch_shape``.
