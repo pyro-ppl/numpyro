@@ -630,6 +630,76 @@ def test_gaussian_hmm_sample_after_conjugate_update_matches_closed_form():
     assert (jnp.abs(jnp.cov(x.T) - cov_upd) < 5 * cov_se).all()
 
 
+def test_gaussian_hmm_prefix_condition_after_conjugate_update_matches_dense():
+    # The tail returned after ``conjugate_update`` used to be unnormalized: its
+    # log density was off by the tail's log mass, which depends on the
+    # parameters (review of gh-2273).
+    T, n, m, t = 5, 2, 1, 2
+    init, A, trans, H, obs = _layout_params(
+        random.key(11), n, m, (), (T,), (T,), (T,), (T,)
+    )
+    hmm = GaussianHMM(init, A, trans, H, obs)
+    x0 = random.normal(random.key(1), (T, m))
+    sd = 0.4
+    updated, _ = hmm.conjugate_update(dist.Normal(x0, sd).to_event(2))
+    mean, cov = dense_reference(init, A, trans, H, obs, T)
+    nz = (T + 1) * n
+    Sigma, mu = cov[nz:, nz:], mean[nz:]
+    cov_u = jnp.linalg.inv(jnp.linalg.inv(Sigma) + jnp.eye(T * m) / sd**2)
+    mean_u = cov_u @ (jnp.linalg.solve(Sigma, mu) + x0.ravel() / sd**2)
+    y = random.normal(random.key(2), (T, m))
+    k = t * m
+    head, rest = y[:t].ravel(), y[t:].ravel()
+    S_hh, S_rh, S_rr = cov_u[:k, :k], cov_u[k:, :k], cov_u[k:, k:]
+    gain = jnp.linalg.solve(S_hh, S_rh.T).T
+    cond_mean = mean_u[k:] + gain @ (head - mean_u[:k])
+    cond_cov = S_rr - gain @ S_rh.T
+    expected = dist.MultivariateNormal(cond_mean, covariance_matrix=cond_cov).log_prob(
+        rest
+    )
+    tail = updated.prefix_condition(y[:t])
+    assert_allclose(tail.log_prob(y[t:]), expected, rtol=1e-4, atol=1e-4)
+    head_log_prob = dist.MultivariateNormal(
+        mean_u[:k], covariance_matrix=S_hh
+    ).log_prob(head)
+    assert_allclose(
+        updated.log_prob(y),
+        head_log_prob + tail.log_prob(y[t:]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+
+@pytest.mark.parametrize("batched", ["observation_matrix", "observation_dist"])
+def test_gaussian_hmm_sample_is_independent_across_observation_batch(batched):
+    # A batch axis carried only by ``_obs`` used to broadcast a single latent
+    # path across the batch: draws correlated at 0.9999 (review of gh-2273).
+    T, n = 4, 1
+
+    def normal(scale, shape=()):
+        return dist.Normal(jnp.zeros(shape + (n,)), scale).to_event(1)
+
+    if batched == "observation_matrix":
+        H, obs = jnp.ones((2, 1, 1, 1)), normal(0.01)
+    else:
+        H, obs = jnp.eye(1), normal(0.01, (2, 1))
+    hmm = GaussianHMM(normal(1.0), jnp.eye(n), normal(0.2), H, obs, num_steps=T)
+    assert hmm.batch_shape == (2,)
+    N = 4000
+    x = hmm.sample(random.key(0), (N,))
+    assert x.shape == (N, 2, T, 1)
+    last = x[:, :, -1, 0]
+    assert abs(jnp.corrcoef(last.T)[0, 1]) < 5 / jnp.sqrt(N)
+    # Each entry has var(x_T) = 1 + T * 0.2**2 + 0.01**2; independent entries
+    # give twice that for the difference. Sample variance has relative standard
+    # error sqrt(2 / N) = 0.022.
+    var_T = 1 + T * 0.2**2 + 0.01**2
+    assert_allclose(jnp.var(last[:, 0] - last[:, 1]), 2 * var_T, rtol=0.1)
+    y = IndependentHMM(hmm).sample(random.key(1), (N,))
+    assert y.shape == (N, T, 2)
+    assert abs(jnp.corrcoef(y[:, -1, :].T)[0, 1]) < 5 / jnp.sqrt(N)
+
+
 def test_gaussian_hmm_prefix_condition_chain_rule():
     T, n, m, t = 9, 3, 2, 4
     ks = random.split(random.key(5), 6)

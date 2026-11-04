@@ -639,13 +639,14 @@ class GaussianHMM(HiddenMarkovModel):
         """Factor over ``z_T`` given ``value`` of shape ``batch_shape + (num_steps, obs_dim)``."""
         return self._reduce(self._obs.condition(value))
 
-    def _normalized_posterior(self, value: Array) -> Gaussian:
+    def _log_normalizer(self) -> Array:
         """
-        Normalized factor over ``z_T`` given ``value`` of exactly
-        ``batch_shape + (num_steps, obs_dim)``.
+        Log of the total mass of the joint over ``(z_{0:T}, x_{1:T})``, of
+        shape ``batch_shape``. Zero for a model built from the constructor;
+        nonzero once ``_trans`` carries a conjugate likelihood marginal or
+        ``_init`` is an unnormalized posterior.
         """
-        g = self._posterior(value)
-        return g - g.event_logsumexp()
+        return self._reduce(self._obs.marginalize(right=self.obs_dim)).event_logsumexp()
 
     @staticmethod
     def _kalman_filter(
@@ -803,9 +804,7 @@ class GaussianHMM(HiddenMarkovModel):
             _trans=self._trans + r.event_pad(left=self.hidden_dim),
             _obs=full - r.event_pad(right=self.obs_dim),
         )
-        log_normalizer = new._reduce(
-            new._obs.marginalize(right=self.obs_dim)
-        ).event_logsumexp()
+        log_normalizer = new._log_normalizer()
         return new._replace(_init=new._init - log_normalizer), log_normalizer
 
     def prefix_condition(self, data: Array) -> GaussianHMM:
@@ -815,10 +814,12 @@ class GaussianHMM(HiddenMarkovModel):
 
         :param Array data: shape ``(..., t, obs_dim)`` with
             ``0 < t < num_steps``.
-        :return: model over ``num_steps - t`` steps whose initial distribution
-            is the filtered posterior. Leading dimensions of ``data`` beyond
-            ``batch_shape`` become batch dimensions of the returned model.
-        :rtype: GaussianHMM
+        :return: model over ``num_steps - t`` steps whose initial factor is the
+            filtered posterior over ``z_t``, shifted so the returned model is
+            normalized even when ``_trans`` carries a conjugate likelihood
+            marginal (see :meth:`conjugate_update`). Leading dimensions of
+            ``data`` beyond ``batch_shape`` become batch dimensions of the
+            returned model.
         :raises ValueError: if ``t`` is not in ``(0, num_steps)``.
         """
         t = data.shape[-2]
@@ -856,14 +857,20 @@ class GaussianHMM(HiddenMarkovModel):
             )
         else:
             value, extra = head._lead_and_extra(data)
-            init = _vmap_leading(head._normalized_posterior, extra)(value)
-        return self._replace(
+            init = _vmap_leading(head._posterior, extra)(value)
+        tail = self._replace(
             _init=init,
             _trans=trans_tail,
             _obs=obs_tail,
             _moments=moments,
             num_steps=self.num_steps - t,
         )
+        if moments is not None:
+            return tail
+        # After ``conjugate_update`` the tail's transitions no longer integrate
+        # to one over ``z_{t+1:T}``, so normalize the whole tail rather than
+        # only the head posterior.
+        return tail._replace(_init=tail._init - tail._log_normalizer())
 
     def _sample_states(
         self,
@@ -875,13 +882,16 @@ class GaussianHMM(HiddenMarkovModel):
         # ``z_t`` (``conjugate_update`` folds the likelihood's ``z_t`` marginal
         # into ``_trans``), so Pyro's ``_obs.marginalize(right=obs_dim)`` term
         # is exactly zero and omitted.
+        # ``_init`` is expanded so batch axes carried only by ``_obs`` draw
+        # independent latent paths instead of one path broadcast at emission.
+        init = self._init.expand(self.batch_shape)
         trans = self._trans
         if obs_factor is not None:
             trans = trans + obs_factor.event_pad(left=self.hidden_dim)
         elif isinstance(trans, AffineNormal):
             trans = trans.to_gaussian()
         trans = self._time_expanded(trans)
-        return sequential_gaussian_filter_sample(key, self._init, trans, sample_shape)[
+        return sequential_gaussian_filter_sample(key, init, trans, sample_shape)[
             ..., 1:, :
         ]
 
