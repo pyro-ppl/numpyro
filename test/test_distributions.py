@@ -13,7 +13,6 @@ from typing import Callable, get_args, get_origin, get_type_hints
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
-import scipy
 import scipy.integrate as osp_integrate
 from scipy.sparse import csr_matrix
 import scipy.stats as osp
@@ -109,10 +108,6 @@ def _mvn_to_scipy(loc, cov, prec, tril):
 
 
 def _multivariate_t_to_scipy(df, loc, tril):
-    if scipy.__version__ < "1.6.0":
-        pytest.skip(
-            "Multivariate Student-T distribution is not available in scipy < 1.6"
-        )
     jax_dist = dist.MultivariateStudentT(df, loc, tril)
     mean = jax_dist.mean
     cov = jax_dist.covariance_matrix
@@ -2073,6 +2068,52 @@ def test_discrete_uniform_icdf(low, high):
 
 
 @pytest.mark.parametrize(
+    "probs",
+    [0.0, 0.3, 1.0, np.array([0.0, 0.2, 0.5, 0.9, 1.0])],
+    ids=["0.0", "0.3", "1.0", "batch"],
+)
+@pytest.mark.parametrize("parametrization", ["probs", "logits"])
+def test_bernoulli_cdf_icdf(parametrization, probs):
+    if parametrization == "probs":
+        d = dist.BernoulliProbs(probs)
+    else:
+        d = dist.BernoulliLogits(scipy.special.logit(probs))
+    sp_dist = osp.bernoulli(probs)
+    batch_dims = (1,) * np.ndim(probs)
+
+    x = np.array([-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]).reshape((-1,) + batch_dims)
+    assert_allclose(d.cdf(x), sp_dist.cdf(x), rtol=1e-5)
+    # levels away from the jump at P(X = 0)
+    quantiles = np.linspace(0.005, 0.995, 100).reshape((-1,) + batch_dims)
+    assert_array_equal(d.icdf(quantiles), sp_dist.ppf(quantiles))
+
+    # the level P(X = 0) itself is the largest one mapped to 0
+    prob_zero = np.asarray(d.cdf(0.0))
+    assert_array_equal(d.icdf(prob_zero), 0.0)
+    above = np.where(
+        prob_zero > 0, np.nextafter(prob_zero, 2), np.finfo(prob_zero.dtype).tiny
+    )
+    assert_array_equal(d.icdf(above), 1.0)
+
+    support = np.stack([np.zeros(np.shape(probs)), np.ones(np.shape(probs))])
+    pmf = np.stack([1 - np.asarray(probs), np.asarray(probs)])
+    roundtrip = d.icdf(d.cdf(support))
+    assert_array_equal(np.where(pmf > 0, roundtrip, support), support)
+
+    assert np.isnan(d.cdf(np.nan)).all()
+    assert np.isnan(d.icdf(np.nan)).all()
+
+
+@pytest.mark.parametrize("logits", [20.0, 30.0, 50.0])
+def test_bernoulli_logits_cdf_icdf_saturated(logits):
+    # 1 - expit(logits) rounds to 0 here, so P(X = 0) must come from expit(-logits)
+    d = dist.BernoulliLogits(logits)
+    prob_zero = scipy.special.expit(-logits)
+    assert_allclose(d.cdf(0.0), prob_zero, rtol=1e-5)
+    assert_array_equal(d.icdf(np.array([0.5, 2.0]) * prob_zero), [0.0, 1.0])
+
+
+@pytest.mark.parametrize(
     "jax_dist, params, ppf",
     [
         (dist.Cauchy, (1.0, 2.0), osp.cauchy(1.0, 2.0).ppf),
@@ -2365,6 +2406,43 @@ def test_gamma_poisson_log_prob(shape):
     expected = logsumexp(log_probs, 0) - jnp.log(num_samples)
     actual = dist.GammaPoisson(gamma_conc, gamma_rate).log_prob(value)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+def test_gamma_poisson_cdf_real_thresholds():
+    value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, np.inf])
+    actual = dist.GammaPoisson(2.0, 3.0).cdf(value)
+    assert_allclose(actual, osp.nbinom.cdf(value, 2.0, 0.75), rtol=1e-5, atol=1e-7)
+    # Differentiate the finite sums for P(X <= 0) and P(X <= 1) at rate=3.
+    grad_cdf = jax.vmap(
+        jax.grad(lambda r, x: dist.GammaPoisson(2.0, r).cdf(x)), (None, 0)
+    )
+    expected = np.array([0.0, 0.0, 3 / 32, 3 / 32, 9 / 128, 0.0])
+    assert_allclose(grad_cdf(3.0, value), expected, rtol=1e-5, atol=1e-7)
+
+
+@pytest.mark.parametrize(
+    "jax_dist", [dist.GammaPoisson, dist.NegativeBinomial2, dist.NegativeBinomialLogits]
+)
+@pytest.mark.parametrize("integer_values", [False, True])
+def test_gamma_poisson_cdf_batched(jax_dist, integer_values):
+    # rate=inf puts all mass at zero; NegativeBinomialLogits reaches it with logits=-inf.
+    concentration = np.array([0.5, 2.0, 5.0])
+    rate = np.array([0.25, 3.0, np.inf])
+    conc, r = jnp.asarray(concentration), jnp.asarray(rate)
+    if jax_dist is dist.GammaPoisson:
+        d = jax_dist(conc, r)
+    elif jax_dist is dist.NegativeBinomial2:
+        d = jax_dist(conc / r, conc)
+    else:
+        d = jax_dist(conc, -jnp.log(r))
+    if integer_values:
+        value = np.array([-2, -1, 0, 1, 2, 7], dtype=np.int32)
+    else:
+        # Large finite thresholds are common as censoring bounds.
+        big = np.finfo(np.float32).max
+        value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, 1e30, big, np.inf], np.float32)
+    expected = osp.nbinom.cdf(value[:, None], concentration, 1 / (1 + 1 / rate))
+    assert_allclose(d.cdf(value[:, None]), expected, rtol=1e-5, atol=1e-7)
 
 
 @pytest.mark.parametrize(
