@@ -6556,6 +6556,7 @@ def test_poisson_cdf_support_limits(rate, compiled):
         (dist.LogNormal, (0.3, 1.0), 0.0, np.inf),
         (dist.LogUniform, (1.0, 10.0), 1.0, 10.0),
         (dist.Pareto, (2.0, 3.0), 2.0, np.inf),
+        (dist.RelaxedBernoulliLogits, (2.0, -1.0), 0.0, 1.0),
         (_TruncatedGamma, (2.0, 1.5, 0.5, None), 0.5, np.inf),
         (_TruncatedGamma, (2.0, 1.5, None, 3.0), 0.0, 3.0),
         (_TruncatedGamma, (2.0, 1.5, 0.5, 3.0), 0.5, 3.0),

@@ -588,6 +588,7 @@ def _cdf_within_support(
         default can overflow ``cdf_fn`` or its gradients, or round onto the bound.
     :return: The cumulative distribution function evaluated at ``value``.
     """
+    # Expects a support with a lower_bound and, optionally, an upper_bound.
     low = getattr(support, "lower_bound")
     high = getattr(support, "upper_bound", None)
     below = jnp.less(value, low) if include_low else jnp.less_equal(value, low)

@@ -1853,14 +1853,6 @@ class InverseGamma(TransformedDistribution):
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
 
-    def cdf(self, value: ArrayLike) -> Array:
-        r"""Cumulative distribution function, which is zero for :math:`x \le 0`.
-
-        :param value: Value to evaluate.
-        :type value: ArrayLike
-        """
-        return _cdf_within_support(super().cdf, value, self.support, include_low=False)
-
     def entropy(self) -> Array:
         r"""Differential entropy of the Inverse-Gamma distribution:
 
@@ -2787,14 +2779,6 @@ class LogNormal(TransformedDistribution):
         """
         return jnp.expm1(self.scale**2) * jnp.exp(2 * self.loc + self.scale**2)
 
-    def cdf(self, value: ArrayLike) -> Array:
-        r"""Cumulative distribution function, which is zero for :math:`x \le 0`.
-
-        :param value: Value to evaluate.
-        :type value: ArrayLike
-        """
-        return _cdf_within_support(super().cdf, value, self.support, include_low=False)
-
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Normal distribution:
 
@@ -3004,15 +2988,6 @@ class LogUniform(TransformedDistribution):
             0.5 * (self.high**2 - self.low**2) / jnp.log(self.high / self.low)
             - self.mean**2
         )
-
-    def cdf(self, value: ArrayLike) -> Array:
-        r"""Cumulative distribution function, which is zero for :math:`x < a`
-        and one for :math:`x > b`.
-
-        :param value: Value to evaluate.
-        :type value: ArrayLike
-        """
-        return _cdf_within_support(super().cdf, value, self.support)
 
     def entropy(self) -> Array:
         r"""Differential entropy of the Log-Uniform distribution:
@@ -4431,14 +4406,6 @@ class Pareto(TransformedDistribution):
             (self.scale**2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2)
         )
         return jnp.where(self.alpha <= 2, jnp.inf, a)
-
-    def cdf(self, value: ArrayLike) -> Array:
-        r"""Cumulative distribution function, which is zero for :math:`x < x_m`.
-
-        :param value: Value to evaluate.
-        :type value: ArrayLike
-        """
-        return _cdf_within_support(super().cdf, value, self.support)
 
     # override the default behaviour to save computations
     @constraints.dependent_property(is_discrete=False, event_dim=0)
