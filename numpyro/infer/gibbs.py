@@ -1639,6 +1639,7 @@ class DiscreteGibbs(MCMCKernel):
             and self._support_lows_flat is not None
             and self._sweep_sites is not None
             and self._plate_blocks is not None
+            and self._prepared_model is not None
         ), "`init` must be called before `sample`."
         potential_fn = self.get_potential_fn(model_args, model_kwargs)
         z, pe = state.z, state.potential_energy
