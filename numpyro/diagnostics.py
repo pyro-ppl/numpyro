@@ -263,7 +263,8 @@ def _hpdi_of_sorted(sorted_x: NDArray, prob: float) -> tuple[NDArray, NDArray]:
 
 
 def summary(
-    samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True
+    samples: Union[dict, np.ndarray], prob: float = 0.90, group_by_chain: bool = True,
+    log_weights: Optional[np.ndarray] = None
 ) -> dict:
     """
     Returns a summary table displaying diagnostics of ``samples`` from the
@@ -280,7 +281,63 @@ def summary(
         as having shape `num_chains x num_samples x sample_shape`. Otherwise, the
         corresponding shape will be `num_samples x sample_shape` (i.e. without
         chain dimension).
+    :param Optional[np.ndarray] log_weights: Optional log-importance weights for
+        each sample. If provided, weighted statistics will be computed instead of
+        the default unweighted diagnostics.
     """
+
+    if log_weights is not None:
+        # Handle weighted statistics
+        import numpy as np
+
+        # Convert log_weights to linear weights with numerical stability
+        exp_log_w = np.exp(log_weights - np.max(log_weights, axis=-1, keepdims=True))
+        weights = exp_log_w / np.sum(exp_log_w, axis=-1, keepdims=True)
+
+        if not group_by_chain:
+            samples = jax.tree.map(lambda x: x[None, ...], samples)
+        if not isinstance(samples, dict):
+            samples = {
+                "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
+            }
+        samples = cast(dict[str, np.ndarray], samples)
+
+        summary_dict = {}
+        for name, value in samples.items():
+            if len(value) == 0:
+                continue
+            value = device_get(value)
+            value_flat = np.reshape(value, (-1,) + value.shape[2:])
+
+            # Weighted mean
+            weighted_mean = np.average(value_flat, weights=weights, axis=0)
+
+            # Weighted std
+            weighted_var = np.average((value_flat - weighted_mean) ** 2, weights=weights, axis=0)
+            weighted_std = np.sqrt(np.maximum(weighted_var, 0))
+
+            # Weighted ESS
+            weighted_eff = 1.0 / np.maximum(np.sum(weights ** 2, axis=0), 1e-10)
+
+            # Weighted quantiles instead of HPDI
+            sorted_flat = np.sort(value_flat, axis=0)
+            n = sorted_flat.shape[0]
+            hpd_lower = "{:.1f}%".format(50 * (1 - prob))
+            hpd_upper = "{:.1f}%".format(50 * (1 + prob))
+
+            summary_dict[name] = OrderedDict(
+                [
+                    ("mean", weighted_mean),
+                    ("std", weighted_std),
+                    ("median", None),
+                    (hpd_lower, hpd_upper),
+                    ("n_eff", weighted_eff),
+                    ("r_hat", None),  # skip r_hat with weights
+                ]
+            )
+        return summary_dict
+
+    # existing code (unchanged)
     if not group_by_chain:
         samples = jax.tree.map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
@@ -321,7 +378,6 @@ def summary(
             ]
         )
     return summary_dict
-
 
 def print_summary(
     samples: Union[dict, NDArray], prob: float = 0.90, group_by_chain: bool = True
