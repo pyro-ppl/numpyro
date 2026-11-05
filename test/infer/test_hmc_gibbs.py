@@ -7,6 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+import jax
 from jax import hessian, jacrev, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
@@ -23,6 +24,7 @@ from numpyro.infer import (
     HMCGibbs,
     MixedHMC,
 )
+from numpyro.infer.gibbs import PlateBlock, plate_gibbs_update, with_conditioning
 from numpyro.infer.util import log_density
 
 
@@ -308,6 +310,216 @@ def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
     assert_allclose(jnp.var(samples["x"]), 4.36, atol=0.4)
     assert_allclose(jnp.mean(samples["c"]), 1.65, atol=0.1)
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
+
+
+def _plate_mixture_data():
+    probs = jnp.array([0.2, 0.5, 0.3])
+    offsets = jnp.array([-2.0, 0.0, 2.0])
+    y = jnp.array([-2.5, -1.0, 0.1, 0.3, 1.9, 2.4, -0.4, 0.9, -1.6, 1.2, 0.0, 2.9])
+    return y, probs, offsets
+
+
+def _plate_mixture(y, probs, offsets):
+    # z is plated and every factor that reads it is in the same plate
+    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(probs))
+        numpyro.sample("y", dist.Normal(mu + offsets[z], 1.0), obs=y)
+
+
+def _nested_plate_mixture(y, probs, offsets):
+    # the likelihood is in an extra plate; DiscreteUniform has a nonzero support low
+    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.DiscreteUniform(1, 3))
+        with numpyro.plate("M", 2, dim=-2):
+            numpyro.sample(
+                "y", dist.Normal(mu + offsets[z - 1], 1.0), obs=jnp.stack([y, y + 0.5])
+            )
+
+
+def _mixed_sites_mixture(y, probs, offsets):
+    # w is not plated and keeps the coordinate-wise sweep; z is updated plate-wise
+    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+    w = numpyro.sample("w", dist.Bernoulli(0.5))
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(probs))
+        numpyro.sample("y", dist.Normal(mu + offsets[z] + w, 1.0), obs=y)
+
+
+def _unplated_mixture(y, probs, offsets):
+    c = numpyro.sample("c", dist.Categorical(probs))
+    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+    numpyro.sample("y", dist.Normal(mu + offsets[c], 1.0).expand([y.shape[0]]), obs=y)
+
+
+def _factor_outside_plate(y, probs, offsets):
+    # a factor outside the plate couples the elements of z: no plate-wise update
+    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(probs))
+        numpyro.sample("y", dist.Normal(mu + offsets[z], 1.0), obs=y)
+    numpyro.factor("coupling", -0.5 * jnp.square(jnp.sum(z) - 8.0))
+
+
+def _site_outside_reads_plate(y, probs, offsets):
+    # a latent site outside the plate depends on z: no plate-wise update
+    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(probs))
+    w = numpyro.sample("w", dist.Bernoulli(jax.nn.sigmoid(jnp.sum(z) - 8.0)))
+    with numpyro.plate("N", y.shape[0]):
+        numpyro.sample("y", dist.Normal(mu + offsets[z] + w, 1.0), obs=y)
+
+
+_PLATE_MODELS = {
+    "plate": _plate_mixture,
+    "nested": _nested_plate_mixture,
+    "mixed": _mixed_sites_mixture,
+}
+
+
+@pytest.mark.parametrize(
+    "model, plate_sites, sweep_sites",
+    [
+        (_plate_mixture, ("z",), ()),
+        (_nested_plate_mixture, ("z",), ()),
+        (_mixed_sites_mixture, ("z",), ("w",)),
+        (_unplated_mixture, (), ("c",)),
+        (_factor_outside_plate, (), ("z",)),
+        (_site_outside_reads_plate, (), ("z", "w")),
+    ],
+)
+def test_discrete_gibbs_plate_blocks(model, plate_sites, sweep_sites):
+    model_args = _plate_mixture_data()
+    kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
+    kernel.init(random.key(0), 10, None, model_args, {})
+    discrete_kernel = kernel.blocks[0][0]
+    assert tuple(block.name for block in discrete_kernel.plate_blocks) == plate_sites
+    assert discrete_kernel._sweep_sites == sweep_sites
+    for block in discrete_kernel.plate_blocks:
+        # a tuple of plain scalars, so blocks compare
+        assert block == PlateBlock(*block)
+        assert block.support_size == 3
+        assert block.shape == (model_args[0].shape[0],)
+        assert block.plate_dims == (-1,)
+        assert block.factors == ("z", "y")
+        assert isinstance(block.support_low, int)
+
+
+def test_discrete_gibbs_plate_aware_off():
+    # the default and plate_aware=False: no plate block, every site is swept coordinate-wise
+    model_args = _plate_mixture_data()
+    for kwargs in ({}, {"plate_aware": False}):
+        kernel = DiscreteHMCGibbs(NUTS(_mixed_sites_mixture), **kwargs)
+        kernel.init(random.key(0), 10, None, model_args, {})
+        discrete_kernel = kernel.blocks[0][0]
+        assert discrete_kernel.plate_blocks == ()
+        assert set(discrete_kernel._sweep_sites) == {"w", "z"}
+
+
+@pytest.mark.parametrize("model_name", ["plate", "nested"])
+def test_discrete_gibbs_plate_log_factors(model_name):
+    # The per-element log factors of the plate-wise update are the full conditionals that
+    # the coordinate-wise sweep evaluates, one potential energy per element and value.
+    y, probs, offsets = model_args = _plate_mixture_data()
+    model = _PLATE_MODELS[model_name]
+    kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
+    kernel.init(random.key(0), 10, None, model_args, {})
+    discrete_kernel = kernel.blocks[0][0]
+    (block,) = discrete_kernel.plate_blocks
+    low = block.support_low
+    z = {"z": jnp.array([0, 1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 2]) + low}
+    kwargs = with_conditioning({}, {"mu": jnp.array(0.3)})
+
+    log_factors = discrete_kernel.get_plate_log_factors_fn(block, model_args, kwargs)(z)
+    assert log_factors.shape == (3, y.shape[0])
+
+    potential_fn = discrete_kernel.get_potential_fn(model_args, kwargs)
+    expected = jnp.stack(
+        [
+            jnp.stack(
+                [
+                    -potential_fn({"z": z["z"].at[i].set(v + low)})
+                    for v in range(block.support_size)
+                ]
+            )
+            for i in range(y.shape[0])
+        ],
+        axis=-1,
+    )
+    # the two sum the same terms in a different order; the potential also sums the
+    # factors of the other elements, which cancel in the normalization
+    atol = 1e-9 if expected.dtype == jnp.float64 else 1e-4
+    assert_allclose(
+        jax.nn.log_softmax(log_factors, axis=0),
+        jax.nn.log_softmax(expected, axis=0),
+        atol=atol,
+    )
+
+    # the potential energy after the update is carried from the log-factor delta
+    pe = potential_fn(z)
+    z_new, pe_new = plate_gibbs_update(random.key(1), z, pe, block, log_factors)
+    assert jnp.any(z_new["z"] != z["z"])
+    assert_allclose(pe_new, potential_fn(z_new), atol=atol)
+
+
+@pytest.mark.parametrize("random_walk", [False, True])
+@pytest.mark.parametrize("modified", [False, True])
+def test_discrete_gibbs_plate_update_stationarity(random_walk, modified):
+    # At a fixed state every proposal leaves the full conditionals invariant: from
+    # z0 ~ softmax(log_factors), one plate-wise step gives z1 with the same marginals.
+    model_args = _plate_mixture_data()
+    kernel = DiscreteHMCGibbs(NUTS(_plate_mixture), plate_aware=True)
+    kernel.init(random.key(0), 10, None, model_args, {})
+    discrete_kernel = kernel.blocks[0][0]
+    (block,) = discrete_kernel.plate_blocks
+    z = {"z": jnp.array([0, 1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 2])}
+    kwargs = with_conditioning({}, {"mu": jnp.array(-0.2)})
+    # the factors of an element do not read the other elements: the same at every z
+    log_factors = discrete_kernel.get_plate_log_factors_fn(block, model_args, kwargs)(z)
+    expected = jax.nn.softmax(log_factors, axis=0)
+
+    def step(key):
+        key_init, key_update = random.split(key)
+        z0 = {"z": random.categorical(key_init, log_factors, axis=0)}
+        z1, _ = plate_gibbs_update(
+            key_update, z0, jnp.zeros(()), block, log_factors, random_walk, modified
+        )
+        return z1["z"]
+
+    draws = vmap(step)(random.split(random.key(1), 8000))
+    assert draws.shape == (8000, 12)
+    actual = jnp.mean(draws[:, None, :] == jnp.arange(3)[None, :, None], axis=0)
+    assert_allclose(actual, expected, atol=0.03)
+
+
+@pytest.mark.parametrize(
+    "model_name, random_walk, modified",
+    [("mixed", False, False), ("plate", True, True)],
+)
+def test_discrete_gibbs_plate_aware_posterior(model_name, random_walk, modified):
+    # Plate-wise and coordinate-wise updates target the same posterior.
+    model_args = _plate_mixture_data()
+    model = _PLATE_MODELS[model_name]
+    means = {}
+    for plate_aware in (False, True):
+        kernel = DiscreteHMCGibbs(
+            NUTS(model),
+            random_walk=random_walk,
+            modified=modified,
+            plate_aware=plate_aware,
+        )
+        mcmc = MCMC(kernel, num_warmup=500, num_samples=20000, progress_bar=False)
+        mcmc.run(random.key(0), *model_args)
+        assert len(kernel.blocks[0][0].plate_blocks) == int(plate_aware)
+        samples = mcmc.get_samples()
+        assert samples["z"].shape == (20000, 12)
+        means[plate_aware] = {k: jnp.mean(v, axis=0) for k, v in samples.items()}
+    assert_allclose(means[True]["z"], means[False]["z"], atol=0.05)
+    for name in means[False]:
+        if name != "z":
+            assert_allclose(means[True][name], means[False][name], atol=0.1)
 
 
 def test_enum_subsample_smoke():

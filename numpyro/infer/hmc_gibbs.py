@@ -150,6 +150,13 @@ class DiscreteHMCGibbs(Gibbs):
         always proposes a new state for the current Gibbs site. Defaults to False.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
+    :param bool plate_aware: whether to update the elements of a discrete site that are
+        conditionally independent across its plates all at once, in one vectorized step,
+        instead of one coordinate at a time; see :class:`~numpyro.infer.gibbs.DiscreteGibbs`.
+        Only correct when every factor inside the plate depends on the site elementwise
+        along the plate dims, as the plate declares; a non-elementwise dependency (e.g. a
+        reduction over the plate) is not detected and yields wrong samples. Defaults to
+        False.
 
     **References:**
 
@@ -190,6 +197,7 @@ class DiscreteHMCGibbs(Gibbs):
         *,
         random_walk: bool = False,
         modified: bool = False,
+        plate_aware: bool = False,
     ) -> None:
         if not isinstance(inner_kernel, HMC):
             raise ValueError("inner_kernel must be an HMC or NUTS sampler.")
@@ -198,7 +206,10 @@ class DiscreteHMCGibbs(Gibbs):
                 "DiscreteHMCGibbs does not support models specified via a potential function."
             )
         discrete_kernel = DiscreteGibbs(
-            inner_kernel.model, random_walk=random_walk, modified=modified
+            inner_kernel.model,
+            random_walk=random_walk,
+            modified=modified,
+            plate_aware=plate_aware,
         )
         super().__init__(
             [(discrete_kernel, discrete_latent_sites), (inner_kernel, None)]
