@@ -6707,10 +6707,21 @@ def test_discrete_list_parameters(make_dist, compiled):
         assert_allclose(value, reference, rtol=1e-6, atol=0)
 
 
-def test_discrete_host_parameter_storage():
+@pytest.mark.parametrize(
+    "make_dist, attribute",
+    [
+        (dist.GeometricProbs, "probs"),
+        (dist.GeometricLogits, "logits"),
+        (dist.BernoulliProbs, "probs"),
+        (dist.CategoricalLogits, "logits"),
+        (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate"),
+        (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate"),
+    ],
+)
+def test_discrete_host_parameter_storage(make_dist, attribute):
     parameter = np.array([0.3, 0.5])
-    d = dist.CategoricalLogits(parameter)
-    assert isinstance(d.logits, np.ndarray)
+    d = make_dist(parameter)
+    assert isinstance(getattr(d, attribute), np.ndarray)
 
 
 @pytest.mark.parametrize("make_dist", [dist.GeometricProbs, dist.GeometricLogits])
