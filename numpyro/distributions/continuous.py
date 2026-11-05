@@ -3178,6 +3178,7 @@ class MatrixNormal(Distribution):
 
 
 def _batch_mahalanobis(bL, bx):
+    bx = jnp.broadcast_to(bx, lax.broadcast_shapes(bL.shape[:-1], bx.shape))
     if bL.shape[:-1] == bx.shape:
         # no need to use the below optimization procedure
         solve_bL_bx = solve_triangular(bL, bx[..., None], lower=True).squeeze(-1)
