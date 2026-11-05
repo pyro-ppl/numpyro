@@ -13,9 +13,9 @@ from typing import Callable, get_args, get_origin, get_type_hints
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
-import scipy
 import scipy.integrate as osp_integrate
 from scipy.sparse import csr_matrix
+import scipy.special
 import scipy.stats as osp
 
 import jax
@@ -109,10 +109,6 @@ def _mvn_to_scipy(loc, cov, prec, tril):
 
 
 def _multivariate_t_to_scipy(df, loc, tril):
-    if scipy.__version__ < "1.6.0":
-        pytest.skip(
-            "Multivariate Student-T distribution is not available in scipy < 1.6"
-        )
     jax_dist = dist.MultivariateStudentT(df, loc, tril)
     mean = jax_dist.mean
     cov = jax_dist.covariance_matrix
@@ -3816,10 +3812,10 @@ def test_transformed_distribution_log_prob_reuses_intermediates():
 def test_transformed_transformed_distribution():
     loc, scale = -2, 3
     dist1 = dist.TransformedDistribution(
-        dist.Normal(2, 3), transforms.PowerTransform(2.0)
+        dist.Gamma(2, 3), transforms.PowerTransform(2.0)
     )
     dist2 = dist.TransformedDistribution(dist1, transforms.AffineTransform(-2, 3))
-    assert isinstance(dist2.base_dist, dist.Normal)
+    assert isinstance(dist2.base_dist, dist.Gamma)
     assert len(dist2.transforms) == 2
     assert isinstance(dist2.transforms[0], transforms.PowerTransform)
     assert isinstance(dist2.transforms[1], transforms.AffineTransform)
@@ -3828,6 +3824,125 @@ def test_transformed_transformed_distribution():
     assert_allclose(loc + scale * dist1.sample(rng_key), dist2.sample(rng_key))
     intermediates = dist2.sample_with_intermediates(rng_key)
     assert len(intermediates) == 2
+
+
+@pytest.mark.parametrize(
+    "base_dist, transform",
+    [
+        (lambda: dist.Normal(0, 1), lambda: transforms.ExpTransform()),
+        (lambda: dist.Beta(5, 5), lambda: transforms.AffineTransform(1, 1)),
+        (lambda: dist.Uniform(0, 1), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Uniform(1, 2), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Beta(2, 2), lambda: transforms.SigmoidTransform().inv),
+        (lambda: dist.Exponential(1.0), lambda: transforms.PowerTransform(0.5)),
+        (lambda: dist.Poisson(3.0), lambda: transforms.AffineTransform(1, 2)),
+        (
+            lambda: dist.Dirichlet(jnp.ones(3)),
+            lambda: transforms.AffineTransform(0, 2),
+        ),
+        (
+            lambda: dist.Normal(jnp.zeros(3), 1),
+            lambda: transforms.StickBreakingTransform(),
+        ),
+        (
+            lambda: dist.Uniform(0, 1),
+            lambda: [transforms.ExpTransform(), transforms.ExpTransform()],
+        ),
+    ],
+)
+def test_transformed_distribution_support_in_domain(base_dist, transform):
+    d = dist.TransformedDistribution(base_dist(), transform(), validate_args=True)
+    x = d.sample(random.key(0), (100,))
+    assert jnp.isfinite(x).all()
+    assert jnp.isfinite(d.log_prob(x)).all()
+
+
+@pytest.mark.parametrize(
+    "base_dist, transform",
+    [
+        (lambda: dist.Normal(0, 1), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Normal(0, 1), lambda: transforms.PowerTransform(2.0)),
+        (lambda: dist.Exponential(1.0), lambda: transforms.SigmoidTransform().inv),
+        (lambda: dist.Uniform(-1, 1), lambda: transforms.ExpTransform().inv),
+        (
+            lambda: dist.Uniform(jnp.array([1.0, -1.0]), 2.0),
+            lambda: transforms.ExpTransform().inv,
+        ),
+        (
+            lambda: dist.Normal(jnp.zeros(3), 1).to_event(1),
+            lambda: transforms.ExpTransform().inv,
+        ),
+        (
+            lambda: dist.Normal(0, 1),
+            lambda: [transforms.ExpTransform().inv, transforms.ExpTransform()],
+        ),
+        (
+            lambda: dist.Normal(0, 1),
+            lambda: transforms.ComposeTransform(
+                [transforms.SigmoidTransform().inv, transforms.ExpTransform()]
+            ),
+        ),
+    ],
+)
+def test_transformed_distribution_support_not_in_domain(base_dist, transform):
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(base_dist(), transform(), validate_args=True)
+    # No check is performed when validation is disabled.
+    dist.TransformedDistribution(base_dist(), transform(), validate_args=False)
+
+
+def test_transformed_distribution_support_in_domain_nested():
+    # Nested transformed distributions are flattened, so the check is against
+    # the innermost base distribution and the first of all transforms.
+    d = dist.TransformedDistribution(
+        dist.LogNormal(0, 1), transforms.ExpTransform().inv, validate_args=True
+    )
+    assert isinstance(d.base_dist, dist.Normal)
+
+    d = dist.TransformedDistribution(
+        dist.Normal(0, 1), transforms.ExpTransform().inv, validate_args=False
+    )
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(d, transforms.ExpTransform(), validate_args=True)
+
+
+def test_transformed_distribution_support_in_domain_event_dim():
+    # The domain has event_dim 1, so batch dims of the base distribution are
+    # reinterpreted as event dims before the check.
+    transform = [transforms.ExpTransform().inv, transforms.StickBreakingTransform()]
+    d = dist.TransformedDistribution(
+        dist.Exponential(jnp.ones((4, 3))), transform, validate_args=True
+    )
+    assert d.batch_shape == (4,)
+    assert d.event_shape == (4,)
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(
+            dist.Normal(jnp.zeros((4, 3)), 1.0), transform, validate_args=True
+        )
+
+
+def test_transformed_distribution_support_in_domain_jit():
+    # Bounds that depend on traced values cannot be checked and are skipped.
+    def f(low):
+        d = dist.TransformedDistribution(
+            dist.Uniform(low, 1.0), transforms.ExpTransform().inv, validate_args=True
+        )
+        return d.log_prob(-0.5)
+
+    jax.jit(f)(-1.0)
+
+
+def test_transformed_distribution_support_in_domain_strict():
+    # `strict=True` raises inside jitted code, as for the parameter checks.
+    def f(low):
+        d = dist.TransformedDistribution(
+            dist.Uniform(low, 1.0), transforms.ExpTransform().inv
+        )
+        d.validate_args(strict=True)
+        return d.log_prob(0.5)
+
+    with pytest.raises(RuntimeError, match="inside jitted code"):
+        jax.jit(f)(0.0)
 
 
 def _make_iaf(input_dim, hidden_dims, rng_key):
@@ -6506,6 +6621,23 @@ def test_integer_parameter_predictive(make_dist, compiled, param):
         (dist.GeometricProbs, "probs", True, [1, 1]),
         (dist.GeometricLogits, "logits", True, [0, 1]),
         (dist.BernoulliProbs, "probs", True, [0, 1]),
+        (dist.BernoulliLogits, "logits", True, [0, 1]),
+        (lambda p: dist.BinomialLogits(p, 3), "logits", False, [0, 1]),
+        (lambda p: dist.NegativeBinomialLogits(3.0, p), "logits", False, [0, 1]),
+        (dist.CategoricalLogits, "logits", True, [0, 1]),
+        (dist.MultinomialLogits, "logits", False, [0, 1]),
+        (
+            lambda p: dist.ZeroInflatedLogits(dist.Poisson(2.0), p),
+            "gate_logits",
+            False,
+            [0, 1],
+        ),
+        (
+            lambda p: dist.HurdleLogits(dist.Poisson(2.0), p),
+            "gate_logits",
+            False,
+            [0, 1],
+        ),
         (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
         (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
     ],
@@ -6523,7 +6655,11 @@ def test_discrete_inexact_parameter_methods(
         return (
             getattr(d, attribute),
             d.sample(random.key(3), (8,)),
-            d.log_prob(jnp.array([0, 1])[:, None]),
+            d.log_prob(
+                jnp.array([[1, 0], [0, 1]])
+                if d.event_shape
+                else jnp.array([0, 1])[:, None]
+            ),
             d.mean,
             d.variance,
             d.entropy() if has_entropy else 0.0,
@@ -6544,6 +6680,13 @@ def test_discrete_inexact_parameter_methods(
         dist.GeometricProbs,
         dist.GeometricLogits,
         dist.BernoulliProbs,
+        dist.BernoulliLogits,
+        lambda p: dist.BinomialLogits(p, 3),
+        lambda p: dist.NegativeBinomialLogits(3.0, p),
+        dist.CategoricalLogits,
+        dist.MultinomialLogits,
+        lambda p: dist.ZeroInflatedLogits(dist.Poisson(2.0), p),
+        lambda p: dist.HurdleLogits(dist.Poisson(2.0), p),
         lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0),
         lambda p: dist.HurdlePoisson(gate=p, rate=2.0),
     ],
@@ -6554,7 +6697,11 @@ def test_discrete_list_parameters(make_dist, compiled):
         d = make_dist(p)
         return (
             d.sample(random.key(4), (8,)),
-            d.log_prob(jnp.array([0, 1])[:, None]),
+            d.log_prob(
+                jnp.array([[1, 0], [0, 1]])
+                if d.event_shape
+                else jnp.array([0, 1])[:, None]
+            ),
             d.mean,
             d.variance,
         )
@@ -6573,6 +6720,7 @@ def test_discrete_list_parameters(make_dist, compiled):
         (dist.GeometricProbs, "probs"),
         (dist.GeometricLogits, "logits"),
         (dist.BernoulliProbs, "probs"),
+        (dist.CategoricalLogits, "logits"),
         (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate"),
         (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate"),
     ],
@@ -6605,6 +6753,31 @@ def test_zero_inflated_weak_parameter_dtype(compiled):
         evaluate = jax.jit(evaluate)
     rate = jnp.float32(2.0)
     assert evaluate(rate).dtype == rate.dtype
+
+
+@pytest.mark.parametrize(
+    "make_dist, parameter",
+    [
+        (dist.BernoulliLogits, 0),
+        (dist.BernoulliLogits, True),
+        (dist.GeometricProbs, 1),
+        (dist.GeometricLogits, 0),
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+def test_discrete_integer_scalar_dtype(make_dist, parameter, compiled):
+    def evaluate(value):
+        return (
+            make_dist(float(parameter)).log_prob(value),
+            make_dist(parameter).log_prob(value),
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    value = jnp.array(1.0, dtype=jnp.bfloat16)
+    float_score, integer_score = evaluate(value)
+    assert integer_score.dtype == value.dtype
+    assert_array_equal(integer_score, float_score)
 
 
 @pytest.mark.parametrize("rate", [0.3, 3.0, 100.0])

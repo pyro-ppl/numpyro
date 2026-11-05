@@ -1333,7 +1333,10 @@ class TransformedDistribution(Distribution):
     :param base_distribution: the base distribution over which to apply transforms.
     :param transforms: a single transform or a list of transforms.
     :param validate_args: Whether to enable validation of distribution
-        parameters and arguments to `.log_prob` method.
+        parameters and arguments to `.log_prob` method. If enabled, a
+        `ValueError` is also raised when the support of the base distribution
+        is known to extend beyond the domain of the first transform. Only the
+        bounds are compared, so end points are not checked.
     """
 
     arg_constraints = {}
@@ -1402,6 +1405,20 @@ class TransformedDistribution(Distribution):
         super(TransformedDistribution, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
+
+    def validate_args(self, strict: bool = True) -> None:
+        super().validate_args(strict=strict)
+        domain = ComposeTransform(self.transforms).domain
+        support = self.base_dist.support
+        with jax.ensure_compile_time_eval():
+            if (
+                support is not None
+                and support._bounds_within(domain, strict=strict) is False
+            ):
+                raise ValueError(
+                    f"The support {support} of the base distribution is not "
+                    f"contained in the domain {domain} of the first transform."
+                )
 
     @property
     def has_rsample(self) -> bool:
