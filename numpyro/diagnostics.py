@@ -262,17 +262,11 @@ def _hpdi_of_sorted(sorted_x: NDArray, prob: float) -> tuple[NDArray, NDArray]:
     return hpd_left, hpd_right
 
 
-def _normalized_weights(log_weights: NDArray, batch_shape: tuple) -> NDArray:
-    # turn log weights of shape `batch_shape` (num_chains x num_samples) into
-    # normalized weights of shape (num_chains * num_samples,); the max is
-    # subtracted before exponentiating so that large log weights do not overflow
-    log_weights = np.asarray(device_get(log_weights), dtype=np.float64)
-    if log_weights.shape != batch_shape:
-        raise ValueError(
-            "Expected `log_weights` to have shape {} (the chain and draw dimensions"
-            " of `samples`), but got {}.".format(batch_shape, log_weights.shape)
-        )
-    log_weights = log_weights.reshape(-1)
+def _normalized_weights(log_weights: NDArray) -> NDArray:
+    # turn unnormalized log weights (num_chains x num_samples) into normalized
+    # weights of shape (num_chains * num_samples,); the max is subtracted before
+    # exponentiating so that large log weights do not overflow
+    log_weights = np.asarray(log_weights, dtype=np.float64).reshape(-1)
     max_log_weight = log_weights.max()
     if not np.isfinite(max_log_weight):
         raise ValueError(
@@ -287,13 +281,16 @@ def _weighted_stats(
 ) -> tuple[NDArray, NDArray, NDArray, NDArray]:
     # weighted mean, std, median and hpdi of `x` (shape num_draws x sample_shape)
     # under normalized `weights` (shape num_draws)
+    # the weights are float64, so cast back to the dtype of the unweighted path
+    dtype = np.result_type(x.dtype, np.float32)
     w = weights.reshape((-1,) + (1,) * (x.ndim - 1))
     mean = (w * x).sum(axis=0)
     # unbiased estimator for reliability weights, the same as
     # np.cov(x, aweights=weights, ddof=1); it reduces to ddof=1 for equal weights
     with np.errstate(divide="ignore", invalid="ignore"):
         var = (w * (x - mean) ** 2).sum(axis=0) / (1.0 - np.square(weights).sum())
-    std = np.sqrt(var)
+    std = np.sqrt(var).astype(dtype)
+    mean = mean.astype(dtype)
 
     n = x.shape[0]
     sort_idx = np.argsort(x, axis=0)
@@ -306,16 +303,16 @@ def _weighted_stats(
     # exactly the same median and hpdi as the unweighted statistics
     tol = 16 * n * np.finfo(np.float64).eps
 
-    num_cols = sorted_x.shape[1]
-    median = np.empty(num_cols, dtype=np.result_type(sorted_x.dtype, np.float32))
-    hpd = np.empty((2, num_cols), dtype=sorted_x.dtype)
-    for k in range(num_cols):
+    # lower and upper weighted medians; these are the two middle draws (or the
+    # middle draw twice) when the weights are equal
+    lo = np.minimum((cum_w >= 0.5 - tol).argmax(axis=0), n - 1)
+    hi = np.minimum((cum_w > 0.5 + tol).argmax(axis=0), n - 1)
+    cols = np.arange(sorted_x.shape[1])
+    median = ((sorted_x[lo, cols] + sorted_x[hi, cols]) / 2).astype(dtype)
+
+    hpd = np.empty((2, sorted_x.shape[1]), dtype=sorted_x.dtype)
+    for k in cols:
         xs, cw, cw_before = sorted_x[:, k], cum_w[:, k], cum_w_before[:, k]
-        # lower and upper weighted medians; these are the two middle draws (or
-        # the middle draw twice) when the weights are equal
-        lo = min(np.searchsorted(cw, 0.5 - tol, side="left"), n - 1)
-        hi = min(np.searchsorted(cw, 0.5 + tol, side="right"), n - 1)
-        median[k] = (xs[lo] + xs[hi]) / 2
         # narrowest interval [xs[i], xs[j]] whose mass exceeds `prob`; for each
         # left end i, j is the first draw at which the mass from i exceeds `prob`
         right = np.searchsorted(cw, cw_before + prob + tol, side="right")
@@ -370,6 +367,11 @@ def summary(
             "Param:{}".format(i): v for i, v in enumerate(jax.tree.flatten(samples)[0])
         }
     samples = cast(dict[str, np.ndarray], samples)
+    if log_weights is not None:
+        log_weights = np.asarray(device_get(log_weights))
+        weights = _normalized_weights(log_weights)
+        # effective sample size of the weights, shared by all sites
+        weights_n_eff = 1.0 / np.square(weights).sum()
 
     summary_dict = {}
     for name, value in samples.items():
@@ -380,9 +382,15 @@ def summary(
         hpd_lower = "{:.1f}%".format(50 * (1 - prob))
         hpd_upper = "{:.1f}%".format(50 * (1 + prob))
         if log_weights is not None:
-            weights = _normalized_weights(log_weights, value.shape[:2])
+            if log_weights.shape != value.shape[:2]:
+                raise ValueError(
+                    "Expected `log_weights` to have shape {} (the chain and draw"
+                    " dimensions of `samples`), but got {}.".format(
+                        value.shape[:2], log_weights.shape
+                    )
+                )
             mean, std, median, hpd = _weighted_stats(value_flat, weights, prob)
-            n_eff = np.full(mean.shape, 1.0 / np.square(weights).sum())
+            n_eff = np.full(mean.shape, weights_n_eff)
             summary_dict[name] = OrderedDict(
                 [
                     ("mean", mean),
