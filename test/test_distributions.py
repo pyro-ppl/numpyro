@@ -3663,6 +3663,67 @@ def test_composed_transform_1(batch_shape):
     assert_allclose(log_det, expected_log_det)
 
 
+def test_ordered_logistic_tail_likelihood():
+    predictors = jnp.array([-20.0, 20.0])
+    cutpoints = jnp.array([-1.0, 1.0])
+    categories = jnp.arange(3)
+
+    def evaluate(predictor):
+        distribution = dist.OrderedLogistic(predictor, cutpoints, validate_args=True)
+        score = jax.jacfwd(
+            lambda eta: dist.OrderedLogistic(eta, cutpoints).log_prob(categories)
+        )(predictor)
+        return distribution.probs, distribution.log_prob(categories), score
+
+    probs, log_prob, score = jax.vmap(evaluate)(predictors)
+    # Reflect the positive-tail case to evaluate both references without cancellation.
+    cdf = scipy.special.expit(np.array([-21.0, -19.0]))
+    masses = np.diff(cdf, prepend=0, append=1)
+    densities = np.pad(cdf * (1 - cdf), (1, 1))
+    positive_score = -np.diff(densities) / masses
+    expected_probs = np.stack([masses[::-1], masses])
+    expected_score = np.stack([-positive_score[::-1], positive_score])
+    assert_allclose(probs, expected_probs, rtol=2e-6, atol=0)
+    assert_allclose(log_prob, np.log(expected_probs), rtol=2e-6, atol=1e-6)
+    assert_allclose(score, expected_score, rtol=2e-6, atol=1e-7)
+
+
+def test_simplex_to_ordered_inverse_boundaries():
+    anchor = jnp.array([0.0, 2.0])
+    transform = SimplexToOrderedTransform(anchor)
+    # Include integer cutpoints and the single-category (empty-cutpoint) case.
+    for cutpoints in (
+        jnp.array([1, 3], dtype=jnp.uint8),
+        jnp.array([], dtype=jnp.int32),
+    ):
+        actual = transform.inv(cutpoints)
+        expected = np.diff(
+            scipy.special.expit(np.asarray(cutpoints) - np.asarray(anchor)[:, None]),
+            prepend=0,
+            append=1,
+        )
+        assert_allclose(actual, expected, rtol=1e-6, atol=0)
+        assert actual.shape == (2, len(cutpoints) + 1)
+        assert_array_equal(transform.domain(actual), np.ones(2, dtype=bool))
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_simplex_to_ordered_inverse_repeated_infinity_gradients(sign):
+    def inverse(cutpoints, anchor):
+        return SimplexToOrderedTransform(anchor).inv(cutpoints)
+
+    cutpoints = jnp.full((2,), sign * jnp.inf)
+    anchor = jnp.asarray(1.25)
+    actual = inverse(cutpoints, anchor)
+    cutpoint_jacobian, anchor_jacobian = jax.jacrev(inverse, argnums=(0, 1))(
+        cutpoints, anchor
+    )
+    expected = [1.0, 0.0, 0.0] if sign == 1 else [0.0, 0.0, 1.0]
+    assert_allclose(actual, expected, rtol=0, atol=0)
+    assert_allclose(cutpoint_jacobian, jnp.zeros((3, 2)), rtol=0, atol=0)
+    assert_allclose(anchor_jacobian, jnp.zeros(3), rtol=0, atol=0)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 def test_simplex_to_order_transform(batch_shape):
     simplex = jnp.arange(5.0) / jnp.arange(5.0).sum()
