@@ -4952,6 +4952,31 @@ def test_lowrank_mvn_19885(capfd: pytest.CaptureFixture) -> None:
     assert log_prob.shape == (sample_size, batch_size)
 
 
+@pytest.mark.parametrize("shape", [(2,), (4, 1, 2)])
+@pytest.mark.parametrize(
+    "parameter", ["covariance_matrix", "precision_matrix", "scale_tril", "student"]
+)
+def test_mvn_log_prob_shared_observation(shape, parameter):
+    # One observation scored under a batch of covariance matrices (#2412).
+    cov = np.array(
+        [[[1.0, 0.2], [0.2, 0.7]], [[0.6, -0.1], [-0.1, 1.3]], [[1.4, 0.3], [0.3, 0.8]]]
+    )
+    value = np.array([0.3, -0.4])
+    if parameter == "student":
+        d = dist.MultivariateStudentT(5.0, np.zeros(2), np.linalg.cholesky(cov))
+        expected = [osp.multivariate_t.logpdf(value, df=5.0, shape=c) for c in cov]
+    else:
+        matrix = {
+            "covariance_matrix": cov,
+            "precision_matrix": np.linalg.inv(cov),
+            "scale_tril": np.linalg.cholesky(cov),
+        }[parameter]
+        d = dist.MultivariateNormal(**{parameter: matrix})
+        expected = [osp.multivariate_normal.logpdf(value, cov=c) for c in cov]
+    expected = np.broadcast_to(expected, np.broadcast_shapes(shape[:-1], (3,)))
+    assert_allclose(d.log_prob(np.broadcast_to(value, shape)), expected, rtol=1e-5)
+
+
 def test_gaussian_random_walk_linear_recursive_equivalence():
     dist1 = dist.GaussianRandomWalk(3.7, 15)
     dist2 = dist.TransformedDistribution(
