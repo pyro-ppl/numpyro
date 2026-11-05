@@ -56,6 +56,22 @@ class _substitute_default_key(Messenger):
             msg["value"] = random.key(0)
 
 
+def _site_log_prob(site: dict) -> jax.Array:
+    """
+    Log density of a sample site at its value, not summed over its batch dims: the
+    `log_prob` of the site's distribution (given the site's intermediates if it has any),
+    multiplied by the site's `scale` if there is one.
+    """
+    if site["intermediates"]:
+        log_prob = site["fn"].log_prob(site["value"], site["intermediates"])
+    else:
+        log_prob = site["fn"].log_prob(site["value"])
+    scale = site["scale"]
+    if (scale is not None) and (not is_identically_one(scale)):
+        log_prob = scale * log_prob
+    return log_prob
+
+
 def compute_log_probs(
     model,
     model_args: tuple,
@@ -80,13 +96,8 @@ def compute_log_probs(
     log_joint = {}
     for site in model_trace.values():
         if site["type"] == "sample":
-            value = site["value"]
-            intermediates = site["intermediates"]
-            scale = site["scale"]
-            if intermediates:
-                log_prob = site["fn"].log_prob(value, intermediates)
-            else:
-                guide_shape = jnp.shape(value)
+            if not site["intermediates"]:
+                guide_shape = jnp.shape(site["value"])
                 model_shape = tuple(
                     site["fn"].shape()
                 )  # TensorShape from tfp needs casting to tuple
@@ -98,11 +109,7 @@ def compute_log_probs(
                             site["name"], model_shape, guide_shape
                         )
                     )
-                log_prob = site["fn"].log_prob(value)
-
-            if (scale is not None) and (not is_identically_one(scale)):
-                log_prob = scale * log_prob
-
+            log_prob = _site_log_prob(site)
             log_joint[site["name"]] = jnp.sum(log_prob) if sum_log_prob else log_prob
     return log_joint, model_trace
 

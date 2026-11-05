@@ -235,3 +235,11 @@ Helpers from :mod:`numpyro.infer.gibbs` shared by :class:`~numpyro.infer.gibbs.G
 .. autofunction:: numpyro.infer.gibbs.select_discrete_proposal
 
 .. autofunction:: numpyro.infer.gibbs.discrete_gibbs_sweep
+
+.. autoclass:: numpyro.infer.gibbs.PlateBlock
+
+.. autofunction:: numpyro.infer.gibbs.find_plate_blocks
+
+.. autofunction:: numpyro.infer.gibbs.plate_log_factors
+
+.. autofunction:: numpyro.infer.gibbs.plate_gibbs_update

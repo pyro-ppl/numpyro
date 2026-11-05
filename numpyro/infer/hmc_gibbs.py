@@ -153,7 +153,10 @@ class DiscreteHMCGibbs(Gibbs):
     :param bool plate_aware: whether to update the elements of a discrete site that are
         conditionally independent across its plates all at once, in one vectorized step,
         instead of one coordinate at a time; see :class:`~numpyro.infer.gibbs.DiscreteGibbs`.
-        Defaults to False.
+        Only correct when every factor inside the plate depends on the site elementwise
+        along the plate dims, as the plate declares; a non-elementwise dependency (e.g. a
+        reduction over the plate) is not detected and yields wrong samples. Defaults to
+        False.
 
     **References:**
 
@@ -211,11 +214,9 @@ class DiscreteHMCGibbs(Gibbs):
         super().__init__(
             [(discrete_kernel, discrete_latent_sites), (inner_kernel, None)]
         )
-        self.discrete_kernel = self._kernels[0]
         self.inner_kernel = self._kernels[1]
         self._random_walk = random_walk
         self._modified = modified
-        self._plate_aware = plate_aware
 
 
 HMCECSState = namedtuple(

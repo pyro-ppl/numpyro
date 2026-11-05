@@ -32,13 +32,13 @@ from numpyro._typing import (
     SiteValues,
     TraceT,
 )
-from numpyro.distributions.util import is_identically_one
 from numpyro.handlers import condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.initialization import init_to_sample
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import (
     _prepare_model_for_potential,
+    _site_log_prob,
     _transforms_from_trace,
     potential_energy,
     transform_fn,
@@ -65,8 +65,8 @@ __all__ = [
     "discrete_gibbs_sweep",
     "discrete_latent_sites",
     "discrete_support_sizes",
+    "find_plate_blocks",
     "latent_sample_sites",
-    "plate_blocks",
     "plate_gibbs_update",
     "plate_log_factors",
     "prototype_trace",
@@ -1179,17 +1179,10 @@ def discrete_gibbs_sweep(
     return z, pe
 
 
-# Plate-aware updates. The elements of a discrete site inside plates are conditionally
-# independent across the plate dims given the other latent sites, as long as every factor
-# that reads the site lives in the same plates. Their full conditionals can then be computed
-# in one batched pass, one model evaluation per support value, and all elements updated at
-# once, instead of one full-model evaluation per element and per support value.
-
-
 class PlateBlock(NamedTuple):
     """
     A discrete site whose elements :class:`DiscreteGibbs` updates all at once, see
-    :func:`plate_blocks`.
+    :func:`find_plate_blocks`.
 
     - **name** - the site.
     - **support_size** - number of values in the site's support.
@@ -1197,7 +1190,7 @@ class PlateBlock(NamedTuple):
     - **plate_dims** - the (negative) dims of the plates enclosing the site.
     - **factors** - the sample sites whose log density depends on the site, the site itself
       included. Every one of them is inside the plates of the site.
-    - **support_low** - smallest support value, broadcast to `shape`, e.g. `low` of
+    - **support_low** - smallest value of the site's support, e.g. `low` of
       :class:`~numpyro.distributions.DiscreteUniform`.
     """
 
@@ -1206,19 +1199,7 @@ class PlateBlock(NamedTuple):
     shape: tuple[int, ...]
     plate_dims: tuple[int, ...]
     factors: tuple[str, ...]
-    support_low: np.ndarray
-
-
-def _site_log_prob(site: dict[str, Any]) -> jax.Array:
-    """Unsummed log density of a sample site, as :func:`~numpyro.infer.util.log_density`."""
-    if site["intermediates"]:
-        log_prob = site["fn"].log_prob(site["value"], site["intermediates"])
-    else:
-        log_prob = site["fn"].log_prob(site["value"])
-    scale = site["scale"]
-    if (scale is not None) and (not is_identically_one(scale)):
-        log_prob = scale * log_prob
-    return jnp.asarray(log_prob)
+    support_low: int
 
 
 def _log_prob_dependencies(
@@ -1261,7 +1242,7 @@ def _log_prob_dependencies(
     return {name: frozenset(deps) & tracked for name, deps in provenance.items()}
 
 
-def plate_blocks(
+def find_plate_blocks(
     model: ModelT,
     model_args: ModelArgs,
     model_kwargs: ModelKwargs,
@@ -1303,10 +1284,9 @@ def plate_blocks(
     for name in sites:
         site, frames = sample_sites[name], frames_of[name]
         shape = tuple(jnp.shape(site["value"]))
-        dims = tuple(sorted(dim for _, dim in frames if dim is not None))
+        dims = tuple(sorted(dim for _, dim in frames))
         if (
             not frames
-            or len(dims) < len(frames)
             or tuple(site["fn"].event_shape) != ()
             or any(plate in subsampled for plate, _ in frames)
             or any(-dim > len(shape) for dim in dims)
@@ -1320,11 +1300,14 @@ def plate_blocks(
             for s in factors
         ):
             continue
-        support_low = np.broadcast_to(
-            np.asarray(getattr(site["fn"].support, "lower_bound", 0)), shape
-        )
+        low = np.asarray(getattr(site["fn"].support, "lower_bound", 0))
+        if np.any(low != low.flat[0]):
+            # a support low that varies across the elements; keep the coordinate-wise sweep
+            continue
         support_size = int(site["fn"].enumerate_support(False).shape[0])
-        blocks.append(PlateBlock(name, support_size, shape, dims, factors, support_low))
+        blocks.append(
+            PlateBlock(name, support_size, shape, dims, factors, int(low.flat[0]))
+        )
     return tuple(blocks)
 
 
@@ -1346,7 +1329,7 @@ def plate_log_factors(
     :param model: the (conditioned, prepared) model, see :class:`DiscreteGibbs`.
     :param tuple model_args: arguments provided to the model.
     :param dict model_kwargs: keyword arguments provided to the model, with the conditioning.
-    :param block: the block, see :func:`plate_blocks`.
+    :param block: the block, see :func:`find_plate_blocks`.
     :param z: current discrete values; the entries other than `block.name` are conditioned on.
     :return: an array of shape `(block.support_size,) + block.shape`.
     """
@@ -1360,7 +1343,7 @@ def plate_log_factors(
         )
         total = 0.0
         for name in block.factors:
-            log_prob = _site_log_prob(model_trace[name])
+            log_prob = jnp.asarray(_site_log_prob(model_trace[name]))
             reduce_axes = tuple(
                 axis
                 for axis in range(-log_prob.ndim, 0)
@@ -1381,25 +1364,30 @@ def plate_log_factors(
 def plate_gibbs_update(
     rng_key: jax.Array,
     z: SiteValues,
+    pe: jax.Array,
     block: PlateBlock,
     log_factors: jax.Array,
     random_walk: bool = False,
     modified: bool = False,
-) -> SiteValues:
+) -> tuple[SiteValues, jax.Array]:
     """
     Update every element of the site of a plate block at once, each from its own full
     conditional (or with the uniform random walk / modified proposals of
     :func:`select_discrete_proposal`, each Metropolis corrected). Because the elements are
     conditionally independent given the other sites, the simultaneous update is the same
-    Gibbs (or Metropolis) update as a coordinate-wise sweep over the elements.
+    Gibbs (or Metropolis) update as a coordinate-wise sweep over the elements. The potential
+    energy is carried along like in :func:`discrete_gibbs_sweep`: the log factors of the
+    accepted elements change by the difference between their new and their current value,
+    and everything else in the potential stays the same.
 
     :param rng_key: random key.
     :param z: current discrete values.
-    :param block: the block, see :func:`plate_blocks`.
+    :param pe: potential energy at `z`.
+    :param block: the block, see :func:`find_plate_blocks`.
     :param log_factors: the per-element log factors at `z`, see :func:`plate_log_factors`.
     :param bool random_walk: uniform proposals over the support instead of the conditional.
     :param bool modified: use the modified (Metropolised) proposal.
-    :return: `z` with the site of the block updated.
+    :return: `z` with the site of the block updated, and the potential energy there.
     """
     name, shape, support_size = block.name, block.shape, block.support_size
     value = z[name]
@@ -1435,7 +1423,8 @@ def plate_gibbs_update(
     # and -log(u) ~ exponential(1)
     accept = random.exponential(rng_accept, shape) > -log_accept_ratio
     new = jnp.where(accept, proposal, current)
-    return {**z, name: (new + low).astype(value.dtype)}
+    delta = jnp.where(accept, gather(proposal) - gather(current), 0.0)
+    return {**z, name: (new + low).astype(value.dtype)}, pe - jnp.sum(delta)
 
 
 class DiscreteGibbsState(NamedTuple):
@@ -1464,15 +1453,15 @@ class DiscreteGibbs(MCMCKernel):
     as in HMC.
 
     With `plate_aware`, a site whose elements are conditionally independent across its plates
-    (every factor that reads the site is inside the same plates, see :func:`plate_blocks`) is
-    updated in one vectorized step instead: its full conditionals are computed in one batched
-    pass, with one model evaluation per support value, and all its elements are drawn at once
-    (:func:`plate_gibbs_update`). The other sites keep the coordinate-wise sweep. This is the
-    same Gibbs (or Metropolis) update as the sweep, only cheaper: a plated site with `N`
-    elements and `K` support values costs `K` batched model evaluations instead of
-    `N * (K - 1)` sequential ones. It relies on the independence the plates declare: the
-    factors inside a plate must depend on the site elementwise along the plate dims. It is
-    not used when a site is enumerated.
+    (every factor that reads the site is inside the same plates, see
+    :func:`find_plate_blocks`) is updated in one vectorized step instead: its full
+    conditionals are computed in one batched pass, with one model evaluation per support
+    value, and all its elements are drawn at once (:func:`plate_gibbs_update`). The other
+    sites keep the coordinate-wise sweep. This is the same Gibbs (or Metropolis) update as
+    the sweep, only cheaper: a plated site with `N` elements and `K` support values costs
+    `K` batched model evaluations instead of `N * (K - 1)` sequential ones. It relies on the
+    independence the plates declare: the factors inside a plate must depend on the site
+    elementwise along the plate dims. It is not used when a site is enumerated.
 
     :param model: the model.
     :param bool random_walk: uniform proposals over the support instead of the exact
@@ -1480,7 +1469,10 @@ class DiscreteGibbs(MCMCKernel):
     :param bool modified: Liu's modified (Metropolised) proposal that never proposes the
         current value.
     :param bool plate_aware: update the elements of a plated site all at once when they are
-        conditionally independent. Defaults to False.
+        conditionally independent. Only correct when every factor inside the plate depends
+        on the site elementwise along the plate dims, as the plate declares; a
+        non-elementwise dependency (e.g. a reduction over the plate) is not detected and
+        yields wrong samples. Defaults to False.
 
     **References:**
 
@@ -1518,7 +1510,7 @@ class DiscreteGibbs(MCMCKernel):
 
     @property
     def plate_blocks(self) -> tuple[PlateBlock, ...]:
-        """The sites updated plate-wise, see :func:`plate_blocks`; resolved at `init`."""
+        """The sites updated plate-wise, see :func:`find_plate_blocks`; resolved at `init`."""
         if self._plate_blocks is None:
             raise RuntimeError(
                 "`plate_blocks` requires the kernel to be initialized; run `init` first."
@@ -1609,7 +1601,7 @@ class DiscreteGibbs(MCMCKernel):
         )
         self._plate_blocks = ()
         if self._plate_aware and not self._enum:
-            self._plate_blocks = plate_blocks(
+            self._plate_blocks = find_plate_blocks(
                 self._prepared_model, model_args, model_kwargs, model_trace, sites
             )
         plated = {block.name for block in self._plate_blocks}
@@ -1666,11 +1658,9 @@ class DiscreteGibbs(MCMCKernel):
             log_factors = plate_log_factors(
                 self._prepared_model, model_args, model_kwargs or {}, block, z
             )
-            z = plate_gibbs_update(
-                key_block, z, block, log_factors, self._random_walk, self._modified
+            z, pe = plate_gibbs_update(
+                key_block, z, pe, block, log_factors, self._random_walk, self._modified
             )
-        if self._plate_blocks:
-            pe = jnp.asarray(potential_fn(z))
         return state._replace(z=z, potential_energy=pe, rng_key=rng_key)
 
     def refresh(
