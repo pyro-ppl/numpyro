@@ -12,6 +12,7 @@ import jax
 from jax import jacfwd, jit, random, vmap
 import jax.numpy as jnp
 
+from numpyro import distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,
@@ -447,6 +448,54 @@ def test_batched_recursive_linear_transform(initial_value):
     y = transform(x)
     assert y.shape == x.shape
     assert jnp.allclose(x, transform.inv(y), atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "transition_batch, initial_batch", [((3,), ()), ((), (3,)), ((2, 1), (3,))]
+)
+@pytest.mark.parametrize("inverse", [False, True])
+def test_recursive_linear_distribution_parameter_batches(
+    transition_batch, initial_batch, inverse
+):
+    dtype = np.float64 if jax.config.jax_enable_x64 else np.float32
+    transition = np.broadcast_to(
+        0.25 * np.eye(2, dtype=dtype), transition_batch + (2, 2)
+    )
+    initial = np.broadcast_to(np.array([0.5, -0.5], dtype=dtype), initial_batch + (2,))
+    transform = RecursiveLinearTransform(jnp.asarray(transition), jnp.asarray(initial))
+    if inverse:
+        transform = transform.inv
+    batch_shape = np.broadcast_shapes(transition_batch, initial_batch)
+    base = (
+        dist.Normal(jnp.asarray(0, dtype=dtype), jnp.asarray(1, dtype=dtype))
+        .expand((4, 2))
+        .to_event(2)
+    )
+    distribution = dist.TransformedDistribution(base, transform)
+    assert distribution.batch_shape == batch_shape
+    assert distribution.event_shape == (4, 2)
+    for sample_shape in ((), (5,)):
+        x = np.asarray(distribution.base_dist.sample(random.key(0), sample_shape))
+        prev = np.broadcast_to(initial, sample_shape + batch_shape + (2,))
+        expected = []
+        for step in np.moveaxis(x, -2, 0):
+            product = np.einsum("...ij,...j->...i", transition, prev)
+            value = step - product if inverse else step + product
+            expected.append(value)
+            prev = step if inverse else value
+        expected = np.stack(expected, axis=-2)
+        actual = distribution.sample(random.key(0), sample_shape)
+        assert actual.shape == sample_shape + batch_shape + (4, 2)
+        np.testing.assert_allclose(actual, expected, atol=1e-6)
+        expected_log_prob = -0.5 * np.sum(x**2 + np.log(2 * np.pi), axis=(-2, -1))
+        np.testing.assert_allclose(
+            distribution.log_prob(actual), expected_log_prob, rtol=1e-5
+        )
+    raw = jnp.arange(8, dtype=dtype).reshape(4, 2)
+    assert transform.forward_shape(raw.shape) == batch_shape + raw.shape
+    assert transform.inverse_shape(raw.shape) == batch_shape + raw.shape
+    assert transform(raw).shape == batch_shape + raw.shape
+    assert transform.inv(raw).shape == batch_shape + raw.shape
 
 
 @pytest.mark.parametrize(
