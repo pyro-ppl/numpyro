@@ -4911,6 +4911,25 @@ def test_sine_bivariate_von_mises_norm(conc):
     assert jnp.allclose(integral_torus, 1.0, rtol=1e-2)
 
 
+def test_gaussian_state_space_broadcast_initial_value():
+    initial_value = np.arange(10).reshape(5, 1, 2) / 10
+    d = dist.GaussianStateSpace(
+        3,
+        np.eye(2),
+        scale_tril=np.broadcast_to(np.eye(2), (5, 2, 2)),
+        initial_value=initial_value,
+    )
+    assert d.batch_shape == (5, 5)
+    assert d.mean.shape == d.batch_shape + d.event_shape
+    expected_mean = np.broadcast_to(initial_value[..., None, :], (5, 5, 3, 2))
+    np.testing.assert_allclose(d.mean, expected_mean)
+    x = d.base_dist.sample(random.key(0), (2,))
+    y = d.sample(random.key(0), (2,))
+    assert y.shape == (2, 5, 5, 3, 2)
+    np.testing.assert_allclose(d.transforms[0].inv(y), x, atol=1e-6)
+    np.testing.assert_allclose(d.log_prob(y), d.base_dist.log_prob(x), rtol=1e-5)
+
+
 def test_gaussian_random_walk_state_space_equivalence():
     # Gaussian random walks are state space models with one state and unit transition
     # matrix. Here, we verify we get the expected results.
@@ -6614,6 +6633,23 @@ def test_integer_parameter_predictive(make_dist, compiled, param):
         (dist.GeometricProbs, "probs", True, [1, 1]),
         (dist.GeometricLogits, "logits", True, [0, 1]),
         (dist.BernoulliProbs, "probs", True, [0, 1]),
+        (dist.BernoulliLogits, "logits", True, [0, 1]),
+        (lambda p: dist.BinomialLogits(p, 3), "logits", False, [0, 1]),
+        (lambda p: dist.NegativeBinomialLogits(3.0, p), "logits", False, [0, 1]),
+        (dist.CategoricalLogits, "logits", True, [0, 1]),
+        (dist.MultinomialLogits, "logits", False, [0, 1]),
+        (
+            lambda p: dist.ZeroInflatedLogits(dist.Poisson(2.0), p),
+            "gate_logits",
+            False,
+            [0, 1],
+        ),
+        (
+            lambda p: dist.HurdleLogits(dist.Poisson(2.0), p),
+            "gate_logits",
+            False,
+            [0, 1],
+        ),
         (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
         (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
     ],
@@ -6631,7 +6667,11 @@ def test_discrete_inexact_parameter_methods(
         return (
             getattr(d, attribute),
             d.sample(random.key(3), (8,)),
-            d.log_prob(jnp.array([0, 1])[:, None]),
+            d.log_prob(
+                jnp.array([[1, 0], [0, 1]])
+                if d.event_shape
+                else jnp.array([0, 1])[:, None]
+            ),
             d.mean,
             d.variance,
             d.entropy() if has_entropy else 0.0,
@@ -6652,6 +6692,13 @@ def test_discrete_inexact_parameter_methods(
         dist.GeometricProbs,
         dist.GeometricLogits,
         dist.BernoulliProbs,
+        dist.BernoulliLogits,
+        lambda p: dist.BinomialLogits(p, 3),
+        lambda p: dist.NegativeBinomialLogits(3.0, p),
+        dist.CategoricalLogits,
+        dist.MultinomialLogits,
+        lambda p: dist.ZeroInflatedLogits(dist.Poisson(2.0), p),
+        lambda p: dist.HurdleLogits(dist.Poisson(2.0), p),
         lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0),
         lambda p: dist.HurdlePoisson(gate=p, rate=2.0),
     ],
@@ -6662,7 +6709,11 @@ def test_discrete_list_parameters(make_dist, compiled):
         d = make_dist(p)
         return (
             d.sample(random.key(4), (8,)),
-            d.log_prob(jnp.array([0, 1])[:, None]),
+            d.log_prob(
+                jnp.array([[1, 0], [0, 1]])
+                if d.event_shape
+                else jnp.array([0, 1])[:, None]
+            ),
             d.mean,
             d.variance,
         )
@@ -6681,6 +6732,7 @@ def test_discrete_list_parameters(make_dist, compiled):
         (dist.GeometricProbs, "probs"),
         (dist.GeometricLogits, "logits"),
         (dist.BernoulliProbs, "probs"),
+        (dist.CategoricalLogits, "logits"),
         (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate"),
         (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate"),
     ],
@@ -6713,6 +6765,31 @@ def test_zero_inflated_weak_parameter_dtype(compiled):
         evaluate = jax.jit(evaluate)
     rate = jnp.float32(2.0)
     assert evaluate(rate).dtype == rate.dtype
+
+
+@pytest.mark.parametrize(
+    "make_dist, parameter",
+    [
+        (dist.BernoulliLogits, 0),
+        (dist.BernoulliLogits, True),
+        (dist.GeometricProbs, 1),
+        (dist.GeometricLogits, 0),
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+def test_discrete_integer_scalar_dtype(make_dist, parameter, compiled):
+    def evaluate(value):
+        return (
+            make_dist(float(parameter)).log_prob(value),
+            make_dist(parameter).log_prob(value),
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    value = jnp.array(1.0, dtype=jnp.bfloat16)
+    float_score, integer_score = evaluate(value)
+    assert integer_score.dtype == value.dtype
+    assert_array_equal(integer_score, float_score)
 
 
 @pytest.mark.parametrize("rate", [0.3, 3.0, 100.0])
