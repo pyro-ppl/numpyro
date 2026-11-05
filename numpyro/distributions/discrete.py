@@ -273,7 +273,7 @@ class BernoulliLogits(Distribution):
             :math:`\mp\infty` denote :math:`p = 0` and :math:`p = 1`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.logits = logits
+        self.logits = promote_to_inexact(logits)
         super(BernoulliLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
@@ -618,6 +618,7 @@ class BinomialLogits(Distribution):
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
+        logits = promote_to_inexact(logits)
         self.logits, self.total_count = promote_shapes(logits, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
@@ -911,8 +912,7 @@ class CategoricalLogits(Distribution):
             category; :math:`+\infty` is rejected since the softmax is then undefined.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        # Lists must become arrays for the sampler; NumPy inputs stay NumPy.
-        logits = logits if isinstance(logits, jax.Array) else np.asarray(logits)
+        logits = promote_to_inexact(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
@@ -1538,6 +1538,7 @@ class MultinomialLogits(Distribution):
             i.e. `max(total_count)`, used to size the sampler's internal arrays.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
+        logits = promote_to_inexact(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -1982,6 +1983,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         *,
         validate_args: Optional[bool] = None,
     ):
+        gate_logits = promote_to_inexact(gate_logits)
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
@@ -2305,6 +2307,7 @@ class HurdleLogits(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        gate_logits = promote_to_inexact(gate_logits)
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
