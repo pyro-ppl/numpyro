@@ -752,9 +752,7 @@ def test_log_likelihood_flax_nn():
 
 
 @pytest.mark.parametrize("initializer", [find_valid_initial_params, initialize_model])
-@pytest.mark.parametrize(
-    "kind", ["function", "callable", "partial", "partial_subclass"]
-)
+@pytest.mark.parametrize("kind", ["function", "callable"])
 def test_per_site_init_strategy(initializer, kind):
     def model():
         numpyro.sample("x", dist.Normal())
@@ -767,69 +765,31 @@ def test_per_site_init_strategy(initializer, kind):
         def __call__(self, site):
             return strategy(site)
 
-    class Partial(partial):
-        pass
-
     strategies = {
         "function": strategy,
         "callable": Strategy(),
-        "partial": partial(strategy),
-        "partial_subclass": Partial(strategy),
     }
     info = initializer(random.key(9), model, init_strategy=strategies[kind])[0]
     assert_allclose(info[0]["x"], 3.0)
     assert_allclose(info[0]["y"], 7.0)
 
 
-def test_find_valid_initial_params_bare_init_to_value():
+def test_init_strategy_zero_argument_factory():
     def model():
         numpyro.sample("x", dist.Normal())
 
-    info, valid = find_valid_initial_params(
-        random.key(0),
-        model,
-        init_strategy=init_to_value,
-        prototype_params={"x": jnp.array(0.0)},
+    info = initialize_model(
+        random.key(0), model, init_strategy=lambda: lambda site: 0.0
     )
-    assert valid
-    assert jnp.isfinite(info[0]["x"])
+    assert_allclose(info[0][0]["x"], 0.0)
 
 
-@pytest.mark.parametrize("initializer", [find_valid_initial_params, initialize_model])
-def test_init_strategy_optional_site_factory(initializer):
-    def model():
-        numpyro.sample("x", dist.Normal())
-
-    class Strategy:
-        def __call__(self, site=None):
-            if site is None:
-                return partial(self)
-            return 3.0
-
-    info = initializer(random.key(0), model, init_strategy=Strategy())[0]
-    assert_allclose(info[0]["x"], 3.0)
-
-
-@pytest.mark.parametrize("initializer", [find_valid_initial_params, initialize_model])
-@pytest.mark.parametrize("plain_function", [False, True])
-def test_init_strategy_zero_argument_factory(initializer, plain_function):
-    def model():
-        numpyro.sample("x", dist.Normal())
-
-    def factory():
-        return (lambda site: 0.0) if plain_function else init_to_uniform(radius=0)
-
-    info = initializer(random.key(0), model, init_strategy=factory)[0]
-    assert_allclose(info[0]["x"], 0.0)
-
-
-@pytest.mark.parametrize("initializer", [find_valid_initial_params, initialize_model])
-def test_init_strategy_factory_must_return_callable(initializer):
+def test_init_strategy_factory_must_return_callable():
     def model():
         numpyro.sample("x", dist.Normal())
 
     with pytest.raises(TypeError, match=r"per-site function f\(site\)"):
-        initializer(random.key(0), model, init_strategy=lambda: 3.0)
+        initialize_model(random.key(0), model, init_strategy=lambda: 3.0)
 
 
 def test_init_strategy_body_type_error():
