@@ -3247,6 +3247,13 @@ def test_validate_args_of_derived_parameter_under_jit():
         ),
         (
             constraints.cat(
+                [constraints.simplex, constraints.simplex], dim=-1, lengths=[2, 2]
+            ),
+            np.array([[0.5, 0.5, 0.3, 0.7], [0.5, 0.5, 0.3, 0.6]]),
+            np.array([True, False]),
+        ),
+        (
+            constraints.cat(
                 [constraints.real_vector, constraints.positive], dim=-2, lengths=[1, 2]
             ),
             np.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]]),

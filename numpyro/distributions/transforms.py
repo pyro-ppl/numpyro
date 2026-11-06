@@ -28,6 +28,7 @@ from numpyro._typing import (
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import Constraint
 from numpyro.distributions.util import (
+    _cat_reduce,
     add_diag,
     array_equiv,
     matrix_to_tril_vec,
@@ -571,13 +572,7 @@ class CatTransform(Transform[NonScalarArray]):
             )
             logdetjacs.append(sum_rightmost(logdetjac, event_dim - transform_event_dim))
 
-        dim = self.dim
-        if dim >= 0:
-            dim -= jnp.ndim(x)
-        dim += event_dim
-        if dim < 0:
-            return jnp.concatenate(logdetjacs, axis=dim)
-        return sum(logdetjacs)
+        return _cat_reduce(logdetjacs, self.dim, event_dim, jnp.ndim(x), sum)
 
     def call_with_intermediates(
         self, x: NonScalarArray
