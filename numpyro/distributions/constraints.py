@@ -67,6 +67,7 @@ __all__ = [
     "Constraint",
 ]
 
+from functools import reduce
 import math
 from typing import ClassVar, Generic, Optional, Sequence, cast
 
@@ -78,7 +79,7 @@ from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
 from numpyro._typing import NonScalarArray, NumLike, NumLikeT
-from numpyro.distributions.util import array_equiv
+from numpyro.distributions.util import _cat_reduce, array_equiv
 from numpyro.util import not_jax_tracer
 
 
@@ -491,6 +492,10 @@ class _Cat(Constraint[NonScalarArray]):
     Applies a sequence of constraints to slices along a dimension, in a way
     compatible with :func:`jax.numpy.concatenate`.
 
+    The output has ``ndim(x) - max(c.event_dim)`` dimensions. Checks for slices
+    along an event dimension are combined with logical AND; checks for batch
+    slices are concatenated.
+
     :param cseq: Sequence of constraints to apply to consecutive slices.
     :param int dim: Dimension along which to slice.
     :param lengths: Length of each slice. Defaults to one per constraint.
@@ -549,10 +554,22 @@ class _Cat(Constraint[NonScalarArray]):
         return values
 
     def __call__(self, x: NonScalarArray) -> ArrayLike:
-        checks = [
-            constraint(value) for constraint, value in zip(self.cseq, self._slices(x))
-        ]
-        return jnp.concatenate(checks, axis=self.dim)
+        event_dim = self.event_dim
+        checks = []
+        for constraint, value in zip(self.cseq, self._slices(x)):
+            check = constraint(value)
+            if constraint.event_dim < event_dim:
+                check = jnp.all(
+                    check, axis=tuple(range(constraint.event_dim - event_dim, 0))
+                )
+            checks.append(check)
+        return _cat_reduce(
+            checks,
+            self.dim,
+            event_dim,
+            jnp.ndim(x),
+            lambda parts: reduce(jnp.logical_and, parts),
+        )
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         values = [

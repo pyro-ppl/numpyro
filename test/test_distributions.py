@@ -3239,6 +3239,46 @@ def test_validate_args_of_derived_parameter_under_jit():
             np.array([[True, True], [False, False]]),
         ),
         (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=-1, lengths=[2, 1]
+            ),
+            np.array([[0.0, 1.0, 2.0], [np.nan, 1.0, 2.0], [0.0, 1.0, -1.0]]),
+            np.array([True, False, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.simplex, constraints.simplex], dim=-1, lengths=[2, 2]
+            ),
+            np.array([[0.5, 0.5, 0.3, 0.7], [0.5, 0.5, 0.3, 0.6]]),
+            np.array([True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=-2, lengths=[1, 2]
+            ),
+            np.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]]),
+            np.array([True, True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=0, lengths=[1, 2]
+            ),
+            np.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]]),
+            np.array([True, True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_matrix, constraints.positive], dim=-2, lengths=[1, 2]
+            ),
+            np.array(
+                [
+                    [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]],
+                    [[1.0, 1.0], [1.0, 1.0], [1.0, -1.0]],
+                ]
+            ),
+            np.array([True, False]),
+        ),
+        (
             constraints.corr_cholesky,
             np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
             np.array([True, False]),
@@ -3402,6 +3442,25 @@ def test_zero_sum_support_of_samples(scale, event_shape):
     mask = d.support(samples)
     assert jnp.shape(mask) == (100,)
     assert jnp.all(mask)
+
+
+def test_cat_constraint_validated_transformed_distribution():
+    transform = transforms.CatTransform(
+        [
+            transforms.IndependentTransform(transforms.AffineTransform(0.0, 2.0), 1),
+            transforms.ExpTransform(),
+        ],
+        dim=-1,
+        lengths=[2, 1],
+    )
+    distribution = dist.TransformedDistribution(
+        dist.Normal(jnp.zeros(3), 1.0).to_event(1), transform, validate_args=True
+    )
+    x = jnp.array([[0.1, 0.2, 0.3], [-0.4, 0.5, -0.2]])
+    y = transform(x)
+    expected = -0.5 * (jnp.sum(x**2, axis=-1) + 3 * math.log(2 * math.pi))
+    expected -= 2 * math.log(2) + x[..., -1]
+    assert_allclose(distribution.log_prob(y), expected, rtol=1e-6)
 
 
 def test_cat_constraint_pytree_and_validation():
