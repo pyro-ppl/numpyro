@@ -1836,6 +1836,7 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         # Move the time axis to the first position so we can scan over it in reverse.
+        y = jnp.broadcast_to(y, self.inverse_shape(y.shape))
         sample_shape = y.shape[:-2]
         y = jnp.moveaxis(y, -2, 0)
 
@@ -1856,7 +1857,20 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
-        return jnp.zeros_like(x, shape=x.shape[:-2])
+        return jnp.zeros_like(x, shape=self.forward_shape(x.shape)[:-2])
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < 2:
+            raise ValueError("Too few dimensions on input")
+        batch_shape = lax.broadcast_shapes(
+            shape[:-2],
+            self.transition_matrix.shape[:-2],
+            self.initial_value.shape[:-1],
+        )
+        return batch_shape + shape[-2:]
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        return self.forward_shape(shape)
 
     def tree_flatten(self):
         return (self.transition_matrix, self.initial_value), (
