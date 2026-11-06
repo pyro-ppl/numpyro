@@ -5,6 +5,7 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
+import inspect
 from typing import Callable, NamedTuple, Optional
 import warnings
 
@@ -375,6 +376,45 @@ def _init_to_unconstrained_value(site=None, values={}):
         return partial(_init_to_unconstrained_value, values=values)
 
 
+def _normalize_init_strategy(init_strategy):
+    """Return a partial of a per-site initialization function.
+
+    Factories following the ``init_to_*(site=None, **kwargs)`` convention are
+    called so fast paths can read their keywords; callables requiring a
+    positional ``site`` are wrapped as-is. A factory must return a per-site
+    function, otherwise ``TypeError`` is raised.
+    """
+    if isinstance(init_strategy, partial):
+        return init_strategy
+    try:
+        signature = inspect.signature(init_strategy)
+    except (TypeError, ValueError):
+        return _call_init_strategy_factory(init_strategy)
+
+    def binds(*args):
+        try:
+            signature.bind(*args)
+        except TypeError:
+            return False
+        return True
+
+    if not binds() and binds(None):
+        return partial(init_strategy)
+    return _call_init_strategy_factory(init_strategy)
+
+
+def _call_init_strategy_factory(factory):
+    strategy = factory()
+    if isinstance(strategy, partial):
+        return strategy
+    if callable(strategy):
+        return partial(strategy)
+    raise TypeError(
+        "Initialization strategy factory must return a per-site function f(site); "
+        f"got {type(strategy).__name__}."
+    )
+
+
 def find_valid_initial_params(
     rng_key,
     model,
@@ -413,9 +453,7 @@ def find_valid_initial_params(
         containing the initial params, their potential energy, and their gradients.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    init_strategy = (
-        init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    )
+    init_strategy = _normalize_init_strategy(init_strategy)
     # handle those init strategies differently to save computation
     if init_strategy.func is init_to_uniform:
         radius = init_strategy.keywords.get("radius")
@@ -788,6 +826,7 @@ def initialize_model(
         at `deterministic` sites in the model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
+    init_strategy = _normalize_init_strategy(init_strategy)
     substituted_model = substitute(
         seed(model, rng_key if is_prng_key(rng_key) else rng_key[0]),
         substitute_fn=init_strategy,
@@ -830,9 +869,6 @@ def initialize_model(
         model_kwargs=model_kwargs,
     )
 
-    init_strategy = (
-        init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    )
     if (init_strategy.func is init_to_value) and not replay_model:
         init_values = init_strategy.keywords.get("values")
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
