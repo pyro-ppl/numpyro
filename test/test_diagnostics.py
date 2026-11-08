@@ -125,6 +125,24 @@ def test_summary_median_propagates_nan():
     assert not np.isnan(stats["median"][[0, 2]]).any()
 
 
+@pytest.mark.parametrize("prob_true", [0.3, 0.8])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_summary_boolean_samples(prob_true, weighted):
+    x = np.random.RandomState(0).rand(2, 100, 3) < prob_true
+    log_weights = np.random.RandomState(1).randn(*x.shape[:2]) if weighted else None
+    stats = summary({"x": x}, log_weights=log_weights)["x"]
+    expected = summary({"x": x.astype(np.int32)}, log_weights=log_weights)["x"]
+    for key, value in expected.items():
+        assert_allclose(stats[key], value, err_msg=key)
+    if not weighted:
+        assert_allclose(stats["median"], np.median(x.reshape(-1, 3), axis=0))
+
+
+def test_hpdi_boolean_samples():
+    x = np.random.RandomState(0).rand(1000, 3) < np.array([0.02, 0.5, 0.98])
+    assert_allclose(hpdi(x, prob=0.9), [[0, 0, 1], [0, 1, 1]])
+
+
 @pytest.mark.parametrize("group_by_chain, num_draws", [(True, 500), (False, 501)])
 def test_summary_equal_log_weights_match_unweighted(group_by_chain, num_draws):
     rng = np.random.RandomState(0)

@@ -226,6 +226,13 @@ def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
     return n_eff
 
 
+def _bool_to_int(x: NDArray) -> NDArray:
+    # numpy cannot subtract booleans (needed for the hpdi) and adds them as a
+    # logical or (which breaks the median), so treat them as 0/1 integers
+    x = np.asarray(x)
+    return x.astype(np.int32) if x.dtype == np.bool_ else x
+
+
 def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
@@ -239,7 +246,7 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
         that the size along ``axis`` is 2 (lower bound first, upper bound second).
     :rtype: numpy.ndarray
     """
-    x = np.swapaxes(x, axis, 0)
+    x = np.swapaxes(_bool_to_int(x), axis, 0)
     sorted_x = np.sort(x, axis=0)
     hpd_left, hpd_right = _hpdi_of_sorted(sorted_x, prob)
     hpd_left = np.swapaxes(hpd_left, axis, 0)
@@ -377,7 +384,7 @@ def summary(
     for name, value in samples.items():
         if len(value) == 0:
             continue
-        value = device_get(value)
+        value = _bool_to_int(device_get(value))
         value_flat = np.reshape(value, (-1,) + value.shape[2:])
         hpd_lower = "{:.1f}%".format(50 * (1 - prob))
         hpd_upper = "{:.1f}%".format(50 * (1 + prob))
