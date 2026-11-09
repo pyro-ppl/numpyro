@@ -1537,6 +1537,11 @@ def plate_gibbs_update(
     return {**z, name: (new + low).astype(value.dtype)}, pe - jnp.sum(delta)
 
 
+def _plate_decision(blocks: tuple[PlateBlock, ...]) -> tuple[PlateBlock, ...]:
+    """The blocks without their shape, which can change between runs (a retrace)."""
+    return tuple(block._replace(shape=()) for block in blocks)
+
+
 class DiscreteGibbsState(NamedTuple):
     """
     - **z** - dict of the current discrete values.
@@ -1798,7 +1803,7 @@ class DiscreteGibbs(MCMCKernel):
         z = _as_arrays(
             {name: init_params.get(name, model_trace[name]["value"]) for name in sites}
         )
-        self._plate_blocks = ()
+        plate_blocks: tuple[PlateBlock, ...] = ()
         if self._plate_aware and self._enum:
             warnings.warn(
                 "plate_aware is ignored: the model has a site marked for enumeration, and "
@@ -1806,7 +1811,7 @@ class DiscreteGibbs(MCMCKernel):
                 stacklevel=find_stack_level(),
             )
         elif self._plate_aware:
-            self._plate_blocks = self._check_plate_blocks(
+            plate_blocks = self._check_plate_blocks(
                 find_plate_blocks(
                     self._prepared_model, model_args, model_kwargs, model_trace, sites
                 ),
@@ -1814,6 +1819,19 @@ class DiscreteGibbs(MCMCKernel):
                 model_kwargs,
                 sites,
             )
+        if self._plate_blocks is not None and _plate_decision(
+            self._plate_blocks
+        ) != _plate_decision(plate_blocks):
+            # `sample` reads the decision when it is traced, and a compiled sampler (e.g.
+            # cached by `MCMC` with `jit_model_args=True`) would keep the earlier one.
+            raise ValueError(
+                "plate_aware: this kernel was initialized before with "
+                f"{[block.name for block in self._plate_blocks]} updated plate-wise, and "
+                f"these model arguments give {[block.name for block in plate_blocks]}. A "
+                "sampler compiled for the earlier decision would keep using it; use a new "
+                "kernel for these model arguments."
+            )
+        self._plate_blocks = plate_blocks
         plated = {block.name for block in self._plate_blocks}
         self._sweep_sites = tuple(name for name in sites if name not in plated)
         self._support_sizes_flat = _flat_support_sizes(model_trace, self._sweep_sites)

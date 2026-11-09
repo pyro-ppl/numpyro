@@ -564,6 +564,31 @@ def test_discrete_gibbs_plate_check_skipped():
     assert kernel.plate_blocks == ()
 
 
+def test_discrete_gibbs_plate_decision_changes():
+    # With jit_model_args=True, MCMC reuses the sampler compiled in the first run; a second
+    # run whose arguments change the plate-wise decision raises instead of running it.
+    def model(y, coupling):
+        with numpyro.plate("N", y.shape[0]):
+            s = numpyro.sample("z", dist.Bernoulli(0.5))
+            spin = 2.0 * s - 1.0
+            numpyro.sample("y", dist.Normal(spin, 2.0), obs=y)
+            numpyro.factor("c", coupling * spin * jnp.roll(spin, 1))
+
+    y = jnp.zeros(12)
+    kernel = DiscreteGibbs(model, plate_aware=True)
+    mcmc = MCMC(
+        kernel, num_warmup=0, num_samples=2, jit_model_args=True, progress_bar=False
+    )
+    mcmc.run(random.key(0), y, 0.0)
+    assert [block.name for block in kernel.plate_blocks] == ["z"]
+    with pytest.warns(UserWarning, match="keeps the coordinate-wise sweep"):
+        with pytest.raises(ValueError, match="use a new kernel"):
+            mcmc.run(random.key(0), y, 0.4)
+    # the same decision for another number of elements is fine
+    kernel.init(random.key(0), 0, None, (y[:6], 0.0), {})
+    assert [block.name for block in kernel.plate_blocks] == ["z"]
+
+
 def test_discrete_gibbs_plate_disable_jit():
     # the check runs eagerly under disable_jit
     y, probs, offsets = _plate_mixture_data()
