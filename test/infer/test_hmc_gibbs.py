@@ -564,6 +564,21 @@ def test_discrete_gibbs_plate_check_skipped():
     assert kernel.plate_blocks == ()
 
 
+def test_discrete_gibbs_plate_disable_jit():
+    # the check runs eagerly under disable_jit
+    y, probs, offsets = _plate_mixture_data()
+
+    def model(y):
+        with numpyro.plate("N", y.shape[0]):
+            z = numpyro.sample("z", dist.Categorical(probs))
+            numpyro.sample("y", dist.Normal(offsets[z], 1.0), obs=y)
+
+    kernel = DiscreteGibbs(model, plate_aware=True)
+    with jax.disable_jit():
+        kernel.init(random.key(0), 0, None, (y[:2],), {})
+    assert [block.name for block in kernel.plate_blocks] == ["z"]
+
+
 def test_discrete_gibbs_plate_numpy_args():
     # the model computes with its NumPy argument in Python
     y, probs, offsets = _plate_mixture_data()

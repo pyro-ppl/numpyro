@@ -1724,8 +1724,13 @@ class DiscreteGibbs(MCMCKernel):
         results: list[Any] = [None] * len(blocks)
         if all(not_jax_tracer(leaf) for leaf in jax.tree.leaves((model_args, kwargs))):
             # Compiled ahead of time and run: it reads only concrete values, so it also
-            # runs when `init` is traced (e.g. under `pmap`).
-            results = jax.jit(check).lower().compile()()
+            # runs when `init` is traced (e.g. under `pmap`). The AOT path is not available
+            # under `jax.disable_jit()`; there it runs eagerly.
+            results = (
+                check()
+                if jax.config.jax_disable_jit
+                else jax.jit(check).lower().compile()()
+            )
         checked = []
         for block, result in zip(blocks, results):
             if result is None:
