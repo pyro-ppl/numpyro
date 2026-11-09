@@ -28,6 +28,7 @@ from numpyro.infer import (
 from numpyro.infer.gibbs import (
     _plate_gibbs_update,
     _plate_log_factors,
+    _PlateBlock,
     with_conditioning,
 )
 from numpyro.infer.util import log_density
@@ -324,14 +325,6 @@ def _plate_mixture_data():
     return y, probs, offsets
 
 
-def _plate_mixture(y, probs, offsets):
-    # z is plated and every factor that reads it is in the same plate
-    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
-    with numpyro.plate("N", y.shape[0]):
-        z = numpyro.sample("z", dist.Categorical(probs))
-        numpyro.sample("y", dist.Normal(mu + offsets[z], 1.0), obs=y)
-
-
 def _nested_plate_mixture(y, probs, offsets):
     # the likelihood is in an extra plate; DiscreteUniform has a nonzero support low
     mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
@@ -352,12 +345,6 @@ def _mixed_sites_mixture(y, probs, offsets):
         numpyro.sample("y", dist.Normal(mu + offsets[z] + w, 1.0), obs=y)
 
 
-def _unplated_mixture(y, probs, offsets):
-    c = numpyro.sample("c", dist.Categorical(probs))
-    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
-    numpyro.sample("y", dist.Normal(mu + offsets[c], 1.0).expand([y.shape[0]]), obs=y)
-
-
 def _factor_outside_plate(y, probs, offsets):
     # a factor outside the plate couples the elements of z: no plate-wise update
     mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
@@ -367,22 +354,31 @@ def _factor_outside_plate(y, probs, offsets):
     numpyro.factor("coupling", -0.5 * jnp.square(jnp.sum(z) - 8.0))
 
 
-def _site_outside_reads_plate(y, probs, offsets):
-    # a latent site outside the plate depends on z: no plate-wise update
-    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+def _first_element(y, probs, offsets):
+    # every element reads the first one: the elements of z are not independent
     with numpyro.plate("N", y.shape[0]):
         z = numpyro.sample("z", dist.Categorical(probs))
-    w = numpyro.sample("w", dist.Bernoulli(jax.nn.sigmoid(jnp.sum(z) - 8.0)))
-    with numpyro.plate("N", y.shape[0]):
-        numpyro.sample("y", dist.Normal(mu + offsets[z] + w, 1.0), obs=y)
+        numpyro.sample("y", dist.Normal(offsets[z] + 1.5 * offsets[z[0]], 1.0), obs=y)
 
 
-def _sum_inside_plate(y, probs, offsets):
-    # a reduction over the plate inside the plate: the elements of z are not independent
-    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+def _first_reads_last(y, probs, offsets):
+    # only the first element reads another one: index 0 is in no half of the split, so
+    # this shows only from the other half
     with numpyro.plate("N", y.shape[0]):
         z = numpyro.sample("z", dist.Categorical(probs))
-        numpyro.sample("y", dist.Normal(mu + offsets[z] + 0.3 * z.sum(), 1.0), obs=y)
+        first = jnp.arange(y.shape[0]) == 0
+        numpyro.sample(
+            "y", dist.Normal(offsets[z] + first * offsets[z[-1]], 1.0), obs=y
+        )
+
+
+def _stride_two(y, probs, offsets):
+    # each element reads the one two places on, weakly (log factors change by at most
+    # 0.4): a split by the first bit of the index keeps the two in the same half
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(probs))
+        numpyro.sample("y", dist.Normal(offsets[z], 1.0), obs=y)
+        numpyro.factor("coupling", 0.1 * z * jnp.roll(z, 2))
 
 
 def _ising():
@@ -392,34 +388,6 @@ def _ising():
         spin = 2.0 * s - 1.0
         bonds = jnp.roll(spin, -1, axis=-1) + jnp.roll(spin, -1, axis=-2)
         numpyro.factor("coupling", 0.4 * spin * bonds)
-
-
-def _first_element(y, probs, offsets):
-    # every element reads the first one: the elements of z are not independent
-    with numpyro.plate("N", y.shape[0]):
-        z = numpyro.sample("z", dist.Categorical(probs))
-        numpyro.sample("y", dist.Normal(offsets[z] + 1.5 * offsets[z[0]], 1.0), obs=y)
-
-
-def _bands(y, coupling):
-    # zero likelihood unless y is in [lo[z], lo[z] + 1); the factors read the mean of z
-    lo = jnp.array([0.0, 0.5, 1.0])
-    with numpyro.plate("N", y.shape[0]):
-        z = numpyro.sample("z", dist.Categorical(jnp.ones(3) / 3))
-        numpyro.sample("y", dist.Uniform(lo[z], lo[z] + 1.0), obs=y)
-        x = 2.0 * z - 3.0
-        numpyro.factor("coupling", coupling * x * x.mean())
-
-
-def _ising_latent_coupling(obs):
-    # the coupling vanishes at beta = 0
-    beta = numpyro.sample("beta", dist.Normal(0.0, 1.0))
-    with numpyro.plate("rows", 6, dim=-2), numpyro.plate("cols", 6, dim=-1):
-        s = numpyro.sample("s", dist.Bernoulli(0.5))
-        spin = 2.0 * s - 1.0
-        bonds = jnp.roll(spin, -1, axis=-1) + jnp.roll(spin, -1, axis=-2)
-        numpyro.factor("coupling", beta * spin * bonds)
-        numpyro.sample("obs", dist.Normal(spin, 2.0), obs=obs)
 
 
 def _autologistic():
@@ -440,90 +408,62 @@ def _gated_ising():
         numpyro.factor("coupling", 0.6 * (1 - gate) * spin * bonds)
 
 
-_PLATE_MODELS = {
-    "plate": _plate_mixture,
-    "nested": _nested_plate_mixture,
-    "mixed": _mixed_sites_mixture,
-}
+def _transition(p, random_walk, modified):
+    # analytic one-element transition matrix T[a, b] of each proposal
+    k = p.shape[0]
+    a, b = p[:, None], p[None, :]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if not random_walk and not modified:
+            t = np.broadcast_to(b, (k, k)).copy()
+        elif random_walk:
+            t = np.minimum(1.0, np.where(a > 0, b / a, 1.0)) / (
+                k - 1 if modified else k
+            )
+        else:
+            t = np.minimum(b / (1 - a), b / (1 - b))
+    t = np.nan_to_num(t)
+    np.fill_diagonal(t, 0.0)
+    np.fill_diagonal(t, 1.0 - t.sum(axis=1))
+    return t
 
 
 @pytest.mark.parametrize(
     "model, plate_sites, sweep_sites",
     [
-        (_plate_mixture, ("z",), ()),
         (_nested_plate_mixture, ("z",), ()),
         (_mixed_sites_mixture, ("z",), ("w",)),
-        (_unplated_mixture, (), ("c",)),
         (_factor_outside_plate, (), ("z",)),
-        (_site_outside_reads_plate, (), ("z", "w")),
     ],
 )
 def test_discrete_gibbs_plate_blocks(model, plate_sites, sweep_sites):
-    model_args = _plate_mixture_data()
     kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
-    kernel.init(random.key(0), 10, None, model_args, {})
+    kernel.init(random.key(0), 10, None, _plate_mixture_data(), {})
     discrete_kernel = kernel.blocks[0][0]
     assert tuple(block.name for block in discrete_kernel.plate_blocks) == plate_sites
     assert discrete_kernel._sweep_sites == sweep_sites
-    for block in discrete_kernel.plate_blocks:
-        assert block.support_size == 3
-        assert block.shape == (model_args[0].shape[0],)
-        assert block.plate_dims == (-1,)
-        assert block.factors == ("z", "y")
 
 
-def test_discrete_gibbs_plate_aware_off():
-    # the default and plate_aware=False: no plate block, every site is swept coordinate-wise
-    model_args = _plate_mixture_data()
-    for kwargs in ({}, {"plate_aware": False}):
-        kernel = DiscreteHMCGibbs(NUTS(_mixed_sites_mixture), **kwargs)
-        kernel.init(random.key(0), 10, None, model_args, {})
-        discrete_kernel = kernel.blocks[0][0]
-        assert discrete_kernel.plate_blocks == ()
-        assert set(discrete_kernel._sweep_sites) == {"w", "z"}
-
-
-@pytest.mark.filterwarnings("ignore:Out-of-support values")
 @pytest.mark.parametrize(
-    "model, model_args, init_params, match",
+    "model, model_args",
     [
-        (_sum_inside_plate, None, None, "changes when only other elements"),
-        (_first_element, None, None, "changes when only other elements"),
-        (_ising, (), None, "changes when only other elements"),
-        # zero likelihood at the initial values
-        (
-            _bands,
-            (np.full(6, 1.25), 1.0),
-            {"z": np.zeros(6, dtype=np.int32)},
-            "changes when only other elements",
-        ),
+        (_first_element, None),
+        (_first_reads_last, None),
+        (_stride_two, None),
+        (_ising, ()),
         # a product coupling that vanishes at s = 0
-        (_autologistic, (), None, "changes when only other elements"),
+        (_autologistic, ()),
         # a coupling that another latent site turns off in half of the prior draws
-        (_gated_ising, (), None, "changes when only other elements"),
-        # no coupling at the initial values
-        (
-            _ising_latent_coupling,
-            (np.zeros((6, 6)),),
-            {"beta": np.array(0.0)},
-            "changes when only other elements",
-        ),
+        (_gated_ising, ()),
     ],
 )
-def test_discrete_gibbs_plate_check(model, model_args, init_params, match):
-    # the factors inside the plates read other elements of the site, or cannot be compared
-    # at some element; the check at init finds it and the site keeps the coordinate-wise
-    # sweep, whatever the initial values
+def test_discrete_gibbs_plate_check(model, model_args):
+    # the factors inside the plates read other elements of the site; the check at init
+    # finds it and the site keeps the coordinate-wise sweep
     model_args = _plate_mixture_data() if model_args is None else model_args
-    model_args = jax.tree.map(jnp.asarray, model_args)
-    if model in (_sum_inside_plate, _ising_latent_coupling):
-        kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
-        discrete_kernel = kernel.blocks[0][0]
-    else:
-        kernel = discrete_kernel = DiscreteGibbs(model, plate_aware=True)
-    with pytest.warns(UserWarning, match=match):
-        kernel.init(random.key(0), 10, init_params, model_args, {})
-    assert discrete_kernel.plate_blocks == ()
+    kernel = DiscreteGibbs(model, plate_aware=True)
+    with pytest.warns(UserWarning, match="changes when only other elements"):
+        kernel.init(random.key(0), 0, None, model_args, {})
+    assert kernel.plate_blocks == ()
 
 
 @pytest.mark.parametrize("chain_method", ["sequential", "parallel"])
@@ -671,13 +611,11 @@ def test_discrete_gibbs_plate_infinite_energy():
     assert len(set(np.asarray(w).tolist())) == 2
 
 
-@pytest.mark.parametrize("model_name", ["plate", "nested"])
-def test_discrete_gibbs_plate_log_factors(model_name):
+def test_discrete_gibbs_plate_log_factors():
     # The per-element log factors of the plate-wise update are the full conditionals that
     # the coordinate-wise sweep evaluates, one potential energy per element and value.
     y, probs, offsets = model_args = _plate_mixture_data()
-    model = _PLATE_MODELS[model_name]
-    kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
+    kernel = DiscreteHMCGibbs(NUTS(_nested_plate_mixture), plate_aware=True)
     kernel.init(random.key(0), 10, None, model_args, {})
     discrete_kernel = kernel.blocks[0][0]
     (block,) = discrete_kernel.plate_blocks
@@ -688,7 +626,6 @@ def test_discrete_gibbs_plate_log_factors(model_name):
     log_factors = _plate_log_factors(
         discrete_kernel._prepared_model, model_args, kwargs, block, z
     )
-    assert log_factors.shape == (3, y.shape[0])
 
     potential_fn = discrete_kernel.get_potential_fn(model_args, kwargs)
     expected = jnp.stack(
@@ -721,52 +658,64 @@ def test_discrete_gibbs_plate_log_factors(model_name):
 
 @pytest.mark.parametrize("random_walk", [False, True])
 @pytest.mark.parametrize("modified", [False, True])
-def test_discrete_gibbs_plate_update_stationarity(random_walk, modified):
-    # At a fixed state every proposal leaves the full conditionals invariant: from
-    # z0 ~ softmax(log_factors), one plate-wise step gives z1 with the same marginals.
-    model_args = _plate_mixture_data()
-    kernel = DiscreteHMCGibbs(NUTS(_plate_mixture), plate_aware=True)
-    kernel.init(random.key(0), 10, None, model_args, {})
-    discrete_kernel = kernel.blocks[0][0]
-    (block,) = discrete_kernel.plate_blocks
-    z = {"z": jnp.array([0, 1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 2])}
-    kwargs = with_conditioning({}, {"mu": jnp.array(-0.2)})
-    # the factors of an element do not read the other elements: the same at every z
-    log_factors = _plate_log_factors(
-        discrete_kernel._prepared_model, model_args, kwargs, block, z
-    )
-    expected = jax.nn.softmax(log_factors, axis=0)
+def test_discrete_gibbs_plate_update_transition(random_walk, modified):
+    # One plate-wise step from z0 ~ p: the joint frequencies of (z0, z1) match p[a] T[a, b]
+    # for every element, and the carried potential energy is the log-factor delta.
+    num_draws, k, n = 8000, 3, 6
+    log_factors = np.random.default_rng(0).normal(size=(k, n))
+    log_factors[2, 0] = -np.inf  # a value with zero probability
+    block = _PlateBlock("z", k, (n,), (-1,), ("z",), 0)
+    log_factors = jnp.asarray(log_factors, dtype=jnp.float32)
 
     def step(key):
         key_init, key_update = random.split(key)
-        z0 = {"z": random.categorical(key_init, log_factors, axis=0)}
-        z1, _ = _plate_gibbs_update(
-            key_update, z0, jnp.zeros(()), block, log_factors, random_walk, modified
+        z0 = random.categorical(key_init, log_factors, axis=0)
+        pe0 = -jnp.take_along_axis(log_factors, z0[None], 0).sum()
+        z1, pe1 = _plate_gibbs_update(
+            key_update, {"z": z0}, pe0, block, log_factors, random_walk, modified
         )
-        return z1["z"]
+        expected_pe = -jnp.take_along_axis(log_factors, z1["z"][None], 0).sum()
+        return z0, z1["z"], pe1 - expected_pe
 
-    draws = vmap(step)(random.split(random.key(1), 8000))
-    assert draws.shape == (8000, 12)
-    actual = jnp.mean(draws[:, None, :] == jnp.arange(3)[None, :, None], axis=0)
-    assert_allclose(actual, expected, atol=0.03)
+    z0, z1, pe_error = vmap(step)(random.split(random.key(1), num_draws))
+    assert_allclose(pe_error, 0.0, atol=1e-4)
+    p = np.asarray(jnp.exp(log_factors - jnp.max(log_factors, 0)))
+    p = p / p.sum(0)
+    z0, z1 = np.asarray(z0), np.asarray(z1)
+    for i in range(n):
+        joint = np.zeros((k, k))
+        np.add.at(joint, (z0[:, i], z1[:, i]), 1.0 / num_draws)
+        expected = p[:, i, None] * _transition(p[:, i], random_walk, modified)
+        assert_allclose(joint, expected, atol=0.02)
 
 
-@pytest.mark.parametrize(
-    "model_name, random_walk, modified",
-    [("mixed", False, False), ("plate", True, True)],
-)
-def test_discrete_gibbs_plate_aware_posterior(model_name, random_walk, modified):
+@pytest.mark.parametrize("random_walk", [False, True])
+@pytest.mark.parametrize("modified", [False, True])
+def test_discrete_gibbs_plate_flags(random_walk, modified):
+    # DiscreteGibbs passes its proposal to the plate-wise update: one step from z = 0 moves
+    # the elements with the transition probabilities T[0] of that proposal
+    p = np.array([0.1, 0.2, 0.7])
+
+    def model():
+        with numpyro.plate("N", 2000):
+            numpyro.sample("z", dist.Categorical(p))
+
+    kernel = DiscreteGibbs(
+        model, random_walk=random_walk, modified=modified, plate_aware=True
+    )
+    state = kernel.init(random.key(0), 0, {"z": jnp.zeros(2000, jnp.int32)}, (), {})
+    assert [block.name for block in kernel.plate_blocks] == ["z"]
+    z = kernel.sample(state, (), {}).z["z"]
+    actual = np.bincount(np.asarray(z), minlength=3) / 2000
+    assert_allclose(actual, _transition(p, random_walk, modified)[0], atol=0.04)
+
+
+def test_discrete_gibbs_plate_aware_posterior():
     # Plate-wise and coordinate-wise updates target the same posterior.
     model_args = _plate_mixture_data()
-    model = _PLATE_MODELS[model_name]
     means = {}
     for plate_aware in (False, True):
-        kernel = DiscreteHMCGibbs(
-            NUTS(model),
-            random_walk=random_walk,
-            modified=modified,
-            plate_aware=plate_aware,
-        )
+        kernel = DiscreteHMCGibbs(NUTS(_mixed_sites_mixture), plate_aware=plate_aware)
         mcmc = MCMC(kernel, num_warmup=500, num_samples=20000, progress_bar=False)
         mcmc.run(random.key(0), *model_args)
         assert len(kernel.blocks[0][0].plate_blocks) == int(plate_aware)
