@@ -68,6 +68,17 @@ def test_hpdi_full_mass():
     assert_allclose(stats["100.0%"], x.max(0))
 
 
+@pytest.mark.parametrize("prob", [1.5, -0.1])
+def test_hpdi_invalid_prob(prob):
+    x = np.random.normal(size=(100, 3))
+    with pytest.raises(ValueError, match="prob"):
+        hpdi(x, prob=prob)
+    with pytest.raises(ValueError, match="prob"):
+        summary(x, prob=prob, group_by_chain=False)
+    with pytest.raises(ValueError, match="prob"):
+        summary(x, prob=prob, group_by_chain=False, log_weights=np.zeros(100))
+
+
 def test_autocorrelation():
     x = np.arange(10.0)
     actual = autocorrelation(x, bias=False)
