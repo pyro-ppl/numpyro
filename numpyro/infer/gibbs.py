@@ -1752,6 +1752,9 @@ class DiscreteGibbs(MCMCKernel):
             z, pe = plate_gibbs_update(
                 key_block, z, pe, block, log_factors, self._random_walk, self._modified
             )
+        if self._plate_blocks:
+            # leaving a state of infinite energy, the carried pe is inf - inf = NaN
+            pe = cond(jnp.isfinite(pe), pe, identity, z, potential_fn)
         return state._replace(z=z, potential_energy=pe, rng_key=rng_key)
 
     def refresh(

@@ -450,6 +450,37 @@ def test_discrete_gibbs_plate_check(model):
     assert len(discrete_kernel._sweep_sites) == 1
 
 
+@pytest.mark.filterwarnings("ignore:Out-of-support values")
+def test_discrete_gibbs_plate_infinite_energy():
+    # The initial z has zero likelihood. After the plate update the potential energy is
+    # computed afresh instead of carried as inf - inf, and the swept site keeps moving.
+    lo = jnp.array([0.0, 2.0, 4.0])
+    y = jnp.array([0.5, 2.5, 4.5, 0.2, 2.2, 4.8])
+
+    def model(y):
+        numpyro.sample("w", dist.Bernoulli(0.5))
+        with numpyro.plate("N", y.shape[0]):
+            z = numpyro.sample("z", dist.Categorical(jnp.ones(3) / 3))
+            numpyro.sample(
+                "y", dist.Uniform(lo[z], lo[z] + 1.0, validate_args=True), obs=y
+            )
+
+    kernel = DiscreteGibbs(model, plate_aware=True)
+    init_params = {"w": jnp.array(0), "z": jnp.zeros(6, dtype=jnp.int32)}
+    state = kernel.init(random.key(0), 0, init_params, (y,), {})
+    assert [block.name for block in kernel.plate_blocks] == ["z"]
+    assert jnp.isinf(state.potential_energy)
+    potential_fn = kernel.get_potential_fn((y,), {})
+    sample = jax.jit(lambda state: kernel.sample(state, (y,), {}))
+    w = []
+    for _ in range(20):
+        state = sample(state)
+        w.append(state.z["w"])
+    assert_allclose(state.z["z"], jnp.array([0, 1, 2, 0, 1, 2]))
+    assert_allclose(state.potential_energy, potential_fn(state.z), rtol=1e-6)
+    assert len(set(np.asarray(w).tolist())) == 2
+
+
 @pytest.mark.parametrize("model_name", ["plate", "nested"])
 def test_discrete_gibbs_plate_log_factors(model_name):
     # The per-element log factors of the plate-wise update are the full conditionals that
