@@ -158,7 +158,8 @@ class DiscreteHMCGibbs(Gibbs):
         site, such as a reduction over the plate or a neighbour coupling via `jnp.roll`,
         yields wrong samples. A check at `init` keeps such a site on the coordinate-wise
         sweep with a warning, but it can miss a dependency that does not show at the probed
-        state. Defaults to False.
+        state. Ignored, with a warning, when any site of the model is enumerated. Defaults
+        to False.
 
     **References:**
 

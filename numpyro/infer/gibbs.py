@@ -1437,7 +1437,9 @@ def plate_log_factors(
     set to `v`, summed over every dim that is not a plate dim of the site. Elementwise, these
     are the unnormalized log full conditionals of the site. One batched model evaluation per
     support value: every element is set to `v` at once, which is exact when the factors read
-    the site elementwise along the plate dims (see :func:`find_plate_blocks`).
+    the site elementwise along the plate dims (see :func:`find_plate_blocks`). The evaluations
+    for the support values are vectorized, so the peak memory is about `block.support_size`
+    times that of one model evaluation (once for the coordinate-wise sweep).
 
     :param model: the (conditioned, prepared) model, see :class:`DiscreteGibbs`.
     :param tuple model_args: arguments provided to the model.
@@ -1569,8 +1571,8 @@ class DiscreteGibbs(MCMCKernel):
     probed state, keeps the coordinate-wise sweep, with a warning. The check runs for every
     chain method (also when `init` is traced, e.g. under `chain_method="parallel"`) and is
     only skipped, with a warning, when the model arguments are traced. It can miss a
-    dependency that does not show at the probed state. The plate-wise update is not used
-    when a site is enumerated.
+    dependency that does not show at the probed state. If any site of the model is
+    enumerated, `plate_aware` is ignored for all sites, with a warning.
 
     :param model: the model.
     :param bool random_walk: uniform proposals over the support instead of the exact
@@ -1583,7 +1585,8 @@ class DiscreteGibbs(MCMCKernel):
         of the site, such as a reduction over the plate or a neighbour coupling via
         `jnp.roll`, yields wrong samples. The check at `init` (see above) keeps such a site
         on the coordinate-wise sweep with a warning, but it can miss a dependency that does
-        not show at the probed state. Defaults to False.
+        not show at the probed state. Ignored, with a warning, when any site of the model
+        is enumerated. Defaults to False.
 
     **References:**
 
@@ -1782,7 +1785,13 @@ class DiscreteGibbs(MCMCKernel):
             {name: init_params.get(name, model_trace[name]["value"]) for name in sites}
         )
         self._plate_blocks = ()
-        if self._plate_aware and not self._enum:
+        if self._plate_aware and self._enum:
+            warnings.warn(
+                "plate_aware is ignored: the model has a site marked for enumeration, and "
+                "then every discrete site keeps the coordinate-wise sweep.",
+                stacklevel=find_stack_level(),
+            )
+        elif self._plate_aware:
             self._plate_blocks = self._check_plate_blocks(
                 find_plate_blocks(
                     self._prepared_model, model_args, model_kwargs, model_trace, sites
@@ -1845,7 +1854,8 @@ class DiscreteGibbs(MCMCKernel):
                 key_block, z, pe, block, log_factors, self._random_walk, self._modified
             )
         if self._plate_blocks:
-            # leaving a state of infinite energy, the carried pe is inf - inf = NaN
+            # leaving a state of infinite energy, the carried pe is inf - inf = NaN. Under
+            # `vmap` this `cond` becomes a select, which evaluates the potential every time.
             pe = cond(jnp.isfinite(pe), pe, identity, z, potential_fn)
         return state._replace(z=z, potential_energy=pe, rng_key=rng_key)
 

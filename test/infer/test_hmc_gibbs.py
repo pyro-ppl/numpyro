@@ -561,6 +561,22 @@ def test_discrete_gibbs_plate_numpy_args():
     assert [block.name for block in kernel.blocks[0][0].plate_blocks] == ["z"]
 
 
+def test_discrete_gibbs_plate_aware_enum():
+    # any enumerated site turns the plate-wise update off for the whole model
+    y, probs, offsets = _plate_mixture_data()
+
+    def model(y):
+        c = numpyro.sample("c", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
+        with numpyro.plate("N", y.shape[0]):
+            z = numpyro.sample("z", dist.Categorical(probs))
+            numpyro.sample("y", dist.Normal(offsets[z] + c, 1.0), obs=y)
+
+    kernel = DiscreteGibbs(model, plate_aware=True)
+    with pytest.warns(UserWarning, match="plate_aware is ignored"):
+        kernel.init(random.key(0), 0, None, (y,), {})
+    assert kernel.plate_blocks == ()
+
+
 @pytest.mark.filterwarnings("ignore:Out-of-support values")
 def test_discrete_gibbs_plate_infinite_energy():
     # The initial z has zero likelihood. After the plate update the potential energy is
