@@ -91,7 +91,9 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
 
 def _get_num_steps(step_size, trajectory_length):
-    num_steps = jnp.ceil(trajectory_length / step_size)
+    # take at least one step: when the adapted step size is much larger than the
+    # trajectory length, the ratio underflows to 0 and the chain would never move
+    num_steps = jnp.maximum(jnp.ceil(trajectory_length / step_size), 1)
     # NB: casting to jnp.int64 does not take effect (returns jnp.int32 instead)
     # if jax_enable_x64 is False
     return num_steps.astype(jnp.result_type(int))
