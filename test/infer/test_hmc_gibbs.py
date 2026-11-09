@@ -4,7 +4,7 @@
 from functools import partial
 
 import numpy as np
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
 import jax
@@ -390,6 +390,34 @@ def _ising():
         numpyro.factor("coupling", 0.4 * spin * bonds)
 
 
+def _first_element(y, probs, offsets):
+    # every element reads the first one: the elements of z are not independent
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(probs))
+        numpyro.sample("y", dist.Normal(offsets[z] + 1.5 * offsets[z[0]], 1.0), obs=y)
+
+
+def _bands(y, coupling):
+    # zero likelihood unless y is in [lo[z], lo[z] + 1); the factors read the mean of z
+    lo = jnp.array([0.0, 0.5, 1.0])
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(jnp.ones(3) / 3))
+        numpyro.sample("y", dist.Uniform(lo[z], lo[z] + 1.0), obs=y)
+        x = 2.0 * z - 3.0
+        numpyro.factor("coupling", coupling * x * x.mean())
+
+
+def _ising_latent_coupling(obs):
+    # the coupling vanishes at beta = 0
+    beta = numpyro.sample("beta", dist.Normal(0.0, 1.0))
+    with numpyro.plate("rows", 6, dim=-2), numpyro.plate("cols", 6, dim=-1):
+        s = numpyro.sample("s", dist.Bernoulli(0.5))
+        spin = 2.0 * s - 1.0
+        bonds = jnp.roll(spin, -1, axis=-1) + jnp.roll(spin, -1, axis=-2)
+        numpyro.factor("coupling", beta * spin * bonds)
+        numpyro.sample("obs", dist.Normal(spin, 2.0), obs=obs)
+
+
 _PLATE_MODELS = {
     "plate": _plate_mixture,
     "nested": _nested_plate_mixture,
@@ -433,21 +461,88 @@ def test_discrete_gibbs_plate_aware_off():
         assert set(discrete_kernel._sweep_sites) == {"w", "z"}
 
 
-@pytest.mark.parametrize("model", [_sum_inside_plate, _ising])
-def test_discrete_gibbs_plate_check(model):
-    # the factors inside the plates read other elements of the site; the check at init
-    # finds it and the site keeps the coordinate-wise sweep
-    if model is _ising:
-        kernel = DiscreteGibbs(model, plate_aware=True)
-        model_args = ()
-    else:
+@pytest.mark.filterwarnings("ignore:Out-of-support values")
+@pytest.mark.parametrize(
+    "model, model_args, init_params, match",
+    [
+        (_sum_inside_plate, None, None, "changes when only other elements"),
+        (_first_element, None, None, "changes when only other elements"),
+        (_ising, (), None, "changes when only other elements"),
+        # zero likelihood at the initial values
+        (
+            _bands,
+            (np.full(6, 1.25), 1.0),
+            {"z": np.zeros(6, dtype=np.int32)},
+            "changes when only other elements",
+        ),
+        # zero likelihood for the last element at every value: nothing to compare there
+        (_bands, (np.array([0.2, 0.7, 1.2, 2.5]), 0.0), None, "could not be checked"),
+        # no coupling at the initial values
+        (
+            _ising_latent_coupling,
+            (np.zeros((6, 6)),),
+            {"beta": np.array(0.0)},
+            "changes when only other elements",
+        ),
+    ],
+)
+def test_discrete_gibbs_plate_check(model, model_args, init_params, match):
+    # the factors inside the plates read other elements of the site, or cannot be compared
+    # at some element; the check at init finds it and the site keeps the coordinate-wise
+    # sweep, whatever the initial values
+    model_args = _plate_mixture_data() if model_args is None else model_args
+    model_args = jax.tree.map(jnp.asarray, model_args)
+    if model in (_sum_inside_plate, _ising_latent_coupling):
         kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
-        model_args = _plate_mixture_data()
-    with pytest.warns(UserWarning, match="keeps the coordinate-wise sweep"):
-        kernel.init(random.key(0), 10, None, model_args, {})
-    discrete_kernel = kernel if model is _ising else kernel.blocks[0][0]
+        discrete_kernel = kernel.blocks[0][0]
+    else:
+        kernel = discrete_kernel = DiscreteGibbs(model, plate_aware=True)
+    with pytest.warns(UserWarning, match=match):
+        kernel.init(random.key(0), 10, init_params, model_args, {})
     assert discrete_kernel.plate_blocks == ()
     assert len(discrete_kernel._sweep_sites) == 1
+
+
+@pytest.mark.parametrize("chain_method", ["sequential", "parallel"])
+def test_discrete_gibbs_plate_check_chains(chain_method):
+    # The check does not depend on the chain's key or initial values, and also runs when
+    # init is traced under pmap. Every chain keeps the coordinate-wise sweep: the same
+    # draws as with plate_aware=False.
+    if chain_method == "parallel" and jax.local_device_count() < 2:
+        pytest.skip("parallel chains require 2 devices")
+    model_args = _plate_mixture_data()
+    samples = {}
+    for plate_aware in (False, True):
+        kernel = DiscreteGibbs(_first_element, plate_aware=plate_aware)
+        mcmc = MCMC(
+            kernel,
+            num_warmup=10,
+            num_samples=20,
+            num_chains=2,
+            chain_method=chain_method,
+            progress_bar=False,
+        )
+        if plate_aware:
+            with pytest.warns(UserWarning, match="keeps the coordinate-wise sweep"):
+                mcmc.run(random.key(0), *model_args)
+        else:
+            mcmc.run(random.key(0), *model_args)
+        assert kernel.plate_blocks == ()
+        samples[plate_aware] = mcmc.get_samples()["z"]
+    assert_array_equal(samples[True], samples[False])
+
+
+def test_discrete_gibbs_plate_check_skipped():
+    # with traced model arguments the check cannot run; the site is updated plate-wise,
+    # with a warning
+    y, probs, offsets = _plate_mixture_data()
+    kernel = DiscreteGibbs(_first_element, plate_aware=True)
+    init = jax.jit(
+        lambda y: kernel.init(random.key(0), 0, None, (y, probs, offsets), {})
+    )
+    with pytest.warns(UserWarning, match="without the check"):
+        init(y)
+    assert [block.name for block in kernel.plate_blocks] == ["z"]
 
 
 def test_discrete_gibbs_plate_numpy_args():

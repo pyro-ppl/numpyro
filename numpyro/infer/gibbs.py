@@ -40,6 +40,7 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import (
     _prepare_model_for_potential,
     _site_log_prob,
+    _substitute_default_key,
     _transforms_from_trace,
     potential_energy,
     transform_fn,
@@ -1358,44 +1359,69 @@ def _block_log_factors(
     return jnp.broadcast_to(jnp.asarray(total), block.shape)
 
 
-def _reads_other_elements(
+def _split_masks(shape: tuple[int, ...]) -> np.ndarray:
+    """
+    The halves of the elements of a site that the check at `init` keeps fixed: for each bit
+    of the flat element index, the elements where the bit is 0 and then those where it is 1.
+    Any two elements differ in some bit, so for every ordered pair `(i, j)` some mask keeps
+    `i` and not `j`. `2 * ceil(log2(size))` masks, none for a single element.
+    """
+    size = int(np.prod(shape))
+    index = np.arange(size)
+    masks = []
+    for bit in range((size - 1).bit_length()):
+        half = np.reshape((index >> bit) & 1, shape).astype(bool)
+        masks += [~half, half]
+    return np.stack(masks) if masks else np.zeros((0,) + tuple(shape), dtype=bool)
+
+
+def _check_elementwise(
     model: ModelT,
     model_args: ModelArgs,
     model_kwargs: ModelKwargs,
     block: PlateBlock,
     z: SiteValues,
-    rng_key: jax.Array,
-) -> bool:
+    rtol: float = 1e-5,
+    atol: float = 1e-5,
+) -> tuple[jax.Array, jax.Array]:
     """
-    Whether the per-element log factors of a plate block at `z` change at some element when
-    only other elements of the site change. Half of the elements, chosen at random, keep
-    their value; the others are set to each support value in turn (one batched pass, as in
-    :func:`plate_log_factors`), and the log factors of the elements that kept their value
-    are compared with those at `z`. Needs a concrete `z`, conditioning and `rng_key`. A
-    dependency that does not show at `z` (e.g. through a `max`) is missed.
+    Probe whether the factors of a plate block read the site elementwise, at a state chosen
+    for the probe: the other sites at their values in `z`, and each element of the site at
+    the support value with the largest log factor in :func:`plate_log_factors` (so that the
+    factors are finite where the model allows it). For each mask of :func:`_split_masks`,
+    the elements outside the mask are set to each support value in turn (one batched pass)
+    and the log factors of the elements inside are compared with those at the probed state.
+    No randomness: the outcome depends only on the model, its arguments and `z`.
+
+    A dependency that does not show at the probed state (e.g. through a `max`) is missed.
+
+    :return: whether the log factors at the probed state are finite at every element (if
+        not, the check says nothing about the elements where they are not), and whether
+        they changed at some element when only other elements changed.
     """
-    value = z[block.name]
-    size = int(np.prod(block.shape))
-    keep = np.reshape(
-        np.asarray(random.permutation(rng_key, size)) < size // 2, block.shape
-    )
-    low = jnp.asarray(block.support_low, dtype=value.dtype)
-
-    def log_factors(index: jax.Array) -> jax.Array:
-        other = jnp.where(keep, value, index.astype(value.dtype) + low)
-        return _block_log_factors(
-            model, model_args, model_kwargs, block, {**z, block.name: other}
-        )
-
+    dtype = jnp.result_type(z[block.name])
+    low = jnp.asarray(block.support_low, dtype=dtype)
+    log_factors = plate_log_factors(model, model_args, model_kwargs, block, z)
+    log_factors = jnp.where(jnp.isnan(log_factors), -jnp.inf, log_factors)
+    value = jnp.argmax(log_factors, axis=0).astype(dtype) + low
+    z = {**z, block.name: value}
     before = _block_log_factors(model, model_args, model_kwargs, block, z)
-    after = jax.vmap(log_factors)(jnp.arange(block.support_size))
-    return not np.allclose(
-        np.where(keep, before, 0.0),
-        np.where(keep, after, 0.0),
-        rtol=1e-5,
-        atol=1e-5,
-        equal_nan=True,
-    )
+
+    def changed(keep: jax.Array) -> jax.Array:
+        def log_factors(index: jax.Array) -> jax.Array:
+            other = jnp.where(keep, value, index.astype(dtype) + low)
+            return _block_log_factors(
+                model, model_args, model_kwargs, block, {**z, block.name: other}
+            )
+
+        after = jax.vmap(log_factors)(jnp.arange(block.support_size))
+        # not finite after but finite before counts as a change (the comparison is False)
+        close = jnp.abs(after - before) <= atol + rtol * jnp.abs(before)
+        return jnp.any(keep & ~close)
+
+    masks = _split_masks(block.shape)
+    reads = jnp.any(jax.lax.map(changed, jnp.asarray(masks))) if len(masks) else False
+    return jnp.all(jnp.isfinite(before)), jnp.asarray(reads)
 
 
 def plate_log_factors(
@@ -1533,13 +1559,18 @@ class DiscreteGibbs(MCMCKernel):
     evaluations instead of `N * (K - 1)` sequential ones. That independence is assumed, not
     implied by the plates: every factor must read the site elementwise along the plate dims.
     A factor that reads other elements of the site, such as a reduction over the plate or a
-    neighbour coupling via `jnp.roll`, breaks it. At `init`, when the initial values and the
-    conditioning are concrete, the factors of each such site are evaluated again with a
-    random half of its elements set to each support value in turn; a site where the log
-    density at the other half then changes keeps the coordinate-wise sweep, with a warning.
-    This check is skipped when `init` is traced (e.g. under `chain_method="parallel"`) and
-    can miss a dependency that does not show at the probed state. The plate-wise update is
-    not used when a site is enumerated.
+    neighbour coupling via `jnp.roll`, breaks it. So at `init` the factors of each such site
+    are probed at a state that depends on neither the initial values nor the random key
+    (the other sites from a prior draw with a fixed key, each element of the site at its
+    most likely value there): for each bit of the flat element index, the elements where the
+    bit is 0 keep their value while the others are set to each support value in turn, and
+    then the other way round, `2 * ceil(log2(N))` batched passes in all. A site where the
+    log density at a kept element changes, or where it is not finite at some element of the
+    probed state, keeps the coordinate-wise sweep, with a warning. The check runs for every
+    chain method (also when `init` is traced, e.g. under `chain_method="parallel"`) and is
+    only skipped, with a warning, when the model arguments are traced. It can miss a
+    dependency that does not show at the probed state. The plate-wise update is not used
+    when a site is enumerated.
 
     :param model: the model.
     :param bool random_walk: uniform proposals over the support instead of the exact
@@ -1551,9 +1582,8 @@ class DiscreteGibbs(MCMCKernel):
         read the site elementwise along the plate dims; a factor that reads other elements
         of the site, such as a reduction over the plate or a neighbour coupling via
         `jnp.roll`, yields wrong samples. The check at `init` (see above) keeps such a site
-        on the coordinate-wise sweep with a warning, but it is skipped under
-        `chain_method="parallel"` and can miss a dependency that does not show at the
-        probed state. Defaults to False.
+        on the coordinate-wise sweep with a warning, but it can miss a dependency that does
+        not show at the probed state. Defaults to False.
 
     **References:**
 
@@ -1621,6 +1651,93 @@ class DiscreteGibbs(MCMCKernel):
 
         return potential_fn
 
+    def _check_plate_blocks(
+        self,
+        blocks: tuple[PlateBlock, ...],
+        model_args: ModelArgs,
+        model_kwargs: ModelKwargs,
+        sites: Sequence[str],
+    ) -> tuple[PlateBlock, ...]:
+        """
+        The blocks that pass :func:`_check_elementwise`; the others keep the coordinate-wise
+        sweep, with a warning. The probed state does not depend on the initial values or on
+        the random key, so that every chain decides the same: the conditioned sites and the
+        other discrete sites take their values from a prior draw with a fixed key. The check
+        needs concrete model arguments and then also runs when `init` is traced (e.g. under
+        `chain_method="parallel"`); with traced model arguments it is skipped, with a warning.
+        """
+        if not blocks:
+            return blocks
+        kwargs = {k: v for k, v in model_kwargs.items() if k != GIBBS_SITES_KWARG}
+        conditioning = model_kwargs.get(GIBBS_SITES_KWARG, {})
+
+        def check() -> list[tuple[jax.Array, jax.Array]]:
+            probe_trace = prototype_trace(
+                conditioned(self._model), random.PRNGKey(0), model_args, kwargs
+            )
+            model = _substitute_default_key(
+                substitute(
+                    conditioned(self._model),
+                    data={
+                        name: site["value"]
+                        for name, site in probe_trace.items()
+                        if site["type"] in ("param", "mutable")
+                    },
+                )
+            )
+            values = {
+                name: site["value"]
+                for name, site in probe_trace.items()
+                if site["type"] == "sample" and not site["is_observed"]
+            }
+            probe_kwargs = with_conditioning(
+                kwargs, {name: values[name] for name in conditioning}
+            )
+            z = {name: values[name] for name in sites}
+            return [
+                _check_elementwise(model, model_args, probe_kwargs, block, z)
+                for block in blocks
+            ]
+
+        results: list[Any] = [None] * len(blocks)
+        if all(not_jax_tracer(leaf) for leaf in jax.tree.leaves((model_args, kwargs))):
+            # Compiled ahead of time and run: it reads only concrete values, so it also
+            # runs when `init` is traced (e.g. under `pmap`).
+            results = jax.jit(check).lower().compile()()
+        checked = []
+        for block, result in zip(blocks, results):
+            if result is None:
+                warnings.warn(
+                    f"plate_aware: the site '{block.name}' is updated plate-wise without "
+                    "the check at `init` that its factors read it elementwise, because the "
+                    "model arguments are traced. A factor that reads other elements of the "
+                    "site (e.g. a reduction over the plate or a neighbour coupling via "
+                    "`jnp.roll`) would give wrong samples.",
+                    stacklevel=find_stack_level(),
+                )
+                checked.append(block)
+            elif not result[0]:
+                warnings.warn(
+                    f"plate_aware: the site '{block.name}' keeps the coordinate-wise sweep. "
+                    "The log density of its factors is not finite at some element of the "
+                    "state probed at `init`, so whether they read the site elementwise "
+                    "could not be checked.",
+                    stacklevel=find_stack_level(),
+                )
+            elif result[1]:
+                warnings.warn(
+                    f"plate_aware: the site '{block.name}' keeps the coordinate-wise sweep. "
+                    "The log density of its factors at some elements changes when only "
+                    "other elements of the site change (e.g. a reduction over the plate or "
+                    "a neighbour coupling via `jnp.roll`), so the elements are not "
+                    "conditionally independent and a plate-wise update would give wrong "
+                    "samples.",
+                    stacklevel=find_stack_level(),
+                )
+            else:
+                checked.append(block)
+        return tuple(checked)
+
     def init(
         self,
         rng_key: jax.Array,
@@ -1666,41 +1783,14 @@ class DiscreteGibbs(MCMCKernel):
         )
         self._plate_blocks = ()
         if self._plate_aware and not self._enum:
-            self._plate_blocks = find_plate_blocks(
-                self._prepared_model, model_args, model_kwargs, model_trace, sites
+            self._plate_blocks = self._check_plate_blocks(
+                find_plate_blocks(
+                    self._prepared_model, model_args, model_kwargs, model_trace, sites
+                ),
+                model_args,
+                model_kwargs,
+                sites,
             )
-        # the plate-wise update assumes that the factors read the site elementwise; probe
-        # that once where the values are concrete (not when `init` is traced)
-        if self._plate_blocks and all(
-            not_jax_tracer(leaf)
-            for leaf in jax.tree.leaves((key_trace, z, model_args, model_kwargs))
-        ):
-            # a key of its own, so that the check leaves the random stream unchanged
-            key_check = random.fold_in(key_trace, 1)
-            blocks = []
-            for block, key_block in zip(
-                self._plate_blocks, random.split(key_check, len(self._plate_blocks))
-            ):
-                if _reads_other_elements(
-                    self._prepared_model,
-                    model_args,
-                    model_kwargs,
-                    block,
-                    z,
-                    key_block,
-                ):
-                    warnings.warn(
-                        f"plate_aware: the site '{block.name}' keeps the coordinate-wise "
-                        "sweep. The log density of its factors at some elements changes "
-                        "when only other elements of the site change (e.g. a reduction "
-                        "over the plate or a neighbour coupling via `jnp.roll`), so the "
-                        "elements are not conditionally independent and a plate-wise "
-                        "update would give wrong samples.",
-                        stacklevel=find_stack_level(),
-                    )
-                else:
-                    blocks.append(block)
-            self._plate_blocks = tuple(blocks)
         plated = {block.name for block in self._plate_blocks}
         self._sweep_sites = tuple(name for name in sites if name not in plated)
         self._support_sizes_flat = _flat_support_sizes(model_trace, self._sweep_sites)

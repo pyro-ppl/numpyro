@@ -157,8 +157,8 @@ class DiscreteHMCGibbs(Gibbs):
         the site elementwise along the plate dims; a factor that reads other elements of the
         site, such as a reduction over the plate or a neighbour coupling via `jnp.roll`,
         yields wrong samples. A check at `init` keeps such a site on the coordinate-wise
-        sweep with a warning, but it is skipped under `chain_method="parallel"` and can miss
-        a dependency that does not show at the probed state. Defaults to False.
+        sweep with a warning, but it can miss a dependency that does not show at the probed
+        state. Defaults to False.
 
     **References:**
 
