@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 import copy
 from functools import partial, reduce
 from typing import Any, NamedTuple, Protocol, TypeAlias
+import warnings
 
 import numpy as np
 
@@ -44,7 +45,14 @@ from numpyro.infer.util import (
     transform_fn,
 )
 from numpyro.ops.provenance import eval_provenance
-from numpyro.util import cond, fori_loop, identity, is_prng_key
+from numpyro.util import (
+    cond,
+    find_stack_level,
+    fori_loop,
+    identity,
+    is_prng_key,
+    not_jax_tracer,
+)
 
 __all__ = [
     "CustomGibbs",
@@ -1258,9 +1266,14 @@ def find_plate_blocks(
     - every sample site whose log density depends on it (found by provenance tracking) is
       inside the same plates, none of which subsamples.
 
-    Given the other latent sites, the elements of such a site are then conditionally
-    independent across its plate dims, so their full conditionals can be computed in one
-    batched pass and all elements updated at once (:func:`plate_gibbs_update`).
+    The plate-wise update assumes that, given the other latent sites, the elements of such a
+    site are conditionally independent across its plate dims, i.e. that every factor reads
+    the site elementwise along them; the checks above do not imply this. A factor inside the
+    plates can still read other elements of the site, e.g. through a reduction over the
+    plate or a neighbour coupling via `jnp.roll`. Under the assumption, the full
+    conditionals of all elements can be computed in one batched pass and all elements
+    updated at once (:func:`plate_gibbs_update`). :class:`DiscreteGibbs` probes it once at
+    `init`.
 
     :param model: the (conditioned, prepared) model, see :class:`DiscreteGibbs`.
     :param tuple model_args: arguments provided to the model.
@@ -1311,6 +1324,78 @@ def find_plate_blocks(
     return tuple(blocks)
 
 
+def _block_log_factors(
+    model: ModelT,
+    model_args: ModelArgs,
+    model_kwargs: ModelKwargs,
+    block: PlateBlock,
+    z: SiteValues,
+) -> jax.Array:
+    """
+    The log density of the factors of a plate block at `z`, per element of the site: summed
+    over the factors and over every dim that is not a plate dim of the site.
+
+    :return: an array of shape `block.shape`.
+    """
+    model_trace = trace(model).get_trace(
+        *model_args, **with_conditioning(model_kwargs, z)
+    )
+    total = 0.0
+    for name in block.factors:
+        log_prob = jnp.asarray(_site_log_prob(model_trace[name]))
+        reduce_axes = tuple(
+            axis for axis in range(-log_prob.ndim, 0) if axis not in block.plate_dims
+        )
+        if reduce_axes:
+            log_prob = jnp.sum(log_prob, axis=reduce_axes, keepdims=True)
+        # drop the leading dims; they are plate dims of the factor beyond the site's
+        log_prob = jnp.reshape(
+            log_prob, log_prob.shape[max(log_prob.ndim - len(block.shape), 0) :]
+        )
+        total = total + log_prob
+    return jnp.broadcast_to(jnp.asarray(total), block.shape)
+
+
+def _reads_other_elements(
+    model: ModelT,
+    model_args: ModelArgs,
+    model_kwargs: ModelKwargs,
+    block: PlateBlock,
+    z: SiteValues,
+    rng_key: jax.Array,
+) -> bool:
+    """
+    Whether the per-element log factors of a plate block at `z` change at some element when
+    only other elements of the site change. Half of the elements, chosen at random, keep
+    their value; the others are set to each support value in turn (one batched pass, as in
+    :func:`plate_log_factors`), and the log factors of the elements that kept their value
+    are compared with those at `z`. Needs a concrete `z`, conditioning and `rng_key`. A
+    dependency that does not show at `z` (e.g. through a `max`) is missed.
+    """
+    value = z[block.name]
+    size = int(np.prod(block.shape))
+    keep = np.reshape(
+        np.asarray(random.permutation(rng_key, size)) < size // 2, block.shape
+    )
+    low = jnp.asarray(block.support_low, dtype=value.dtype)
+
+    def log_factors(index: jax.Array) -> jax.Array:
+        other = jnp.where(keep, value, index.astype(value.dtype) + low)
+        return _block_log_factors(
+            model, model_args, model_kwargs, block, {**z, block.name: other}
+        )
+
+    before = _block_log_factors(model, model_args, model_kwargs, block, z)
+    after = jax.vmap(log_factors)(jnp.arange(block.support_size))
+    return not np.allclose(
+        np.where(keep, before, 0.0),
+        np.where(keep, after, 0.0),
+        rtol=1e-5,
+        atol=1e-5,
+        equal_nan=True,
+    )
+
+
 def plate_log_factors(
     model: ModelT,
     model_args: ModelArgs,
@@ -1323,8 +1408,8 @@ def plate_log_factors(
     and every element of it, the log density of the block's factors at `z` with the element
     set to `v`, summed over every dim that is not a plate dim of the site. Elementwise, these
     are the unnormalized log full conditionals of the site. One batched model evaluation per
-    support value (every element is set to `v` at once, which is exact because the factors
-    are inside the plates of the site).
+    support value: every element is set to `v` at once, which is exact when the factors read
+    the site elementwise along the plate dims (see :func:`find_plate_blocks`).
 
     :param model: the (conditioned, prepared) model, see :class:`DiscreteGibbs`.
     :param tuple model_args: arguments provided to the model.
@@ -1337,26 +1422,10 @@ def plate_log_factors(
     low = jnp.asarray(block.support_low, dtype=dtype)
 
     def log_factors(index: jax.Array) -> jax.Array:
-        z_index = {**z, block.name: jnp.full(block.shape, index, dtype=dtype) + low}
-        model_trace = trace(model).get_trace(
-            *model_args, **with_conditioning(model_kwargs, z_index)
+        value = jnp.full(block.shape, index, dtype=dtype) + low
+        return _block_log_factors(
+            model, model_args, model_kwargs, block, {**z, block.name: value}
         )
-        total = 0.0
-        for name in block.factors:
-            log_prob = jnp.asarray(_site_log_prob(model_trace[name]))
-            reduce_axes = tuple(
-                axis
-                for axis in range(-log_prob.ndim, 0)
-                if axis not in block.plate_dims
-            )
-            if reduce_axes:
-                log_prob = jnp.sum(log_prob, axis=reduce_axes, keepdims=True)
-            # drop the leading dims; they are plate dims of the factor beyond the site's
-            log_prob = jnp.reshape(
-                log_prob, log_prob.shape[max(log_prob.ndim - len(block.shape), 0) :]
-            )
-            total = total + log_prob
-        return jnp.broadcast_to(jnp.asarray(total), block.shape)
 
     return jax.vmap(log_factors)(jnp.arange(block.support_size))
 
@@ -1452,27 +1521,37 @@ class DiscreteGibbs(MCMCKernel):
     keyword arguments; sites marked `infer={"enumerate": "parallel"}` are marginalized exactly
     as in HMC.
 
-    With `plate_aware`, a site whose elements are conditionally independent across its plates
-    (every factor that reads the site is inside the same plates, see
+    With `plate_aware`, a plated site whose factors are all inside its plates (see
     :func:`find_plate_blocks`) is updated in one vectorized step instead: its full
     conditionals are computed in one batched pass, with one model evaluation per support
     value, and all its elements are drawn at once (:func:`plate_gibbs_update`). The other
-    sites keep the coordinate-wise sweep. This is the same Gibbs (or Metropolis) update as
-    the sweep, only cheaper: a plated site with `N` elements and `K` support values costs
-    `K` batched model evaluations instead of `N * (K - 1)` sequential ones. It relies on the
-    independence the plates declare: the factors inside a plate must depend on the site
-    elementwise along the plate dims. It is not used when a site is enumerated.
+    sites keep the coordinate-wise sweep. When the elements are conditionally independent
+    given the other sites, this is the same Gibbs (or Metropolis) update as the sweep, only
+    cheaper: a plated site with `N` elements and `K` support values costs `K` batched model
+    evaluations instead of `N * (K - 1)` sequential ones. That independence is assumed, not
+    implied by the plates: every factor must read the site elementwise along the plate dims.
+    A factor that reads other elements of the site, such as a reduction over the plate or a
+    neighbour coupling via `jnp.roll`, breaks it. At `init`, when the initial values and the
+    conditioning are concrete, the factors of each such site are evaluated again with a
+    random half of its elements set to each support value in turn; a site where the log
+    density at the other half then changes keeps the coordinate-wise sweep, with a warning.
+    This check is skipped when `init` is traced (e.g. under `chain_method="parallel"`) and
+    can miss a dependency that does not show at the probed state. The plate-wise update is
+    not used when a site is enumerated.
 
     :param model: the model.
     :param bool random_walk: uniform proposals over the support instead of the exact
         conditional.
     :param bool modified: Liu's modified (Metropolised) proposal that never proposes the
         current value.
-    :param bool plate_aware: update the elements of a plated site all at once when they are
-        conditionally independent. Only correct when every factor inside the plate depends
-        on the site elementwise along the plate dims, as the plate declares; a
-        non-elementwise dependency (e.g. a reduction over the plate) is not detected and
-        yields wrong samples. Defaults to False.
+    :param bool plate_aware: update the elements of a plated site all at once when every
+        factor that reads the site is inside its plates. Only correct when these factors
+        read the site elementwise along the plate dims; a factor that reads other elements
+        of the site, such as a reduction over the plate or a neighbour coupling via
+        `jnp.roll`, yields wrong samples. The check at `init` (see above) keeps such a site
+        on the coordinate-wise sweep with a warning, but it is skipped under
+        `chain_method="parallel"` and can miss a dependency that does not show at the
+        probed state. Defaults to False.
 
     **References:**
 
@@ -1516,26 +1595,6 @@ class DiscreteGibbs(MCMCKernel):
                 "`plate_blocks` requires the kernel to be initialized; run `init` first."
             )
         return self._plate_blocks
-
-    def get_plate_log_factors_fn(
-        self,
-        block: PlateBlock,
-        model_args: ModelArgs = (),
-        model_kwargs: ModelKwargs | None = None,
-    ) -> Callable[[SiteValues], jax.Array]:
-        """The per-element log factors of a plate block, see :func:`plate_log_factors`."""
-        if self._prepared_model is None:
-            raise RuntimeError(
-                "`get_plate_log_factors_fn` requires the kernel to be initialized; "
-                "run `init` first."
-            )
-        return partial(
-            plate_log_factors,
-            self._prepared_model,
-            model_args,
-            {} if model_kwargs is None else model_kwargs,
-            block,
-        )
 
     def get_potential_fn(
         self,
@@ -1599,19 +1658,51 @@ class DiscreteGibbs(MCMCKernel):
         self._prepared_model = _prepare_model_for_potential(
             conditioned(self._model), model_trace, enum=self._enum
         )
+        init_params = {} if init_params is None else init_params
+        z = _as_arrays(
+            {name: init_params.get(name, model_trace[name]["value"]) for name in sites}
+        )
         self._plate_blocks = ()
         if self._plate_aware and not self._enum:
             self._plate_blocks = find_plate_blocks(
                 self._prepared_model, model_args, model_kwargs, model_trace, sites
             )
+        # the plate-wise update assumes that the factors read the site elementwise; probe
+        # that once where the values are concrete (not when `init` is traced)
+        if self._plate_blocks and all(
+            not_jax_tracer(leaf)
+            for leaf in jax.tree.leaves((key_trace, z, model_args, model_kwargs))
+        ):
+            # a key of its own, so that the check leaves the random stream unchanged
+            key_check = random.fold_in(key_trace, 1)
+            blocks = []
+            for block, key_block in zip(
+                self._plate_blocks, random.split(key_check, len(self._plate_blocks))
+            ):
+                if _reads_other_elements(
+                    self._prepared_model,
+                    model_args,
+                    model_kwargs,
+                    block,
+                    z,
+                    key_block,
+                ):
+                    warnings.warn(
+                        f"plate_aware: the site '{block.name}' keeps the coordinate-wise "
+                        "sweep. The log density of its factors at some elements changes "
+                        "when only other elements of the site change (e.g. a reduction "
+                        "over the plate or a neighbour coupling via `jnp.roll`), so the "
+                        "elements are not conditionally independent and a plate-wise "
+                        "update would give wrong samples.",
+                        stacklevel=find_stack_level(),
+                    )
+                else:
+                    blocks.append(block)
+            self._plate_blocks = tuple(blocks)
         plated = {block.name for block in self._plate_blocks}
         self._sweep_sites = tuple(name for name in sites if name not in plated)
         self._support_sizes_flat = _flat_support_sizes(model_trace, self._sweep_sites)
         self._support_lows_flat = _flat_support_lows(model_trace, self._sweep_sites)
-        init_params = {} if init_params is None else init_params
-        z = _as_arrays(
-            {name: init_params.get(name, model_trace[name]["value"]) for name in sites}
-        )
         pe = self.get_potential_fn(model_args, model_kwargs)(z)
         return DiscreteGibbsState(z, jnp.asarray(pe), rng_key)
 

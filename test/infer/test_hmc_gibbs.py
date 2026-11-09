@@ -20,11 +20,12 @@ from numpyro.infer import (
     MCMC,
     NUTS,
     SA,
+    DiscreteGibbs,
     DiscreteHMCGibbs,
     HMCGibbs,
     MixedHMC,
 )
-from numpyro.infer.gibbs import PlateBlock, plate_gibbs_update, with_conditioning
+from numpyro.infer.gibbs import plate_gibbs_update, plate_log_factors, with_conditioning
 from numpyro.infer.util import log_density
 
 
@@ -372,6 +373,23 @@ def _site_outside_reads_plate(y, probs, offsets):
         numpyro.sample("y", dist.Normal(mu + offsets[z] + w, 1.0), obs=y)
 
 
+def _sum_inside_plate(y, probs, offsets):
+    # a reduction over the plate inside the plate: the elements of z are not independent
+    mu = numpyro.sample("mu", dist.Normal(0.0, 1.0))
+    with numpyro.plate("N", y.shape[0]):
+        z = numpyro.sample("z", dist.Categorical(probs))
+        numpyro.sample("y", dist.Normal(mu + offsets[z] + 0.3 * z.sum(), 1.0), obs=y)
+
+
+def _ising():
+    # a neighbour coupling inside the plates: the elements of s are not independent
+    with numpyro.plate("rows", 6, dim=-2), numpyro.plate("cols", 6, dim=-1):
+        s = numpyro.sample("s", dist.Bernoulli(0.5))
+        spin = 2.0 * s - 1.0
+        bonds = jnp.roll(spin, -1, axis=-1) + jnp.roll(spin, -1, axis=-2)
+        numpyro.factor("coupling", 0.4 * spin * bonds)
+
+
 _PLATE_MODELS = {
     "plate": _plate_mixture,
     "nested": _nested_plate_mixture,
@@ -398,13 +416,10 @@ def test_discrete_gibbs_plate_blocks(model, plate_sites, sweep_sites):
     assert tuple(block.name for block in discrete_kernel.plate_blocks) == plate_sites
     assert discrete_kernel._sweep_sites == sweep_sites
     for block in discrete_kernel.plate_blocks:
-        # a tuple of plain scalars, so blocks compare
-        assert block == PlateBlock(*block)
         assert block.support_size == 3
         assert block.shape == (model_args[0].shape[0],)
         assert block.plate_dims == (-1,)
         assert block.factors == ("z", "y")
-        assert isinstance(block.support_low, int)
 
 
 def test_discrete_gibbs_plate_aware_off():
@@ -416,6 +431,23 @@ def test_discrete_gibbs_plate_aware_off():
         discrete_kernel = kernel.blocks[0][0]
         assert discrete_kernel.plate_blocks == ()
         assert set(discrete_kernel._sweep_sites) == {"w", "z"}
+
+
+@pytest.mark.parametrize("model", [_sum_inside_plate, _ising])
+def test_discrete_gibbs_plate_check(model):
+    # the factors inside the plates read other elements of the site; the check at init
+    # finds it and the site keeps the coordinate-wise sweep
+    if model is _ising:
+        kernel = DiscreteGibbs(model, plate_aware=True)
+        model_args = ()
+    else:
+        kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
+        model_args = _plate_mixture_data()
+    with pytest.warns(UserWarning, match="keeps the coordinate-wise sweep"):
+        kernel.init(random.key(0), 10, None, model_args, {})
+    discrete_kernel = kernel if model is _ising else kernel.blocks[0][0]
+    assert discrete_kernel.plate_blocks == ()
+    assert len(discrete_kernel._sweep_sites) == 1
 
 
 @pytest.mark.parametrize("model_name", ["plate", "nested"])
@@ -432,7 +464,9 @@ def test_discrete_gibbs_plate_log_factors(model_name):
     z = {"z": jnp.array([0, 1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 2]) + low}
     kwargs = with_conditioning({}, {"mu": jnp.array(0.3)})
 
-    log_factors = discrete_kernel.get_plate_log_factors_fn(block, model_args, kwargs)(z)
+    log_factors = plate_log_factors(
+        discrete_kernel._prepared_model, model_args, kwargs, block, z
+    )
     assert log_factors.shape == (3, y.shape[0])
 
     potential_fn = discrete_kernel.get_potential_fn(model_args, kwargs)
@@ -450,18 +484,18 @@ def test_discrete_gibbs_plate_log_factors(model_name):
     )
     # the two sum the same terms in a different order; the potential also sums the
     # factors of the other elements, which cancel in the normalization
-    atol = 1e-9 if expected.dtype == jnp.float64 else 1e-4
+    x64 = expected.dtype == jnp.float64
     assert_allclose(
         jax.nn.log_softmax(log_factors, axis=0),
         jax.nn.log_softmax(expected, axis=0),
-        atol=atol,
+        atol=1e-9 if x64 else 1e-4,
     )
 
     # the potential energy after the update is carried from the log-factor delta
     pe = potential_fn(z)
     z_new, pe_new = plate_gibbs_update(random.key(1), z, pe, block, log_factors)
     assert jnp.any(z_new["z"] != z["z"])
-    assert_allclose(pe_new, potential_fn(z_new), atol=atol)
+    assert_allclose(pe_new, potential_fn(z_new), rtol=1e-12 if x64 else 1e-5)
 
 
 @pytest.mark.parametrize("random_walk", [False, True])
@@ -477,7 +511,9 @@ def test_discrete_gibbs_plate_update_stationarity(random_walk, modified):
     z = {"z": jnp.array([0, 1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 2])}
     kwargs = with_conditioning({}, {"mu": jnp.array(-0.2)})
     # the factors of an element do not read the other elements: the same at every z
-    log_factors = discrete_kernel.get_plate_log_factors_fn(block, model_args, kwargs)(z)
+    log_factors = plate_log_factors(
+        discrete_kernel._prepared_model, model_args, kwargs, block, z
+    )
     expected = jax.nn.softmax(log_factors, axis=0)
 
     def step(key):

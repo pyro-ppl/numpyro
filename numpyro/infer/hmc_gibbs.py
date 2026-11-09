@@ -150,13 +150,15 @@ class DiscreteHMCGibbs(Gibbs):
         always proposes a new state for the current Gibbs site. Defaults to False.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
-    :param bool plate_aware: whether to update the elements of a discrete site that are
-        conditionally independent across its plates all at once, in one vectorized step,
-        instead of one coordinate at a time; see :class:`~numpyro.infer.gibbs.DiscreteGibbs`.
-        Only correct when every factor inside the plate depends on the site elementwise
-        along the plate dims, as the plate declares; a non-elementwise dependency (e.g. a
-        reduction over the plate) is not detected and yields wrong samples. Defaults to
-        False.
+    :param bool plate_aware: whether to update the elements of a plated discrete site all at
+        once, in one vectorized step, instead of one coordinate at a time, when every factor
+        that reads the site is inside its plates; see
+        :class:`~numpyro.infer.gibbs.DiscreteGibbs`. Only correct when these factors read
+        the site elementwise along the plate dims; a factor that reads other elements of the
+        site, such as a reduction over the plate or a neighbour coupling via `jnp.roll`,
+        yields wrong samples. A check at `init` keeps such a site on the coordinate-wise
+        sweep with a warning, but it is skipped under `chain_method="parallel"` and can miss
+        a dependency that does not show at the probed state. Defaults to False.
 
     **References:**
 
