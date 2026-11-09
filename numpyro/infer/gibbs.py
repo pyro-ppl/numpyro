@@ -1359,19 +1359,24 @@ def _block_log_factors(
     return jnp.broadcast_to(jnp.asarray(total), block.shape)
 
 
+# Number of prior draws of the other latent sites at which the check at `init` probes a plate
+# block; a coupling that another site turns on is missed only if every draw turns it off.
+_PLATE_CHECK_DRAWS = 8
+
+
 def _split_masks(shape: tuple[int, ...]) -> np.ndarray:
     """
-    The halves of the elements of a site that the check at `init` keeps fixed: for each bit
-    of the flat element index, the elements where the bit is 0 and then those where it is 1.
-    Any two elements differ in some bit, so for every ordered pair `(i, j)` some mask keeps
-    `i` and not `j`. `2 * ceil(log2(size))` masks, none for a single element.
+    The splits of the elements of a site into two halves that the check at `init` probes:
+    for each bit of the flat element index, the elements where the bit is 1. Any two
+    elements differ in some bit, so every pair is split by some mask. `ceil(log2(size))`
+    masks, none for a single element.
     """
     size = int(np.prod(shape))
     index = np.arange(size)
-    masks = []
-    for bit in range((size - 1).bit_length()):
-        half = np.reshape((index >> bit) & 1, shape).astype(bool)
-        masks += [~half, half]
+    masks = [
+        np.reshape((index >> bit) & 1, shape).astype(bool)
+        for bit in range((size - 1).bit_length())
+    ]
     return np.stack(masks) if masks else np.zeros((0,) + tuple(shape), dtype=bool)
 
 
@@ -1383,45 +1388,51 @@ def _check_elementwise(
     z: SiteValues,
     rtol: float = 1e-5,
     atol: float = 1e-5,
-) -> tuple[jax.Array, jax.Array]:
+) -> jax.Array:
     """
-    Probe whether the factors of a plate block read the site elementwise, at a state chosen
-    for the probe: the other sites at their values in `z`, and each element of the site at
-    the support value with the largest log factor in :func:`plate_log_factors` (so that the
-    factors are finite where the model allows it). For each mask of :func:`_split_masks`,
-    the elements outside the mask are set to each support value in turn (one batched pass)
-    and the log factors of the elements inside are compared with those at the probed state.
-    No randomness: the outcome depends only on the model, its arguments and `z`.
+    Probe whether the factors of a plate block read other elements of the site, with the
+    other sites at their values in `z`. For each mask of :func:`_split_masks`, the elements
+    inside are set to each support value `u` and those outside to each support value `v`.
+    The log factors of the elements inside must not change with `v`, and those of the
+    elements outside must not change with `u`. A change between a finite and a non-finite
+    value counts; a factor that is not finite at every value of the other half says
+    nothing. The grid is evaluated one `u` at a time, batched over `v`, so the peak memory
+    is about that of :func:`plate_log_factors`. No randomness: the outcome depends only on
+    the model, its arguments and `z`.
 
-    A dependency that does not show at the probed state (e.g. through a `max`) is missed.
+    A dependency that does not show at these states is missed, e.g. one through a `max`,
+    or one that another site turns off at its value in `z`.
 
-    :return: whether the log factors at the probed state are finite at every element (if
-        not, the check says nothing about the elements where they are not), and whether
-        they changed at some element when only other elements changed.
+    :return: whether the log factors of some element changed when only elements of the
+        other half changed.
     """
     dtype = jnp.result_type(z[block.name])
     low = jnp.asarray(block.support_low, dtype=dtype)
-    log_factors = plate_log_factors(model, model_args, model_kwargs, block, z)
-    log_factors = jnp.where(jnp.isnan(log_factors), -jnp.inf, log_factors)
-    value = jnp.argmax(log_factors, axis=0).astype(dtype) + low
-    z = {**z, block.name: value}
-    before = _block_log_factors(model, model_args, model_kwargs, block, z)
+    values = jnp.arange(block.support_size)
 
-    def changed(keep: jax.Array) -> jax.Array:
-        def log_factors(index: jax.Array) -> jax.Array:
-            other = jnp.where(keep, value, index.astype(dtype) + low)
-            return _block_log_factors(
-                model, model_args, model_kwargs, block, {**z, block.name: other}
-            )
+    def varies(log_factors: jax.Array, axis: int) -> jax.Array:
+        ref = jnp.take(log_factors, jnp.array([0]), axis=axis)
+        close = jnp.abs(log_factors - ref) <= atol + rtol * jnp.abs(ref)
+        close = close | (~jnp.isfinite(log_factors) & ~jnp.isfinite(ref))
+        return jnp.any(~close, axis=(0, 1))
 
-        after = jax.vmap(log_factors)(jnp.arange(block.support_size))
-        # not finite after but finite before counts as a change (the comparison is False)
-        close = jnp.abs(after - before) <= atol + rtol * jnp.abs(before)
-        return jnp.any(keep & ~close)
+    def changed(half: jax.Array) -> jax.Array:
+        def row(u: jax.Array) -> jax.Array:
+            def log_factors(v: jax.Array) -> jax.Array:
+                site = jnp.where(half, u, v).astype(dtype) + low
+                return _block_log_factors(
+                    model, model_args, model_kwargs, block, {**z, block.name: site}
+                )
+
+            return jax.vmap(log_factors)(values)
+
+        grid = jax.lax.map(row, values)  # (u, v) + block.shape
+        return jnp.any(half & varies(grid, 1)) | jnp.any(~half & varies(grid, 0))
 
     masks = _split_masks(block.shape)
-    reads = jnp.any(jax.lax.map(changed, jnp.asarray(masks))) if len(masks) else False
-    return jnp.all(jnp.isfinite(before)), jnp.asarray(reads)
+    if not len(masks):
+        return jnp.asarray(False)
+    return jnp.any(jax.lax.map(changed, jnp.asarray(masks)))
 
 
 def plate_log_factors(
@@ -1562,13 +1573,11 @@ class DiscreteGibbs(MCMCKernel):
     implied by the plates: every factor must read the site elementwise along the plate dims.
     A factor that reads other elements of the site, such as a reduction over the plate or a
     neighbour coupling via `jnp.roll`, breaks it. So at `init` the factors of each such site
-    are probed at a state that depends on neither the initial values nor the random key
-    (the other sites from a prior draw with a fixed key, each element of the site at its
-    most likely value there): for each bit of the flat element index, the elements where the
-    bit is 0 keep their value while the others are set to each support value in turn, and
-    then the other way round, `2 * ceil(log2(N))` batched passes in all. A site where the
-    log density at a kept element changes, or where it is not finite at some element of the
-    probed state, keeps the coordinate-wise sweep, with a warning. The check runs for every
+    are probed at states that depend on neither the initial values nor the random key (the
+    other sites from a few prior draws with fixed keys): for each bit of the flat element
+    index, the elements where the bit is 1 are set to each support value and the others to
+    each support value. A site where the log density of an element changes when only
+    elements of the other half change keeps the coordinate-wise sweep, with a warning. The check runs for every
     chain method (also when `init` is traced, e.g. under `chain_method="parallel"`) and is
     only skipped, with a warning, when the model arguments are traced. It can miss a
     dependency that does not show at the probed state. If any site of the model is
@@ -1662,21 +1671,22 @@ class DiscreteGibbs(MCMCKernel):
         sites: Sequence[str],
     ) -> tuple[PlateBlock, ...]:
         """
-        The blocks that pass :func:`_check_elementwise`; the others keep the coordinate-wise
-        sweep, with a warning. The probed state does not depend on the initial values or on
-        the random key, so that every chain decides the same: the conditioned sites and the
-        other discrete sites take their values from a prior draw with a fixed key. The check
-        needs concrete model arguments and then also runs when `init` is traced (e.g. under
-        `chain_method="parallel"`); with traced model arguments it is skipped, with a warning.
+        The blocks that pass :func:`_check_elementwise` at each of `_PLATE_CHECK_DRAWS`
+        prior draws with fixed keys (the conditioned sites and the other discrete sites
+        take their values from the draw); the others keep the coordinate-wise sweep, with a
+        warning. The probed states depend on neither the initial values nor the random key,
+        so that every chain decides the same. The check needs concrete model arguments and
+        then also runs when `init` is traced (e.g. under `chain_method="parallel"`); with
+        traced model arguments it is skipped, with a warning.
         """
         if not blocks:
             return blocks
         kwargs = {k: v for k, v in model_kwargs.items() if k != GIBBS_SITES_KWARG}
         conditioning = model_kwargs.get(GIBBS_SITES_KWARG, {})
 
-        def check() -> list[tuple[jax.Array, jax.Array]]:
+        def check_at(key: jax.Array) -> jax.Array:
             probe_trace = prototype_trace(
-                conditioned(self._model), random.PRNGKey(0), model_args, kwargs
+                conditioned(self._model), key, model_args, kwargs
             )
             model = _substitute_default_key(
                 substitute(
@@ -1697,10 +1707,17 @@ class DiscreteGibbs(MCMCKernel):
                 kwargs, {name: values[name] for name in conditioning}
             )
             z = {name: values[name] for name in sites}
-            return [
-                _check_elementwise(model, model_args, probe_kwargs, block, z)
-                for block in blocks
-            ]
+            return jnp.stack(
+                [
+                    _check_elementwise(model, model_args, probe_kwargs, block, z)
+                    for block in blocks
+                ]
+            )
+
+        def check() -> jax.Array:
+            # one draw after the other, so that the peak memory does not grow with them
+            keys = random.split(random.PRNGKey(0), _PLATE_CHECK_DRAWS)
+            return jnp.any(jax.lax.map(check_at, keys), axis=0)
 
         results: list[Any] = [None] * len(blocks)
         if all(not_jax_tracer(leaf) for leaf in jax.tree.leaves((model_args, kwargs))):
@@ -1719,15 +1736,7 @@ class DiscreteGibbs(MCMCKernel):
                     stacklevel=find_stack_level(),
                 )
                 checked.append(block)
-            elif not result[0]:
-                warnings.warn(
-                    f"plate_aware: the site '{block.name}' keeps the coordinate-wise sweep. "
-                    "The log density of its factors is not finite at some element of the "
-                    "state probed at `init`, so whether they read the site elementwise "
-                    "could not be checked.",
-                    stacklevel=find_stack_level(),
-                )
-            elif result[1]:
+            elif result:
                 warnings.warn(
                     f"plate_aware: the site '{block.name}' keeps the coordinate-wise sweep. "
                     "The log density of its factors at some elements changes when only "

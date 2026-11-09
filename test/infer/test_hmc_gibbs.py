@@ -418,6 +418,24 @@ def _ising_latent_coupling(obs):
         numpyro.sample("obs", dist.Normal(spin, 2.0), obs=obs)
 
 
+def _autologistic():
+    # 0/1-coded: the coupling of an element vanishes when it is 0
+    with numpyro.plate("rows", 6, dim=-2), numpyro.plate("cols", 6, dim=-1):
+        s = numpyro.sample("s", dist.Bernoulli(0.1))
+        bonds = jnp.roll(s, -1, axis=-1) + jnp.roll(s, -1, axis=-2)
+        numpyro.factor("coupling", 0.8 * s * bonds)
+
+
+def _gated_ising():
+    # the coupling is off when gate = 1, as in the prior draw with key 0
+    gate = numpyro.sample("gate", dist.Bernoulli(0.5))
+    with numpyro.plate("rows", 6, dim=-2), numpyro.plate("cols", 6, dim=-1):
+        s = numpyro.sample("s", dist.Bernoulli(0.5))
+        spin = 2.0 * s - 1.0
+        bonds = jnp.roll(spin, -1, axis=-1) + jnp.roll(spin, -1, axis=-2)
+        numpyro.factor("coupling", 0.6 * (1 - gate) * spin * bonds)
+
+
 _PLATE_MODELS = {
     "plate": _plate_mixture,
     "nested": _nested_plate_mixture,
@@ -475,8 +493,10 @@ def test_discrete_gibbs_plate_aware_off():
             {"z": np.zeros(6, dtype=np.int32)},
             "changes when only other elements",
         ),
-        # zero likelihood for the last element at every value: nothing to compare there
-        (_bands, (np.array([0.2, 0.7, 1.2, 2.5]), 0.0), None, "could not be checked"),
+        # a product coupling that vanishes at s = 0
+        (_autologistic, (), None, "changes when only other elements"),
+        # a coupling that another latent site turns off in half of the prior draws
+        (_gated_ising, (), None, "changes when only other elements"),
         # no coupling at the initial values
         (
             _ising_latent_coupling,
@@ -500,7 +520,6 @@ def test_discrete_gibbs_plate_check(model, model_args, init_params, match):
     with pytest.warns(UserWarning, match=match):
         kernel.init(random.key(0), 10, init_params, model_args, {})
     assert discrete_kernel.plate_blocks == ()
-    assert len(discrete_kernel._sweep_sites) == 1
 
 
 @pytest.mark.parametrize("chain_method", ["sequential", "parallel"])
