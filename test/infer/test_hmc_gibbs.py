@@ -25,7 +25,11 @@ from numpyro.infer import (
     HMCGibbs,
     MixedHMC,
 )
-from numpyro.infer.gibbs import plate_gibbs_update, plate_log_factors, with_conditioning
+from numpyro.infer.gibbs import (
+    _plate_gibbs_update,
+    _plate_log_factors,
+    with_conditioning,
+)
 from numpyro.infer.util import log_density
 
 
@@ -681,7 +685,7 @@ def test_discrete_gibbs_plate_log_factors(model_name):
     z = {"z": jnp.array([0, 1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 2]) + low}
     kwargs = with_conditioning({}, {"mu": jnp.array(0.3)})
 
-    log_factors = plate_log_factors(
+    log_factors = _plate_log_factors(
         discrete_kernel._prepared_model, model_args, kwargs, block, z
     )
     assert log_factors.shape == (3, y.shape[0])
@@ -710,7 +714,7 @@ def test_discrete_gibbs_plate_log_factors(model_name):
 
     # the potential energy after the update is carried from the log-factor delta
     pe = potential_fn(z)
-    z_new, pe_new = plate_gibbs_update(random.key(1), z, pe, block, log_factors)
+    z_new, pe_new = _plate_gibbs_update(random.key(1), z, pe, block, log_factors)
     assert jnp.any(z_new["z"] != z["z"])
     assert_allclose(pe_new, potential_fn(z_new), rtol=1e-12 if x64 else 1e-5)
 
@@ -728,7 +732,7 @@ def test_discrete_gibbs_plate_update_stationarity(random_walk, modified):
     z = {"z": jnp.array([0, 1, 2, 1, 0, 2, 1, 1, 2, 0, 1, 2])}
     kwargs = with_conditioning({}, {"mu": jnp.array(-0.2)})
     # the factors of an element do not read the other elements: the same at every z
-    log_factors = plate_log_factors(
+    log_factors = _plate_log_factors(
         discrete_kernel._prepared_model, model_args, kwargs, block, z
     )
     expected = jax.nn.softmax(log_factors, axis=0)
@@ -736,7 +740,7 @@ def test_discrete_gibbs_plate_update_stationarity(random_walk, modified):
     def step(key):
         key_init, key_update = random.split(key)
         z0 = {"z": random.categorical(key_init, log_factors, axis=0)}
-        z1, _ = plate_gibbs_update(
+        z1, _ = _plate_gibbs_update(
             key_update, z0, jnp.zeros(()), block, log_factors, random_walk, modified
         )
         return z1["z"]
