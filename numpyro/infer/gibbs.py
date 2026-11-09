@@ -1578,8 +1578,9 @@ class DiscreteGibbs(MCMCKernel):
     index, the elements where the bit is 1 are set to each support value and the others to
     each support value. A site where the log density of an element changes when only
     elements of the other half change keeps the coordinate-wise sweep, with a warning. The check runs for every
-    chain method (also when `init` is traced, e.g. under `chain_method="parallel"`) and is
-    only skipped, with a warning, when the model arguments are traced. It can miss a
+    chain method (also when `init` is traced, e.g. under `chain_method="parallel"`); when
+    the model arguments are traced it cannot run, and the site keeps the sweep, with a
+    warning. It can miss a
     dependency that does not show at the probed state. If any site of the model is
     enumerated, `plate_aware` is ignored for all sites, with a warning.
 
@@ -1677,7 +1678,8 @@ class DiscreteGibbs(MCMCKernel):
         warning. The probed states depend on neither the initial values nor the random key,
         so that every chain decides the same. The check needs concrete model arguments and
         then also runs when `init` is traced (e.g. under `chain_method="parallel"`); with
-        traced model arguments it is skipped, with a warning.
+        traced model arguments it cannot run and every block keeps the sweep, with a
+        warning.
         """
         if not blocks:
             return blocks
@@ -1728,14 +1730,12 @@ class DiscreteGibbs(MCMCKernel):
         for block, result in zip(blocks, results):
             if result is None:
                 warnings.warn(
-                    f"plate_aware: the site '{block.name}' is updated plate-wise without "
-                    "the check at `init` that its factors read it elementwise, because the "
-                    "model arguments are traced. A factor that reads other elements of the "
-                    "site (e.g. a reduction over the plate or a neighbour coupling via "
-                    "`jnp.roll`) would give wrong samples.",
+                    f"plate_aware has no effect for the site '{block.name}': it keeps the "
+                    "coordinate-wise sweep, because the model arguments are traced at "
+                    "`init` (e.g. `mcmc.run` inside `jax.jit`), so the check that its "
+                    "factors read it elementwise cannot run.",
                     stacklevel=find_stack_level(),
                 )
-                checked.append(block)
             elif result:
                 warnings.warn(
                     f"plate_aware: the site '{block.name}' keeps the coordinate-wise sweep. "

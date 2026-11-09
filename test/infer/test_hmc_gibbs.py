@@ -552,16 +552,16 @@ def test_discrete_gibbs_plate_check_chains(chain_method):
 
 
 def test_discrete_gibbs_plate_check_skipped():
-    # with traced model arguments the check cannot run; the site is updated plate-wise,
-    # with a warning
+    # with traced model arguments the check cannot run; the site keeps the sweep, with a
+    # warning
     y, probs, offsets = _plate_mixture_data()
     kernel = DiscreteGibbs(_first_element, plate_aware=True)
     init = jax.jit(
         lambda y: kernel.init(random.key(0), 0, None, (y, probs, offsets), {})
     )
-    with pytest.warns(UserWarning, match="without the check"):
+    with pytest.warns(UserWarning, match="plate_aware has no effect for the site 'z'"):
         init(y)
-    assert [block.name for block in kernel.plate_blocks] == ["z"]
+    assert kernel.plate_blocks == ()
 
 
 def test_discrete_gibbs_plate_numpy_args():
