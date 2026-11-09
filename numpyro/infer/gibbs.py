@@ -1733,6 +1733,8 @@ class DiscreteGibbs(MCMCKernel):
                 if jax.config.jax_disable_jit
                 else jax.jit(check).lower().compile()()
             )
+            # as Python bools: indexing the array would be staged when `init` is traced
+            results = np.asarray(results).tolist()
         checked = []
         for block, result in zip(blocks, results):
             if result is None:
