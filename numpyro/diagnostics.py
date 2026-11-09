@@ -251,7 +251,8 @@ def _hpdi_of_sorted(sorted_x: NDArray, prob: float) -> tuple[NDArray, NDArray]:
     # compute the hpdi bounds of samples already sorted along axis 0; both
     # bounds are returned with a leading axis of size 1
     mass = sorted_x.shape[0]
-    index_length = int(prob * mass)
+    # each candidate interval covers index_length + 1 draws, so prob=1 needs mass - 1
+    index_length = min(int(prob * mass), mass - 1)
     intervals_left = sorted_x[: (mass - index_length)]
     intervals_right = sorted_x[index_length:]
     intervals_length = intervals_right - intervals_left

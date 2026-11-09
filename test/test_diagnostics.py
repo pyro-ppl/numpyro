@@ -60,6 +60,14 @@ def test_hpdi():
     assert_allclose(hpdi(x, prob=0.2), np.array([0.0, 0.22]), atol=0.01)
 
 
+def test_hpdi_full_mass():
+    x = np.random.normal(size=(100, 3))
+    assert_allclose(hpdi(x, prob=1.0), np.stack([x.min(0), x.max(0)]))
+    stats = summary(x, prob=1.0, group_by_chain=False)["Param:0"]
+    assert_allclose(stats["0.0%"], x.min(0))
+    assert_allclose(stats["100.0%"], x.max(0))
+
+
 def test_autocorrelation():
     x = np.arange(10.0)
     actual = autocorrelation(x, bias=False)
