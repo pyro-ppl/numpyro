@@ -1314,6 +1314,25 @@ def test_fixed_num_steps():
     assert all(step == 5 for step in num_steps_list)
 
 
+def test_short_trajectory_length():
+    # The step size is adapted beyond the trajectory length here, which must not
+    # leave HMC with zero leapfrog steps (a chain that never moves).
+    def model():
+        numpyro.sample("x", dist.Normal(0.0, 1.0))
+
+    mcmc = MCMC(
+        HMC(model, trajectory_length=1.0),
+        num_warmup=500,
+        num_samples=1000,
+        progress_bar=False,
+    )
+    mcmc.run(random.key(0), extra_fields=("num_steps",))
+    assert (mcmc.get_extra_fields()["num_steps"] >= 1).all()
+    samples = mcmc.get_samples()["x"]
+    assert_allclose(jnp.mean(samples), 0.0, atol=0.15)
+    assert_allclose(jnp.std(samples), 1.0, atol=0.15)
+
+
 @pytest.mark.parametrize("num_steps", [None, 10])
 def test_none_trajectory_length(num_steps):
     data = dict()
