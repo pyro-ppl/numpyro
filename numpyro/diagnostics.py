@@ -226,11 +226,6 @@ def effective_sample_size(x: NDArray, bias: bool = True) -> NDArray:
     return n_eff
 
 
-def _check_prob(prob: float) -> None:
-    if not 0 < prob <= 1:
-        raise ValueError("Expected `prob` to be in (0, 1], but got {}.".format(prob))
-
-
 def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
@@ -245,7 +240,8 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
         that the size along ``axis`` is 2 (lower bound first, upper bound second).
     :rtype: numpy.ndarray
     """
-    _check_prob(prob)
+    if not 0 < prob <= 1:
+        raise ValueError("Expected `prob` to be in (0, 1], but got {}.".format(prob))
     x = np.swapaxes(x, axis, 0)
     sorted_x = np.sort(x, axis=0)
     hpd_left, hpd_right = _hpdi_of_sorted(sorted_x, prob)
@@ -367,7 +363,8 @@ def summary(
         draws, with shape `num_chains x num_samples` if `group_by_chain` is True
         and `num_samples` otherwise.
     """
-    _check_prob(prob)
+    if not 0 < prob <= 1:
+        raise ValueError("Expected `prob` to be in (0, 1], but got {}.".format(prob))
     if not group_by_chain:
         samples = jax.tree.map(lambda x: x[None, ...], samples)
         if log_weights is not None:
