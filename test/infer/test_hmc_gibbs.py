@@ -450,6 +450,22 @@ def test_discrete_gibbs_plate_check(model):
     assert len(discrete_kernel._sweep_sites) == 1
 
 
+def test_discrete_gibbs_plate_numpy_args():
+    # the model computes with its NumPy argument in Python
+    y, probs, offsets = _plate_mixture_data()
+
+    def model(y):
+        scale = float(np.std(y))
+        mu = numpyro.sample("mu", dist.Normal(0.0, scale))
+        with numpyro.plate("N", y.shape[0]):
+            z = numpyro.sample("z", dist.Categorical(probs))
+            numpyro.sample("y", dist.Normal(mu + offsets[z], 1.0), obs=y)
+
+    kernel = DiscreteHMCGibbs(NUTS(model), plate_aware=True)
+    kernel.init(random.key(0), 10, None, (np.asarray(y),), {})
+    assert [block.name for block in kernel.blocks[0][0].plate_blocks] == ["z"]
+
+
 @pytest.mark.filterwarnings("ignore:Out-of-support values")
 def test_discrete_gibbs_plate_infinite_energy():
     # The initial z has zero likelihood. After the plate update the potential energy is

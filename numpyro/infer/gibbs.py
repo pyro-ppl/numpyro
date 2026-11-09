@@ -1220,12 +1220,14 @@ def _log_prob_dependencies(
     """
     For every sample site of `model`, the names among `sites` on which its log density
     depends, found by tracking provenance through an abstract evaluation of the model (no
-    array computation). The array leaves of the model arguments are tracked inputs too, so
-    that nothing traced (e.g. under `pmap`) is closed over.
+    array computation). The model arguments are closed over, like in
+    :func:`~numpyro.infer.inspect.get_dependencies`, so that a model can compute with
+    them in Python (e.g. `float(np.std(y))`); only their traced leaves (e.g. under `pmap`)
+    are inputs of the evaluation, since a tracer cannot be closed over.
     """
     leaves, treedef = jax.tree.flatten((model_args, model_kwargs))
-    is_array = [isinstance(leaf, (jax.Array, np.ndarray)) for leaf in leaves]
-    arrays = [leaf for leaf, tracked in zip(leaves, is_array) if tracked]
+    traced = [not not_jax_tracer(leaf) for leaf in leaves]
+    arrays = [leaf for leaf, tracked in zip(leaves, traced) if tracked]
     values = {name: model_trace[name]["value"] for name in sites}
 
     def log_probs(_inputs: list[Any], **samples: Any) -> dict[str, jax.Array]:
@@ -1234,7 +1236,7 @@ def _log_prob_dependencies(
             treedef,
             [
                 next(inputs) if tracked else leaf
-                for leaf, tracked in zip(leaves, is_array)
+                for leaf, tracked in zip(leaves, traced)
             ],
         )
         with trace() as tr, seed(rng_seed=0), substitute(data=samples):
