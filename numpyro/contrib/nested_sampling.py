@@ -16,7 +16,6 @@ try:
         plot_cornerplot,
         plot_diagnostics,
         resample,
-        summary,
     )
     from jaxns.public import DefaultNestedSampler
     from jaxns.utils import NestedSamplerResults
@@ -31,6 +30,7 @@ except (ImportError, AttributeError) as e:
 import tensorflow_probability.substrates.jax as tfp
 
 import numpyro
+from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.handlers import reparam, seed, trace
 from numpyro.infer import Predictive
@@ -338,13 +338,14 @@ class NestedSampler:
 
     def print_summary(self):
         """
-        Print summary of the result. This is a wrapper of :func:`jaxns.utils.summary`.
+        Print a weighted posterior summary using
+        :func:`numpyro.diagnostics.print_summary`.
+
+        The effective sample size is calculated from the sample weights, and
+        ``r_hat`` is not reported.
         """
-        if self._results is None:
-            raise RuntimeError(
-                "NestedSampler.run(...) method should be called first to obtain results."
-            )
-        summary(self._results)
+        samples, log_weights = self.get_weighted_samples()
+        print_summary(samples, group_by_chain=False, log_weights=log_weights)
 
     def diagnostics(self):
         """

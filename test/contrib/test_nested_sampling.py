@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+from types import SimpleNamespace
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -104,3 +105,35 @@ def test_dense_mass(rho):
     assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.1)
     assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.20)
     assert_allclose(jnp.var(samples, axis=0), jnp.array([10.0, 0.1]), rtol=0.20)
+
+
+def test_print_summary_weighted_samples(capsys):
+    ns = NestedSampler(lambda: None)
+    x = jnp.array([0.0, 10.0, 20.0, 1000.0])
+    # Unequal weights distinguish the weighted mean (16) from the ordinary mean.
+    # The outlier has zero weight and must not affect the summary.
+    ns._results = SimpleNamespace(
+        samples={"x": x, "y": jnp.stack((x, -x), axis=-1)},
+        log_dp_mean=jnp.array([0.0, np.log(2.0), np.log(7.0), -np.inf]),
+    )
+
+    ns.print_summary()
+
+    lines = capsys.readouterr().out.strip().splitlines()
+    columns = lines[0].split()
+    assert "n_eff" in columns and "r_hat" not in columns
+    rows = {}
+    for line in lines[1:]:
+        name, *values = line.split()
+        rows[name] = dict(zip(columns, map(float, values)))
+    assert set(rows) == {"x", "y[0]", "y[1]"}
+    for name, expected_mean in [("x", 16.0), ("y[0]", 16.0), ("y[1]", -16.0)]:
+        assert rows[name]["mean"] == expected_mean
+        # (1 + 2 + 7)**2 / (1**2 + 2**2 + 7**2), printed to two decimals.
+        assert rows[name]["n_eff"] == 1.85
+
+
+def test_print_summary_before_run():
+    ns = NestedSampler(lambda: None)
+    with pytest.raises(RuntimeError, match=r"NestedSampler\.run"):
+        ns.print_summary()
