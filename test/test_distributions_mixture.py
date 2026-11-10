@@ -3,6 +3,7 @@
 
 
 import numpy as np
+from numpy.testing import assert_allclose
 import pytest
 from scipy import stats
 from scipy.special import logsumexp
@@ -292,3 +293,22 @@ def test_general_mixture_broadcast_components(batch_shapes, event_shape, jit):
         )
         actual_cdf = (jax.jit(mixture.cdf) if jit else mixture.cdf)(value)
         np.testing.assert_allclose(actual_cdf, expected_cdf, rtol=1e-6)
+
+
+def test_mixture_exponential_gamma_compatible_support():
+    # Exponential is nonnegative and Gamma is positive; they differ only at 0.
+    mixing = dist.Categorical(probs=np.array([0.5, 0.5]))
+    exponential = dist.Exponential(1.0)
+    gamma = dist.Gamma(2.0, 1.0)
+    for components in ([exponential, gamma], [gamma, exponential]):
+        mixture = dist.MixtureGeneral(mixing, components)
+        # Both components have density exp(-1) at 1, so the mixture does too.
+        assert_allclose(mixture.log_prob(1.0), -1.0, rtol=1e-6)
+        # The wider (nonnegative) support must be reported in either order.
+        assert np.asarray(mixture.support(0.0)).all()
+        assert not np.asarray(mixture.support(-1e-3)).any()
+
+    # The same pair must also work through the Mixture() helper.
+    wrapper = dist.Mixture(mixing, [exponential, gamma])
+    assert_allclose(wrapper.log_prob(1.0), -1.0, rtol=1e-6)
+    assert np.asarray(wrapper.support(0.0)).all()
