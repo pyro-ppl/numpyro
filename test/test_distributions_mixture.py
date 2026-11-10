@@ -312,3 +312,15 @@ def test_mixture_exponential_gamma_compatible_support():
     wrapper = dist.Mixture(mixing, [exponential, gamma])
     assert_allclose(wrapper.log_prob(1.0), -1.0, rtol=1e-6)
     assert np.asarray(wrapper.support(0.0)).all()
+
+
+def test_mixture_uniform_intervals_with_different_bounds():
+    # Same support type, different bounds: accepted, support stays the first's.
+    mixture = dist.MixtureGeneral(
+        dist.Categorical(probs=np.array([0.5, 0.5])),
+        [dist.Uniform(0.0, 1.0), dist.Uniform(0.0, 2.0)],
+    )
+    first_support = dist.Uniform(0.0, 1.0).support
+    assert type(mixture.support) is type(first_support)
+    assert mixture.support.lower_bound == first_support.lower_bound
+    assert mixture.support.upper_bound == first_support.upper_bound
