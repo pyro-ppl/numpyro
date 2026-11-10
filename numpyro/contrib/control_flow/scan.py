@@ -34,7 +34,7 @@ def _replay_wrapper(replay_trace, trace, i, length):
     return {k: get_ith_value(v) for k, v in replay_trace.items()}
 
 
-def _subs_wrapper(subs_map, i, length, site):
+def _subs_wrapper(subs_map, i, length, site, reverse=False):
     if site["type"] != "sample":
         return
     value = None
@@ -65,10 +65,13 @@ def _subs_wrapper(subs_map, i, length, site):
             elif shape[0] < length:
                 rng_key = site["kwargs"]["rng_key"]
                 assert rng_key is not None
-                # we use the substituted values if i < shape[0]
-                # and generate a new sample otherwise
+                # we use the substituted values for the first shape[0] scanned
+                # items (the last positions if reverse) and generate new samples
+                # otherwise
+                if reverse:
+                    i = i - (length - shape[0])
                 return lax.cond(
-                    i < shape[0],
+                    (i >= 0) & (i < shape[0]),
                     lambda val, _: val[0][val[1]],
                     lambda _, key: site["fn"](rng_key=key, sample_shape=sample_shape),
                     (value, i),
@@ -311,23 +314,26 @@ def scan_wrapper(
     def body_fn(wrapped_carry, x):
         i, rng_key, carry = wrapped_carry
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
+        # `i` counts iterations; when running in reverse, iteration `i` handles
+        # the item at position `length - 1 - i` of the stacked sites
+        t = length - 1 - i if reverse else i
 
         with handlers.block():
             # we need to tell unconstrained messenger in potential energy computation
-            # that only the item at time `i` is needed when transforming
+            # that only the item at time `t` is needed when transforming
             fn = handlers.infer_config(
-                f, config_fn=lambda msg: {"_scan_current_index": i}
+                f, config_fn=lambda msg: {"_scan_current_index": t}
             )
             seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
             for subs_type, subs_map in substitute_stack:
-                subs_fn = partial(_subs_wrapper, subs_map, i, length)
+                subs_fn = partial(_subs_wrapper, subs_map, t, length, reverse=reverse)
                 if subs_type == "condition":
                     seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
                 elif subs_type == "substitute":
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
                 elif subs_type == "replay":
                     trace = handlers.trace(seeded_fn).get_trace(carry, x)
-                    replay_trace_i = _replay_wrapper(subs_map, trace, i, length)
+                    replay_trace_i = _replay_wrapper(subs_map, trace, t, length)
                     seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
 
             with handlers.trace() as trace:
