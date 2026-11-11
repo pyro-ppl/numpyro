@@ -66,6 +66,12 @@ def test_hpdi_full_mass():
     stats = summary(x, prob=1.0, group_by_chain=False)["Param:0"]
     assert_allclose(stats["0.0%"], x.min(0))
     assert_allclose(stats["100.0%"], x.max(0))
+    log_weights = np.zeros(10)
+    log_weights[[0, -1]] = -np.inf
+    stats = summary(
+        np.arange(10.0), prob=1.0, group_by_chain=False, log_weights=log_weights
+    )["Param:0"]
+    assert_allclose([stats["0.0%"], stats["100.0%"]], [1.0, 8.0])
 
 
 def test_hpdi_invalid_prob():

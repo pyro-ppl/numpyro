@@ -329,8 +329,13 @@ def _weighted_stats(
         right = np.searchsorted(cw, cw_before + prob + tol, side="right")
         valid = right < n
         lengths = np.where(valid, xs[np.minimum(right, n - 1)] - xs, np.inf)
-        start = int(np.argmin(lengths)) if valid.any() else 0
-        hpd[:, k] = xs[start], xs[min(right[start], n - 1)]
+        if valid.any():
+            start = int(np.argmin(lengths))
+            hpd[:, k] = xs[start], xs[min(right[start], n - 1)]
+        else:
+            # prob is (numerically) 1: span the draws with positive weight
+            support = np.flatnonzero(sorted_w[:, k] > 0)
+            hpd[:, k] = xs[support[0]], xs[support[-1]]
 
     sample_shape = x.shape[1:]
     median = median.reshape(sample_shape)
