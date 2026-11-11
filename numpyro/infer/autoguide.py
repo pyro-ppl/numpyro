@@ -1974,14 +1974,14 @@ class AutoBatchedMixin:
             self._get_batch_transform(),
         )
 
+    def _get_reshape_transform(self) -> ReshapeTransform:
+        return ReshapeTransform(
+            (self.latent_dim,), self._batch_shape + self._event_shape
+        )
+
     def _get_batch_transform(self) -> ComposeTransform:
         return ComposeTransform(
-            [
-                ReshapeTransform(
-                    (self.latent_dim,), self._batch_shape + self._event_shape
-                ),
-                PermuteTransform(self._batch_permutation),
-            ]
+            [self._get_reshape_transform(), PermuteTransform(self._batch_permutation)]
         )
 
 
