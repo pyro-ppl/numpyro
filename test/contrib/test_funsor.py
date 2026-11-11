@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from functools import partial
+import itertools
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -20,6 +21,7 @@ from numpyro.contrib.funsor.enum_messenger import NamedMessenger, plate as enum_
 from numpyro.contrib.funsor.infer_util import log_density
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, init_to_median
+from numpyro.infer.util import potential_energy
 from numpyro.ops.indexing import Vindex
 from numpyro.primitives import _PYRO_STACK
 
@@ -232,6 +234,7 @@ def test_scan_enum_reverse_substitute(reverse, history):
     T = 5
     y = jnp.array([0.3, -1.2, 2.0, 0.5, 1.1])
     w = jnp.array([0.5, -1.0, 2.0, 0.1, 1.2])
+    y_iter = y[::-1] if reverse else y
 
     def model():
         def transition(carry, y_t):
@@ -240,17 +243,55 @@ def test_scan_enum_reverse_substitute(reverse, history):
                 "c", dist.Bernoulli(0.5), infer={"enumerate": "parallel"}
             )
             numpyro.sample("y", dist.Normal(w_t + 0.5 * c, 1.0), obs=y_t)
-            return carry, None
+            return carry, w_t
 
-        scan(transition, 0.0, y, length=T, reverse=reverse, history=history)
+        return scan(transition, 0.0, y, length=T, reverse=reverse, history=history)
 
-    # values substituted into a scan keep their positions, whatever the direction
+    # values substituted into a scan are indexed by iteration step, `ys` by position
+    with enum(), numpyro.handlers.substitute(data={"w": w}):
+        _, ys = model()
+    assert_allclose(ys, w[::-1] if reverse else w)
     log_joint, _ = log_density(enum(model), (), {}, {"w": w})
     mix = jnp.logaddexp(
-        dist.Normal(w, 1.0).log_prob(y), dist.Normal(w + 0.5, 1.0).log_prob(y)
+        dist.Normal(w, 1.0).log_prob(y_iter), dist.Normal(w + 0.5, 1.0).log_prob(y_iter)
     ) + jnp.log(0.5)
     expected = dist.Normal(0.0, 10.0).log_prob(w).sum() + mix.sum()
     assert_allclose(log_joint, expected, rtol=1e-5)
+    # potential_energy reads unconstrained values through _scan_current_index
+    pe = potential_energy(enum(model), (), {}, {"w": w}, enum=True)
+    assert_allclose(pe, -expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("history", [1, 2])
+def test_scan_enum_reverse_markov_chain(reverse, history):
+    P = jnp.array([[0.9, 0.1], [0.3, 0.7]])
+    locs = jnp.array([-1.0, 2.0])
+    y = jnp.array([0.3, 1.9, -0.8, 2.5, 0.1])
+    T = y.shape[0]
+
+    def model():
+        def transition(z_prev, y_t):
+            z = numpyro.sample(
+                "z", dist.Categorical(P[z_prev]), infer={"enumerate": "parallel"}
+            )
+            numpyro.sample("y", dist.Normal(locs[z], 1.0), obs=y_t)
+            return z, None
+
+        scan(transition, 0, y, reverse=reverse, history=history)
+
+    actual, _ = log_density(enum(config_enumerate(model), -1), (), {}, {})
+
+    # brute force over all state sequences, which are in iteration order
+    y_iter = y[::-1] if reverse else y
+    total = -jnp.inf
+    for states in itertools.product([0, 1], repeat=T):
+        z = jnp.array(states)
+        z_prev = jnp.concatenate([jnp.array([0]), z[:-1]])
+        lp = dist.Categorical(P[z_prev]).log_prob(z).sum()
+        lp += dist.Normal(locs[z], 1.0).log_prob(y_iter).sum()
+        total = jnp.logaddexp(total, lp)
+    assert_allclose(actual, total, rtol=1e-5)
 
 
 @pytest.mark.parametrize("num_steps", [1, 10, 11])

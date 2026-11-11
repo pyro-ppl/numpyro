@@ -294,6 +294,7 @@ def test_scan_mvn():
 def test_scan_reverse_substitute(reverse):
     y = jnp.arange(5.0)
     z = jnp.array([0.5, -1.0, 2.0, 0.1, 1.2])
+    y_iter = y[::-1] if reverse else y
 
     def model():
         def transition(carry, y_t):
@@ -303,20 +304,16 @@ def test_scan_reverse_substitute(reverse):
 
         return scan(transition, 0.0, y, reverse=reverse)
 
+    # sites in the trace are stacked in iteration order, `ys` by position
     with substitute(data={"z": z}), trace() as tr:
         _, z_out = model()
-    # stacked sites and outputs are indexed by position, not by iteration
     assert_allclose(tr["z"]["value"], z)
-    assert_allclose(z_out, z)
-
-    # a series shorter than the scan fills the items scanned first
-    with seed(rng_seed=0), substitute(data={"z": z[:3]}), trace() as tr:
-        model()
-    v = tr["z"]["value"]
-    assert_allclose(v[-3:] if reverse else v[:3], z[:3])
+    assert_allclose(tr["y"]["value"], y_iter)
+    assert_allclose(z_out, z[::-1] if reverse else z)
 
     # the carry continues from the last substituted value: in a deterministic
-    # chain z_t = carry + 1 the generated values extend the substituted ones
+    # chain z_t = carry + 1 the generated values extend the substituted ones,
+    # and a series shorter than the scan is used for the first iterations
     def chain():
         def transition(carry, _):
             z_t = numpyro.sample("z", dist.Delta(carry + 1.0))
@@ -324,14 +321,14 @@ def test_scan_reverse_substitute(reverse):
 
         return scan(transition, 0.0, None, length=5, reverse=reverse)
 
-    with seed(rng_seed=0), substitute(data={"z": jnp.array([1.0, 2.0, 3.0])}):
+    with seed(rng_seed=0), substitute(data={"z": jnp.array([1.0, 3.0, 5.0])}):
         _, chain_out = chain()
-    expected_chain = [3.0, 2.0, 1.0, 2.0, 3.0] if reverse else [1.0, 2.0, 3.0, 4.0, 5.0]
-    assert_allclose(chain_out, expected_chain)
+    expected_chain = [1.0, 3.0, 5.0, 6.0, 7.0]
+    assert_allclose(chain_out, expected_chain[::-1] if reverse else expected_chain)
 
-    prev = jnp.append(z[1:], 0.0) if reverse else jnp.append(0.0, z[:-1])
+    prev = jnp.append(0.0, z[:-1])
     expected = dist.Normal(prev, 1.0).log_prob(z).sum()
-    expected += dist.Normal(0.5 * z, 1.0).log_prob(y).sum()
+    expected += dist.Normal(0.5 * z, 1.0).log_prob(y_iter).sum()
     actual, _ = log_density(model, (), {}, {"z": z})
     assert_allclose(actual, expected, rtol=1e-6)
 
@@ -339,6 +336,7 @@ def test_scan_reverse_substitute(reverse):
 @pytest.mark.parametrize("reverse", [False, True])
 def test_scan_reverse_potential_energy(reverse):
     y = jnp.arange(5.0)
+    y_iter = y[::-1] if reverse else y
     u = jnp.array([0.5, -1.0, 2.0, 0.1, 1.2])
 
     def model():
@@ -352,7 +350,7 @@ def test_scan_reverse_potential_energy(reverse):
     z = jnp.exp(u)
     expected = -(
         dist.LogNormal(0.0, 1.0).log_prob(z).sum()
-        + dist.Normal(z, 1.0).log_prob(y).sum()
+        + dist.Normal(z, 1.0).log_prob(y_iter).sum()
         + u.sum()
     )
     actual = potential_energy(model, (), {}, {"z": u})
