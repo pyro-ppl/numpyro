@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, namedtuple
+import operator
+import warnings
 
 import jax
 from jax import grad, jacfwd, random, value_and_grad, vmap
@@ -384,16 +386,58 @@ def find_reasonable_step_size(
     return step_size
 
 
-def build_adaptation_schedule(num_steps, final_window_size=50):
+#: Default size of the final step-size-only adaptation window (Stan's
+#: ``term_buffer``).
+_DEFAULT_FINAL_WINDOW_SIZE = 50
+
+#: Minimum accepted final window size. Dual averaging restarts its running
+#: average at ``log(10 * step_size)`` with ``t0=10`` when the final window
+#: begins, so a final window shorter than ``t0`` keeps most of that restart
+#: bias and can leave the final step size inflated by a factor of ~10.
+_MIN_FINAL_WINDOW_SIZE = 10
+
+
+def _validate_final_window_size(final_window_size):
+    """
+    Checks that ``final_window_size`` is an integer of at least
+    ``_MIN_FINAL_WINDOW_SIZE`` and returns it as a Python ``int``.
+
+    Integer-like values such as ``np.int64`` or ``jnp.int32`` are accepted via
+    ``operator.index``; ``bool`` is rejected explicitly.
+    """
+    if isinstance(final_window_size, bool):
+        raise ValueError(
+            "final_window_size must be an integer of at least "
+            f"{_MIN_FINAL_WINDOW_SIZE}, got {final_window_size!r}"
+        )
+    try:
+        final_window_size = operator.index(final_window_size)
+    except TypeError:
+        raise ValueError(
+            "final_window_size must be an integer of at least "
+            f"{_MIN_FINAL_WINDOW_SIZE}, got {final_window_size!r}"
+        ) from None
+    if final_window_size < _MIN_FINAL_WINDOW_SIZE:
+        raise ValueError(
+            "final_window_size must be an integer of at least "
+            f"{_MIN_FINAL_WINDOW_SIZE}, got {final_window_size!r}"
+        )
+    return final_window_size
+
+
+def build_adaptation_schedule(num_steps, final_window_size=_DEFAULT_FINAL_WINDOW_SIZE):
     """
     Builds a window adaptation schedule to be used during warmup phase of HMC.
 
     :param int num_steps: Number of warmup steps.
     :param int final_window_size: Size of the final step-size adaptation window
-        (defaults to 50). If the initial buffer (75 steps), initial slow window
-        (25 steps), and final window do not fit, the buffers are rescaled to
-        15% and 10% of warmup, respectively. Below 20 steps, warmup uses a single
-        window instead.
+        (defaults to 50), corresponding to Stan's ``term_buffer``. Must be an
+        integer of at least 10 (the dual-averaging ``t0``); shorter windows
+        keep the dual-averaging restart bias and can fail to adapt the step
+        size. If the initial buffer (75 steps), initial slow window (25 steps),
+        and final window do not fit, the buffers are rescaled to 15% and 10% of
+        warmup, respectively, and a non-default value emits a warning when it
+        is rescaled. Below 20 steps, warmup uses a single window instead.
     :return: a list of contiguous windows, each has attributes `start` and `end`,
         where `start` is the starting index and `end` is the ending index of the window.
 
@@ -402,8 +446,7 @@ def build_adaptation_schedule(num_steps, final_window_size=50):
     1. *Stan Reference Manual version 2.18*,
        Stan Development Team
     """
-    if not isinstance(final_window_size, int) or final_window_size < 1:
-        raise ValueError("final_window_size must be a positive integer")
+    final_window_size = _validate_final_window_size(final_window_size)
     adaptation_schedule = []
     # from Stan, for small num_steps
     if num_steps < 20:
@@ -418,15 +461,24 @@ def build_adaptation_schedule(num_steps, final_window_size=50):
     # for dealing with the intense computation of sampling momentum from the
     # inverse of mass matrix.
     start_buffer_size = 75  # from Stan
-    end_buffer_size = final_window_size
     init_window_size = 25  # from Stan
-    if (start_buffer_size + end_buffer_size + init_window_size) > num_steps:
+    if (start_buffer_size + final_window_size + init_window_size) > num_steps:
         start_buffer_size = int(0.15 * num_steps)
-        end_buffer_size = int(0.1 * num_steps)
-        init_window_size = num_steps - start_buffer_size - end_buffer_size
+        rescaled_final_window_size = int(0.1 * num_steps)
+        if final_window_size != _DEFAULT_FINAL_WINDOW_SIZE:
+            warnings.warn(
+                f"The requested final_window_size={final_window_size} does not fit "
+                f"within num_steps={num_steps} together with the initial buffer and "
+                f"slow windows, so it is rescaled to {rescaled_final_window_size}. "
+                f"Use at least {100 + final_window_size} warmup steps to apply the "
+                "requested window size.",
+                stacklevel=2,
+            )
+        final_window_size = rescaled_final_window_size
+        init_window_size = num_steps - start_buffer_size - final_window_size
 
     adaptation_schedule.append(AdaptWindow(start=0, end=start_buffer_size - 1))
-    end_window_start = num_steps - end_buffer_size
+    end_window_start = num_steps - final_window_size
 
     next_window_size = init_window_size
     next_window_start = start_buffer_size
@@ -530,7 +582,7 @@ def warmup_adapter(
     dense_mass=False,
     target_accept_prob=0.8,
     regularize_mass_matrix=True,
-    final_window_size=50,
+    final_window_size=_DEFAULT_FINAL_WINDOW_SIZE,
 ):
     """
     A scheme to adapt tunable parameters, namely step size and mass matrix, during
@@ -549,7 +601,8 @@ def warmup_adapter(
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
     :param int final_window_size: Size of the final step-size adaptation window.
-        See :func:`build_adaptation_schedule` for short-warmup rescaling.
+        See :func:`build_adaptation_schedule` for the accepted values and the
+        short-warmup rescaling.
     :return: a pair of (`init_fn`, `update_fn`).
     """
     if find_reasonable_step_size is None:
