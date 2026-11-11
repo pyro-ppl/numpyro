@@ -3670,6 +3670,54 @@ def test_composed_transform_1(batch_shape):
     assert_allclose(log_det, expected_log_det)
 
 
+def test_ordered_logistic_tail_likelihood():
+    # In float32, subtracting CDFs rounded both upper-tail masses to zero.
+    predictor, cutpoints = -20.0, np.array([-1.0, 1.0])
+    cdf = scipy.special.expit(cutpoints - predictor)
+    expected_probs = np.diff(cdf, prepend=0, append=1)
+    cdf_jacobian = np.pad(np.diag(cdf * (1 - cdf)), ((1, 1), (0, 0)))
+    expected_cutpoint_score = np.diff(cdf_jacobian, axis=0) / expected_probs[:, None]
+
+    def log_prob(predictor, cutpoints):
+        return dist.OrderedLogistic(predictor, cutpoints).log_prob(jnp.arange(3))
+
+    args = (jnp.asarray(predictor), jnp.asarray(cutpoints))
+    predictor_score, cutpoint_score = jax.jacfwd(log_prob, argnums=(0, 1))(*args)
+    assert_allclose(
+        dist.OrderedLogistic(*args).probs, expected_probs, rtol=2e-6, atol=0
+    )
+    assert_allclose(cutpoint_score, expected_cutpoint_score, rtol=2e-6, atol=1e-7)
+    assert_allclose(
+        predictor_score, -expected_cutpoint_score.sum(-1), rtol=2e-6, atol=1e-7
+    )
+
+
+def test_simplex_to_ordered_inverse_edge_inputs():
+    transform = SimplexToOrderedTransform(0.5)
+    expected = np.diff(scipy.special.expit([0.5, 2.5]), prepend=0, append=1)
+    assert_allclose(
+        transform.inv(jnp.array([1, 3], dtype=jnp.int32)), expected, rtol=1e-6
+    )
+    assert_allclose(transform.inv(jnp.zeros(0)), [1.0])
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_simplex_to_ordered_inverse_repeated_infinity_gradients(sign):
+    def inverse(cutpoints, anchor):
+        return SimplexToOrderedTransform(anchor).inv(cutpoints)
+
+    cutpoints = jnp.full((2,), sign * jnp.inf)
+    anchor = jnp.asarray(1.25)
+    actual = inverse(cutpoints, anchor)
+    cutpoint_jacobian, anchor_jacobian = jax.jacrev(inverse, argnums=(0, 1))(
+        cutpoints, anchor
+    )
+    expected = [1.0, 0.0, 0.0] if sign == 1 else [0.0, 0.0, 1.0]
+    assert_allclose(actual, expected, rtol=0, atol=0)
+    assert_allclose(cutpoint_jacobian, jnp.zeros((3, 2)), rtol=0, atol=0)
+    assert_allclose(anchor_jacobian, jnp.zeros(3), rtol=0, atol=0)
+
+
 @pytest.mark.parametrize("batch_shape", [(), (5,)])
 def test_simplex_to_order_transform(batch_shape):
     simplex = jnp.arange(5.0) / jnp.arange(5.0).sum()
