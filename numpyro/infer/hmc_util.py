@@ -13,7 +13,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
 
 import numpyro.distributions as dist
-from numpyro.util import cond, identity, while_loop
+from numpyro.util import cond, find_stack_level, identity, while_loop
 
 AdaptWindow = namedtuple("AdaptWindow", ["start", "end"])
 # Note: we need to store rng_key here in case we use find_reasonable_step_size functionality
@@ -391,11 +391,11 @@ def _validate_final_window_size(final_window_size, min_final_window_size=10):
     Checks that ``final_window_size`` is an integer of at least
     ``min_final_window_size`` and returns it as a Python ``int``.
 
-    The default minimum is the dual-averaging ``t0``: dual averaging restarts
-    its running average at ``log(10 * step_size)`` with ``t0=10`` when the
-    final window begins, so a final window shorter than ``t0`` keeps most of
-    that restart bias and can leave the final step size inflated by a factor
-    of ~10.
+    The default minimum of 10 is a tested safe lower bound for user-supplied
+    values: final windows of 9 steps or fewer gave near-zero post-warmup
+    acceptance on a Gaussian test model, while 10 adapted reliably. Shorter
+    final windows can still result from the short-warmup rescaling in
+    :func:`build_adaptation_schedule`.
 
     Integer-like values such as ``np.int64`` or ``jnp.int32`` are accepted via
     ``operator.index``; ``bool`` is rejected explicitly.
@@ -420,19 +420,19 @@ def _validate_final_window_size(final_window_size, min_final_window_size=10):
     return final_window_size
 
 
-def build_adaptation_schedule(num_steps, final_window_size=50):
+def build_adaptation_schedule(num_steps, final_window_size=None):
     """
     Builds a window adaptation schedule to be used during warmup phase of HMC.
 
     :param int num_steps: Number of warmup steps.
-    :param int final_window_size: Size of the final step-size adaptation window
-        (defaults to 50), corresponding to Stan's ``term_buffer``. Must be an
-        integer of at least 10 (the dual-averaging ``t0``); shorter windows
-        keep the dual-averaging restart bias and can fail to adapt the step
-        size. If the initial buffer (75 steps), initial slow window (25 steps),
-        and final window do not fit, the buffers are rescaled to 15% and 10% of
-        warmup, respectively, and a non-default value emits a warning when it
-        is rescaled. Below 20 steps, warmup uses a single window instead.
+    :param int final_window_size: Size of the final step-size adaptation window,
+        corresponding to Stan's ``term_buffer``. Defaults to 50 and must be an
+        integer of at least 10, a tested safe minimum for user-supplied values.
+        If the initial buffer (75 steps), initial slow window (25 steps), and
+        final window do not fit, the buffers are rescaled to 15% and 10% of
+        warmup, respectively; a requested value that the rescaling changes
+        emits a warning. Below 20 steps, warmup uses a single window instead
+        and a requested value is ignored with a warning.
     :return: a list of contiguous windows, each has attributes `start` and `end`,
         where `start` is the starting index and `end` is the ending index of the window.
 
@@ -441,10 +441,23 @@ def build_adaptation_schedule(num_steps, final_window_size=50):
     1. *Stan Reference Manual version 2.18*,
        Stan Development Team
     """
-    final_window_size = _validate_final_window_size(final_window_size)
+    if final_window_size is None:
+        final_window_size = 50
+        requested_final_window_size = None
+    else:
+        requested_final_window_size = _validate_final_window_size(final_window_size)
+        final_window_size = requested_final_window_size
     adaptation_schedule = []
     # from Stan, for small num_steps
     if num_steps < 20:
+        if requested_final_window_size is not None:
+            warnings.warn(
+                f"The requested final_window_size={requested_final_window_size} "
+                f"is ignored because num_steps={num_steps} uses a single "
+                "adaptation window. Use at least 20 warmup steps to apply a "
+                "final window.",
+                stacklevel=find_stack_level(),
+            )
         adaptation_schedule.append(AdaptWindow(0, num_steps - 1))
         return adaptation_schedule
 
@@ -460,14 +473,18 @@ def build_adaptation_schedule(num_steps, final_window_size=50):
     if (start_buffer_size + final_window_size + init_window_size) > num_steps:
         start_buffer_size = int(0.15 * num_steps)
         rescaled_final_window_size = int(0.1 * num_steps)
-        if final_window_size != 50:
+        if (
+            requested_final_window_size is not None
+            and rescaled_final_window_size != requested_final_window_size
+        ):
             warnings.warn(
-                f"The requested final_window_size={final_window_size} does not fit "
-                f"within num_steps={num_steps} together with the initial buffer and "
-                f"slow windows, so it is rescaled to {rescaled_final_window_size}. "
-                f"Use at least {100 + final_window_size} warmup steps to apply the "
+                f"The requested final_window_size={requested_final_window_size} "
+                f"does not fit within num_steps={num_steps} together with the "
+                "initial buffer and slow windows, so it is rescaled to "
+                f"{rescaled_final_window_size}. Use at least "
+                f"{100 + requested_final_window_size} warmup steps to apply the "
                 "requested window size.",
-                stacklevel=2,
+                stacklevel=find_stack_level(),
             )
         final_window_size = rescaled_final_window_size
         init_window_size = num_steps - start_buffer_size - final_window_size
@@ -577,7 +594,7 @@ def warmup_adapter(
     dense_mass=False,
     target_accept_prob=0.8,
     regularize_mass_matrix=True,
-    final_window_size=50,
+    final_window_size=None,
 ):
     """
     A scheme to adapt tunable parameters, namely step size and mass matrix, during
