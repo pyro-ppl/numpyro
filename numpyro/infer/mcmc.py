@@ -33,13 +33,6 @@ __all__ = [
 ]
 
 
-def _as_int(value, message):
-    try:
-        return operator.index(value)
-    except TypeError:
-        raise ValueError(message) from None
-
-
 class MCMCKernel(ABC):
     """
     Defines the interface for the Markov transition kernel that is
@@ -411,19 +404,26 @@ class MCMC(object):
         self.sampler = sampler
         self._sample_field = sampler.sample_field
         self._default_fields = sampler.default_fields
-        message = "num_warmup must be a nonnegative integer"
-        self.num_warmup = _as_int(num_warmup, message)
-        if self.num_warmup < 0:
-            raise ValueError(message)
+        try:
+            num_warmup = operator.index(num_warmup)
+            num_samples = operator.index(num_samples)
+            thinning = operator.index(thinning)
+        except TypeError:
+            raise ValueError(
+                "num_warmup, num_samples and thinning must be integers"
+            ) from None
+        if num_warmup < 0:
+            raise ValueError("num_warmup must be a nonnegative integer")
+        self.num_warmup = num_warmup
         self.num_chains = num_chains
-        message = "thinning must be a positive integer"
-        self.thinning = _as_int(thinning, message)
-        if self.thinning < 1:
-            raise ValueError(message)
-        message = "num_samples must be a positive integer greater than thinning"
-        self.num_samples = _as_int(num_samples, message)
-        if self.num_samples < self.thinning:
-            raise ValueError(message)
+        if thinning < 1:
+            raise ValueError("thinning must be a positive integer")
+        self.thinning = thinning
+        if num_samples < thinning:
+            raise ValueError(
+                "num_samples must be a positive integer greater than thinning"
+            )
+        self.num_samples = num_samples
         self.postprocess_fn = postprocess_fn
         if not callable(chain_method) and chain_method not in [
             "parallel",
