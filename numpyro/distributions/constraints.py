@@ -79,7 +79,7 @@ from jax.tree_util import register_pytree_node
 from jax.typing import ArrayLike
 
 from numpyro._typing import NonScalarArray, NumLike, NumLikeT
-from numpyro.distributions.util import _cat_reduce, array_equiv
+from numpyro.distributions.util import array_equiv
 from numpyro.util import not_jax_tracer
 
 
@@ -563,13 +563,13 @@ class _Cat(Constraint[NonScalarArray]):
                     check, axis=tuple(range(constraint.event_dim - event_dim, 0))
                 )
             checks.append(check)
-        return _cat_reduce(
-            checks,
-            self.dim,
-            event_dim,
-            jnp.ndim(x),
-            lambda parts: reduce(jnp.logical_and, parts),
-        )
+        dim = self.dim
+        if dim >= 0:
+            dim -= jnp.ndim(x)
+        dim += event_dim
+        if dim < 0:
+            return jnp.concatenate(checks, axis=dim)
+        return reduce(jnp.logical_and, checks)
 
     def feasible_like(self, prototype: NonScalarArray) -> NonScalarArray:
         values = [

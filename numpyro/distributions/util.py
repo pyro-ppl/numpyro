@@ -3,11 +3,10 @@
 
 
 from collections import namedtuple
-from collections.abc import Callable
 import functools as ft
 from functools import partial, update_wrapper
 import math
-from typing import Any, TypeVar
+from typing import Any
 import warnings
 
 import numpy as np
@@ -393,23 +392,6 @@ def promote_shapes(*args, shape=(), return_shapes: bool = False):
             _reshape(arg, shape) if jnp.ndim(arg) < len(shape) else arg
             for arg, shape in zip(args, shapes)
         ]
-
-
-_CatT = TypeVar("_CatT", bound=ArrayLike)
-
-
-def _cat_reduce(
-    parts: list[_CatT],
-    dim: int,
-    event_dim: int,
-    input_ndim: int,
-    reduce_fn: Callable[[list[_CatT]], _CatT],
-) -> _CatT | Array:
-    """Concatenate batch slices or combine slices belonging to the same event."""
-    dim = (dim if dim < 0 else dim - input_ndim) + event_dim
-    if dim < 0:
-        return jnp.concatenate(parts, axis=dim)
-    return reduce_fn(parts)
 
 
 def sum_rightmost(x, dim):
