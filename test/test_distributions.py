@@ -645,6 +645,13 @@ CONTINUOUS = [
     T(
         dist.GaussianStateSpace,
         5,
+        np.array([[0.8, 0.2], [-0.1, 1.1]]),
+        np.array([[0.1, 0.3, 0.25], [0.5, 0.2, 0.4]])[..., None, None]
+        * np.array([[0.8, 0.2], [0.2, 0.7]]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        5,
         np.array([[0.8, 0.1], [-0.1, 0.9]]),
         None,
         None,
