@@ -1285,8 +1285,7 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
         lower = jnp.pad(expit(-shifted), pad_width + [(1, 0)], constant_values=1)
         # sigma(u) - sigma(l) = sigma(u) sigma(-l) (1 - exp(l - u)).
         # Take gaps before shifting, and use unit factors at both boundaries.
-        gaps = jnp.diff(jnp.asarray(y, dtype=s.dtype), prepend=0, append=0)
-        gaps = gaps.at[..., 0].set(jnp.inf).at[..., -1].set(jnp.inf)
+        gaps = jnp.diff(jnp.asarray(y, dtype=s.dtype), prepend=-jnp.inf, append=jnp.inf)
         # Repeated infinite cutpoints have zero mass. Keep expm1's input finite
         # when their undefined gap is multiplied by a zero sigmoid factor.
         gaps = jnp.where(jnp.isnan(gaps), 0, gaps)

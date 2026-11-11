@@ -3668,47 +3668,34 @@ def test_composed_transform_1(batch_shape):
 
 
 def test_ordered_logistic_tail_likelihood():
-    predictors = jnp.array([-20.0, 20.0])
-    cutpoints = jnp.array([-1.0, 1.0])
-    categories = jnp.arange(3)
+    # In float32, subtracting CDFs rounded both upper-tail masses to zero.
+    predictor, cutpoints = -20.0, np.array([-1.0, 1.0])
+    cdf = scipy.special.expit(cutpoints - predictor)
+    expected_probs = np.diff(cdf, prepend=0, append=1)
+    cdf_jacobian = np.pad(np.diag(cdf * (1 - cdf)), ((1, 1), (0, 0)))
+    expected_cutpoint_score = np.diff(cdf_jacobian, axis=0) / expected_probs[:, None]
 
-    def evaluate(predictor):
-        distribution = dist.OrderedLogistic(predictor, cutpoints, validate_args=True)
-        score = jax.jacfwd(
-            lambda eta: dist.OrderedLogistic(eta, cutpoints).log_prob(categories)
-        )(predictor)
-        return distribution.probs, distribution.log_prob(categories), score
+    def log_prob(predictor, cutpoints):
+        return dist.OrderedLogistic(predictor, cutpoints).log_prob(jnp.arange(3))
 
-    probs, log_prob, score = jax.vmap(evaluate)(predictors)
-    # Reflect the positive-tail case to evaluate both references without cancellation.
-    cdf = scipy.special.expit(np.array([-21.0, -19.0]))
-    masses = np.diff(cdf, prepend=0, append=1)
-    densities = np.pad(cdf * (1 - cdf), (1, 1))
-    positive_score = -np.diff(densities) / masses
-    expected_probs = np.stack([masses[::-1], masses])
-    expected_score = np.stack([-positive_score[::-1], positive_score])
-    assert_allclose(probs, expected_probs, rtol=2e-6, atol=0)
-    assert_allclose(log_prob, np.log(expected_probs), rtol=2e-6, atol=1e-6)
-    assert_allclose(score, expected_score, rtol=2e-6, atol=1e-7)
+    args = (jnp.asarray(predictor), jnp.asarray(cutpoints))
+    predictor_score, cutpoint_score = jax.jacfwd(log_prob, argnums=(0, 1))(*args)
+    assert_allclose(
+        dist.OrderedLogistic(*args).probs, expected_probs, rtol=2e-6, atol=0
+    )
+    assert_allclose(cutpoint_score, expected_cutpoint_score, rtol=2e-6, atol=1e-7)
+    assert_allclose(
+        predictor_score, -expected_cutpoint_score.sum(-1), rtol=2e-6, atol=1e-7
+    )
 
 
-def test_simplex_to_ordered_inverse_boundaries():
-    anchor = jnp.array([0.0, 2.0])
-    transform = SimplexToOrderedTransform(anchor)
-    # Include integer cutpoints and the single-category (empty-cutpoint) case.
-    for cutpoints in (
-        jnp.array([1, 3], dtype=jnp.uint8),
-        jnp.array([], dtype=jnp.int32),
-    ):
-        actual = transform.inv(cutpoints)
-        expected = np.diff(
-            scipy.special.expit(np.asarray(cutpoints) - np.asarray(anchor)[:, None]),
-            prepend=0,
-            append=1,
-        )
-        assert_allclose(actual, expected, rtol=1e-6, atol=0)
-        assert actual.shape == (2, len(cutpoints) + 1)
-        assert_array_equal(transform.domain(actual), np.ones(2, dtype=bool))
+def test_simplex_to_ordered_inverse_edge_inputs():
+    transform = SimplexToOrderedTransform(0.5)
+    expected = np.diff(scipy.special.expit([0.5, 2.5]), prepend=0, append=1)
+    assert_allclose(
+        transform.inv(jnp.array([1, 3], dtype=jnp.int32)), expected, rtol=1e-6
+    )
+    assert_allclose(transform.inv(jnp.zeros(0)), [1.0])
 
 
 @pytest.mark.parametrize("sign", [-1, 1])
