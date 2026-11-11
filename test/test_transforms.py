@@ -12,6 +12,7 @@ import jax
 from jax import jacfwd, jit, random, vmap
 import jax.numpy as jnp
 
+from numpyro import distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import (
     BlockNeuralAutoregressiveTransform,
@@ -447,6 +448,43 @@ def test_batched_recursive_linear_transform(initial_value):
     y = transform(x)
     assert y.shape == x.shape
     assert jnp.allclose(x, transform.inv(y), atol=1e-6)
+
+
+@pytest.mark.parametrize("inverse", [False, True])
+def test_recursive_linear_transform_parameter_batches(inverse):
+    # Transition batch (2, 1) and initial-value batch (3,) broadcast to (2, 3).
+    transform = RecursiveLinearTransform(
+        np.broadcast_to(0.25 * np.eye(2), (2, 1, 2, 2)),
+        np.broadcast_to(np.array([0.5, -0.5]), (3, 2)),
+    )
+    if inverse:
+        transform = transform.inv
+    d = dist.TransformedDistribution(
+        dist.Normal(0, 1).expand((4, 2)).to_event(2), transform
+    )
+    assert d.batch_shape == (2, 3)
+    x = d.base_dist.sample(random.key(0), (5,))
+    y = d.sample(random.key(0), (5,))
+    assert y.shape == (5, 2, 3, 4, 2)
+    np.testing.assert_allclose(transform.inv(y), x, atol=1e-5)
+    np.testing.assert_allclose(d.log_prob(y), d.base_dist.log_prob(x), rtol=1e-5)
+    # Unbatched input to either direction picks up the parameter batch.
+    assert transform.inv(x[0, 0, 0]).shape == (2, 3, 4, 2)
+
+
+def test_recursive_linear_transform_logdet_batch_shape():
+    transform = RecursiveLinearTransform(np.broadcast_to(0.25 * np.eye(2), (3, 2, 2)))
+    x = jnp.zeros((4, 2))
+    y = transform(x)
+    logdet = transform.log_abs_det_jacobian(x, y)
+    assert logdet.shape == (3,)
+    np.testing.assert_array_equal(logdet, np.zeros(3))
+
+
+def test_recursive_linear_transform_shape_rank():
+    transform = RecursiveLinearTransform(np.broadcast_to(0.25 * np.eye(2), (3, 2, 2)))
+    with pytest.raises(ValueError, match="Too few dimensions on input"):
+        transform.forward_shape((2,))
 
 
 @pytest.mark.parametrize(
