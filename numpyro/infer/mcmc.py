@@ -33,12 +33,11 @@ __all__ = [
 ]
 
 
-def _is_integer(value):
+def _as_int(value, message):
     try:
-        operator.index(value)
+        return operator.index(value)
     except TypeError:
-        return False
-    return True
+        raise ValueError(message) from None
 
 
 class MCMCKernel(ABC):
@@ -412,19 +411,19 @@ class MCMC(object):
         self.sampler = sampler
         self._sample_field = sampler.sample_field
         self._default_fields = sampler.default_fields
-        # accept any integer type, e.g. a NumPy integer computed from data
-        if not _is_integer(num_warmup) or num_warmup < 0:
-            raise ValueError("num_warmup must be a nonnegative integer")
-        self.num_warmup = operator.index(num_warmup)
+        message = "num_warmup must be a nonnegative integer"
+        self.num_warmup = _as_int(num_warmup, message)
+        if self.num_warmup < 0:
+            raise ValueError(message)
         self.num_chains = num_chains
-        if not _is_integer(thinning) or thinning < 1:
-            raise ValueError("thinning must be a positive integer")
-        self.thinning = operator.index(thinning)
-        if not _is_integer(num_samples) or num_samples < thinning:
-            raise ValueError(
-                "num_samples must be a positive integer greater than thinning"
-            )
-        self.num_samples = operator.index(num_samples)
+        message = "thinning must be a positive integer"
+        self.thinning = _as_int(thinning, message)
+        if self.thinning < 1:
+            raise ValueError(message)
+        message = "num_samples must be a positive integer greater than thinning"
+        self.num_samples = _as_int(num_samples, message)
+        if self.num_samples < self.thinning:
+            raise ValueError(message)
         self.postprocess_fn = postprocess_fn
         if not callable(chain_method) and chain_method not in [
             "parallel",
