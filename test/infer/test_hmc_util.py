@@ -276,18 +276,22 @@ def test_find_reasonable_step_size(jitted, init_step_size):
 
 
 @pytest.mark.parametrize(
-    "num_steps, expected",
+    "num_steps, final_window_size, expected",
     [
-        (18, [(0, 17)]),
-        (50, [(0, 6), (7, 44), (45, 49)]),
-        (100, [(0, 14), (15, 89), (90, 99)]),
-        (150, [(0, 74), (75, 99), (100, 149)]),
-        (200, [(0, 74), (75, 99), (100, 149), (150, 199)]),
-        (280, [(0, 74), (75, 99), (100, 229), (230, 279)]),
+        (18, None, [(0, 17)]),
+        (50, None, [(0, 6), (7, 44), (45, 49)]),
+        (100, None, [(0, 14), (15, 89), (90, 99)]),
+        (150, None, [(0, 74), (75, 99), (100, 149)]),
+        (200, None, [(0, 74), (75, 99), (100, 149), (150, 199)]),
+        (280, None, [(0, 74), (75, 99), (100, 229), (230, 279)]),
+        (300, 200, [(0, 74), (75, 99), (100, 299)]),
+        (400, 200, [(0, 74), (75, 99), (100, 199), (200, 399)]),
+        # rescaling shrinks only the start buffer here, so no warning
+        (101, 10, [(0, 14), (15, 90), (91, 100)]),
     ],
 )
-def test_build_adaptation_schedule(num_steps, expected):
-    adaptation_schedule = build_adaptation_schedule(num_steps)
+def test_build_adaptation_schedule(num_steps, final_window_size, expected):
+    adaptation_schedule = build_adaptation_schedule(num_steps, final_window_size)
     expected_schedule = [AdaptWindow(i, j) for i, j in expected]
     assert adaptation_schedule == expected_schedule
 
@@ -479,3 +483,9 @@ def test_subposterior_structure(method):
     draws = method(subposteriors, num_draws=9)
     assert draws["x"].shape == (9, 3)
     assert draws["y"].shape == (9,)
+
+
+def test_build_adaptation_schedule_final_window_rescaled():
+    with pytest.warns(UserWarning, match="rescaled to 29"):
+        schedule = build_adaptation_schedule(299, 200)
+    assert schedule == [AdaptWindow(0, 43), AdaptWindow(44, 269), AdaptWindow(270, 298)]

@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict, namedtuple
+import operator
+import warnings
 
 import jax
 from jax import grad, jacfwd, random, value_and_grad, vmap
@@ -11,7 +13,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
 
 import numpyro.distributions as dist
-from numpyro.util import cond, identity, while_loop
+from numpyro.util import cond, find_stack_level, identity, while_loop
 
 AdaptWindow = namedtuple("AdaptWindow", ["start", "end"])
 # Note: we need to store rng_key here in case we use find_reasonable_step_size functionality
@@ -384,11 +386,37 @@ def find_reasonable_step_size(
     return step_size
 
 
-def build_adaptation_schedule(num_steps):
+def _validate_final_window_size(final_window_size, min_final_window_size=10):
+    """Returns ``final_window_size`` as an ``int``; ``None`` (the default) passes through."""
+    if final_window_size is None:
+        return None
+    # operator.index accepts integer-likes (np.int64, jnp.int32) and rejects floats;
+    # bools pass it but fall below the minimum. The minimum of 10 is the smallest
+    # window that adapted reliably in testing.
+    try:
+        size = operator.index(final_window_size)
+    except TypeError:
+        size = None
+    if size is None or size < min_final_window_size:
+        raise ValueError(
+            "final_window_size must be an integer of at least "
+            f"{min_final_window_size}, got {final_window_size!r}"
+        )
+    return size
+
+
+def build_adaptation_schedule(num_steps, final_window_size=None):
     """
     Builds a window adaptation schedule to be used during warmup phase of HMC.
 
     :param int num_steps: Number of warmup steps.
+    :param int final_window_size: Size of the final step-size adaptation window,
+        corresponding to Stan's ``term_buffer``. Defaults to 50 and must be an
+        integer of at least 10. If the initial buffer (75 steps), initial slow
+        window (25 steps), and final window do not fit, the buffers are rescaled
+        to 15% and 10% of warmup, respectively; a requested value that the
+        rescaling changes emits a warning. Below 20 steps, warmup uses a single
+        window and ``final_window_size`` is ignored.
     :return: a list of contiguous windows, each has attributes `start` and `end`,
         where `start` is the starting index and `end` is the ending index of the window.
 
@@ -397,6 +425,10 @@ def build_adaptation_schedule(num_steps):
     1. *Stan Reference Manual version 2.18*,
        Stan Development Team
     """
+    requested_final_window_size = _validate_final_window_size(final_window_size)
+    final_window_size = (
+        50 if requested_final_window_size is None else requested_final_window_size
+    )
     adaptation_schedule = []
     # from Stan, for small num_steps
     if num_steps < 20:
@@ -411,15 +443,23 @@ def build_adaptation_schedule(num_steps):
     # for dealing with the intense computation of sampling momentum from the
     # inverse of mass matrix.
     start_buffer_size = 75  # from Stan
-    end_buffer_size = 50  # from Stan
     init_window_size = 25  # from Stan
-    if (start_buffer_size + end_buffer_size + init_window_size) > num_steps:
+    if (start_buffer_size + final_window_size + init_window_size) > num_steps:
         start_buffer_size = int(0.15 * num_steps)
-        end_buffer_size = int(0.1 * num_steps)
-        init_window_size = num_steps - start_buffer_size - end_buffer_size
+        rescaled_final_window_size = int(0.1 * num_steps)
+        if requested_final_window_size not in (None, rescaled_final_window_size):
+            warnings.warn(
+                f"final_window_size={requested_final_window_size} does not fit in "
+                f"num_warmup={num_steps} and is rescaled to "
+                f"{rescaled_final_window_size}. Use num_warmup >= "
+                f"{100 + requested_final_window_size} to keep it.",
+                stacklevel=find_stack_level(),
+            )
+        final_window_size = rescaled_final_window_size
+        init_window_size = num_steps - start_buffer_size - final_window_size
 
     adaptation_schedule.append(AdaptWindow(start=0, end=start_buffer_size - 1))
-    end_window_start = num_steps - end_buffer_size
+    end_window_start = num_steps - final_window_size
 
     next_window_size = init_window_size
     next_window_start = start_buffer_size
@@ -523,6 +563,7 @@ def warmup_adapter(
     dense_mass=False,
     target_accept_prob=0.8,
     regularize_mass_matrix=True,
+    final_window_size=None,
 ):
     """
     A scheme to adapt tunable parameters, namely step size and mass matrix, during
@@ -540,13 +581,16 @@ def warmup_adapter(
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
+    :param int final_window_size: Size of the final step-size adaptation window.
+        See :func:`build_adaptation_schedule` for the accepted values and the
+        short-warmup rescaling.
     :return: a pair of (`init_fn`, `update_fn`).
     """
     if find_reasonable_step_size is None:
         find_reasonable_step_size = identity
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
-    adaptation_schedule = build_adaptation_schedule(num_adapt_steps)
+    adaptation_schedule = build_adaptation_schedule(num_adapt_steps, final_window_size)
     num_windows = len(adaptation_schedule)
 
     def init_fn(

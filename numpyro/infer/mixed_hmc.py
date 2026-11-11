@@ -203,6 +203,8 @@ class MixedHMC(MCMCKernel):
             adapt_mass_matrix=self.inner_kernel._adapt_mass_matrix,
             dense_mass=self.inner_kernel._dense_mass,
             target_accept_prob=self.inner_kernel._target_accept_prob,
+            regularize_mass_matrix=self.inner_kernel._regularize_mass_matrix,
+            final_window_size=self.inner_kernel._final_window_size,
             find_reasonable_step_size=None,
         )
 
