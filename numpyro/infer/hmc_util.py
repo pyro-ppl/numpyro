@@ -384,11 +384,16 @@ def find_reasonable_step_size(
     return step_size
 
 
-def build_adaptation_schedule(num_steps):
+def build_adaptation_schedule(num_steps, final_window_size=50):
     """
     Builds a window adaptation schedule to be used during warmup phase of HMC.
 
     :param int num_steps: Number of warmup steps.
+    :param int final_window_size: Size of the final step-size adaptation window
+        (defaults to 50). If the initial buffer (75 steps), initial slow window
+        (25 steps), and final window do not fit, the buffers are rescaled to
+        15% and 10% of warmup, respectively. Below 20 steps, warmup uses a single
+        window instead.
     :return: a list of contiguous windows, each has attributes `start` and `end`,
         where `start` is the starting index and `end` is the ending index of the window.
 
@@ -397,6 +402,8 @@ def build_adaptation_schedule(num_steps):
     1. *Stan Reference Manual version 2.18*,
        Stan Development Team
     """
+    if not isinstance(final_window_size, int) or final_window_size < 1:
+        raise ValueError("final_window_size must be a positive integer")
     adaptation_schedule = []
     # from Stan, for small num_steps
     if num_steps < 20:
@@ -411,7 +418,7 @@ def build_adaptation_schedule(num_steps):
     # for dealing with the intense computation of sampling momentum from the
     # inverse of mass matrix.
     start_buffer_size = 75  # from Stan
-    end_buffer_size = 50  # from Stan
+    end_buffer_size = final_window_size
     init_window_size = 25  # from Stan
     if (start_buffer_size + end_buffer_size + init_window_size) > num_steps:
         start_buffer_size = int(0.15 * num_steps)
@@ -523,6 +530,7 @@ def warmup_adapter(
     dense_mass=False,
     target_accept_prob=0.8,
     regularize_mass_matrix=True,
+    final_window_size=50,
 ):
     """
     A scheme to adapt tunable parameters, namely step size and mass matrix, during
@@ -540,13 +548,15 @@ def warmup_adapter(
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
+    :param int final_window_size: Size of the final step-size adaptation window.
+        See :func:`build_adaptation_schedule` for short-warmup rescaling.
     :return: a pair of (`init_fn`, `update_fn`).
     """
     if find_reasonable_step_size is None:
         find_reasonable_step_size = identity
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
-    adaptation_schedule = build_adaptation_schedule(num_adapt_steps)
+    adaptation_schedule = build_adaptation_schedule(num_adapt_steps, final_window_size)
     num_windows = len(adaptation_schedule)
 
     def init_fn(
