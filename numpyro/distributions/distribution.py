@@ -710,35 +710,6 @@ class Distribution(metaclass=DistributionMeta):
         )
 
 
-class _BoundedTotalCountMixin(Distribution):
-    """Keep bounded counts as data and unbounded counts as static metadata."""
-
-    total_count: ArrayLike
-    total_count_max: Optional[int]
-    pytree_data_fields = ("total_count",)
-    pytree_aux_fields = ("total_count", "total_count_max")
-
-    def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
-        data, aux = super().tree_flatten()
-        if self.total_count_max is None:
-            index = type(self).gather_pytree_data_fields().index("total_count")
-            data = data[:index] + (None,) + data[index + 1 :]
-        else:
-            index = type(self).gather_pytree_aux_fields().index("total_count")
-            aux = aux[:index] + (None,) + aux[index + 1 :]
-        return data, aux
-
-    @classmethod
-    def tree_unflatten(
-        cls, aux_data: tuple[Any, ...], params: tuple[Any, ...]
-    ) -> "_BoundedTotalCountMixin":
-        d = cast(_BoundedTotalCountMixin, super().tree_unflatten(aux_data, params))
-        if d.total_count_max is not None:
-            index = cls.gather_pytree_data_fields().index("total_count")
-            d.total_count = params[index]
-        return d
-
-
 class ExpandedDistribution(Distribution):
     r"""
     Broadcasts the batch shape of a distribution to a larger ``batch_shape``.
@@ -1362,7 +1333,10 @@ class TransformedDistribution(Distribution):
     :param base_distribution: the base distribution over which to apply transforms.
     :param transforms: a single transform or a list of transforms.
     :param validate_args: Whether to enable validation of distribution
-        parameters and arguments to `.log_prob` method.
+        parameters and arguments to `.log_prob` method. If enabled, a
+        `ValueError` is also raised when the support of the base distribution
+        is known to extend beyond the domain of the first transform. Only the
+        bounds are compared, so end points are not checked.
     """
 
     arg_constraints = {}
@@ -1431,6 +1405,20 @@ class TransformedDistribution(Distribution):
         super(TransformedDistribution, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
+
+    def validate_args(self, strict: bool = True) -> None:
+        super().validate_args(strict=strict)
+        domain = ComposeTransform(self.transforms).domain
+        support = self.base_dist.support
+        with jax.ensure_compile_time_eval():
+            if (
+                support is not None
+                and support._bounds_within(domain, strict=strict) is False
+            ):
+                raise ValueError(
+                    f"The support {support} of the base distribution is not "
+                    f"contained in the domain {domain} of the first transform."
+                )
 
     @property
     def has_rsample(self) -> bool:

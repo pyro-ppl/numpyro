@@ -13,6 +13,7 @@ from numpyro.diagnostics import (
     effective_sample_size,
     gelman_rubin,
     hpdi,
+    print_summary,
     split_gelman_rubin,
     summary,
 )
@@ -122,3 +123,78 @@ def test_summary_median_propagates_nan():
     stats = summary({"x": x})["x"]
     assert np.isnan(stats["median"][1])
     assert not np.isnan(stats["median"][[0, 2]]).any()
+
+
+@pytest.mark.parametrize("prob_true", [0.3, 0.8])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_summary_boolean_samples(prob_true, weighted):
+    x = np.random.RandomState(0).rand(2, 100, 3) < prob_true
+    log_weights = np.random.RandomState(1).randn(*x.shape[:2]) if weighted else None
+    stats = summary({"x": x}, log_weights=log_weights)["x"]
+    expected = summary({"x": x.astype(np.int32)}, log_weights=log_weights)["x"]
+    for key, value in expected.items():
+        assert_allclose(stats[key], value, err_msg=key)
+    if not weighted:
+        assert_allclose(stats["median"], np.median(x.reshape(-1, 3), axis=0))
+
+
+def test_hpdi_boolean_samples():
+    x = np.random.RandomState(0).rand(1000, 3) < np.array([0.02, 0.5, 0.98])
+    assert_allclose(hpdi(x, prob=0.9), [[0, 0, 1], [0, 1, 1]])
+
+
+@pytest.mark.parametrize("group_by_chain, num_draws", [(True, 500), (False, 501)])
+def test_summary_equal_log_weights_match_unweighted(group_by_chain, num_draws):
+    rng = np.random.RandomState(0)
+    shape = (2, num_draws) if group_by_chain else (num_draws,)
+    x = rng.randn(*shape, 3)
+    log_weights = np.full(shape, 123.4)
+    kwargs = {"group_by_chain": group_by_chain}
+    expected = summary({"x": x}, **kwargs)["x"]
+    actual = summary({"x": x}, log_weights=log_weights, **kwargs)["x"]
+    assert "r_hat" not in actual
+    for key in ["mean", "std", "median", "5.0%", "95.0%"]:
+        assert_allclose(actual[key], expected[key], rtol=1e-6)
+    assert_allclose(actual["n_eff"], np.full(3, x.size // 3))
+
+
+def test_summary_integer_weights_match_repeated_draws():
+    # weighting draws by integer counts is the same as repeating them
+    rng = np.random.RandomState(1)
+    x = rng.randn(2, 200, 2)
+    counts = rng.randint(1, 6, size=(2, 200))
+    repeated = np.repeat(x.reshape(1, -1, 2), counts.reshape(-1), axis=1)
+    actual = summary({"x": x}, prob=0.8, log_weights=np.log(counts) + 1000.0)["x"]
+    expected = summary({"x": repeated}, prob=0.8)["x"]
+    for key in ["mean", "median", "10.0%", "90.0%"]:
+        assert_allclose(actual[key], expected[key], rtol=1e-6)
+    expected_std = np.sqrt(
+        np.diag(np.cov(x.reshape(-1, 2).T, aweights=counts.reshape(-1), ddof=1))
+    )
+    assert_allclose(actual["std"], expected_std, rtol=1e-6)
+    assert_allclose(actual["n_eff"], counts.sum() ** 2 / (counts**2).sum())
+
+
+def test_summary_log_weights_ignore_zero_weight_draws():
+    rng = np.random.RandomState(3)
+    x = rng.randn(1, 300)
+    log_weights = np.zeros((1, 300))
+    log_weights[0, ::3] = -np.inf
+    x_kept = x[:, np.isfinite(log_weights[0])]
+    actual = summary({"x": x}, log_weights=log_weights)["x"]
+    expected = summary({"x": x_kept})["x"]
+    for key in ["mean", "std", "median", "5.0%", "95.0%"]:
+        assert_allclose(actual[key], expected[key], rtol=1e-6)
+    assert_allclose(actual["n_eff"], 200)
+
+
+def test_summary_log_weights_bad_shape():
+    with pytest.raises(ValueError, match="log_weights"):
+        summary({"x": np.zeros((2, 10))}, log_weights=np.zeros(10))
+
+
+def test_print_summary_log_weights(capsys):
+    x = np.random.RandomState(4).randn(100, 2)
+    print_summary({"x": x}, group_by_chain=False, log_weights=np.zeros(100))
+    out = capsys.readouterr().out
+    assert "n_eff" in out and "r_hat" not in out

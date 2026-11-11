@@ -17,7 +17,7 @@ from sklearn.gaussian_process.kernels import (
 )
 
 import jax
-from jax import Array, random
+from jax import Array, random, vmap
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 
@@ -278,6 +278,23 @@ def test_kernel_approx_periodic(
         x1[..., None] / (2 * jnp.pi), x2[..., None] / (2 * jnp.pi)
     )
     assert jnp.isclose(approx, exact, rtol=1e-3)
+
+
+def test_periodic_non_centered_prior_covariance():
+    x = jnp.array([0.0, 0.5, 1.0, 2.0])
+    w0, length, alpha, m = 1.0, 1.0, 1.0, 30
+
+    def f_sample(rng_key):
+        return seed(hsgp_periodic_non_centered, rng_key)(
+            x=x, alpha=alpha, length=length, w0=w0, m=m
+        )
+
+    samples = vmap(f_sample)(random.split(random.key(0), 5000))
+    empirical_cov = jnp.cov(samples.T)
+    exact_cov = ExpSineSquared(length_scale=length, periodicity=1 / w0)(
+        (x / (2 * jnp.pi))[:, None]
+    )
+    assert jnp.allclose(empirical_cov, exact_cov, atol=0.04, rtol=0.04)
 
 
 @pytest.mark.parametrize(
@@ -761,7 +778,7 @@ def test_periodic_gp_one_dim_model(synthetic_one_dim_data, w0, m):
 
 
 @pytest.mark.parametrize(
-    "kernel", ["squared_exponential", "matern", "rational_quadratic"]
+    "kernel", ["squared_exponential", "matern", "rational_quadratic", "periodic"]
 )
 def test_hsgp_large_m_finite_gradients(kernel):
     """With ``m=100`` the spectral density underflows to 0 for most basis functions;
@@ -779,10 +796,12 @@ def test_hsgp_large_m_finite_gradients(kernel):
             f = hsgp_squared_exponential(x=x, alpha=alpha, length=length, ell=1.0, m=m)
         elif kernel == "matern":
             f = hsgp_matern(x=x, nu=1.5, alpha=alpha, length=length, ell=1.0, m=m)
-        else:
+        elif kernel == "rational_quadratic":
             f = hsgp_rational_quadratic(
                 x=x, alpha=alpha, length=length, scale_mixture=1.0, ell=1.0, m=m
             )
+        else:
+            f = hsgp_periodic_non_centered(x=x, alpha=alpha, length=length, w0=1.0, m=m)
         numpyro.sample("y", dist.Normal(f, 0.1), obs=y)
 
     # length=2 is deep in the underflow regime of the SE and RQ densities

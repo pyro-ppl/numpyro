@@ -75,6 +75,14 @@ from numpyro.distributions.truncated import (
 
 @singledispatch
 def vmap_over(d: Union[Distribution, Transform, Constraint], **kwargs):
+    """Build a pytree of axes for mapping over the given object's parameters.
+
+    For the Multinomial family, a bounded ``total_count`` is a data leaf.
+    If a previous ``jax.vmap`` with default ``out_axes=0`` added a leading
+    count axis, pass ``total_count=0`` to map over it. Pass
+    ``total_count=None`` to keep a count shared across mapped elements.
+    Counts without ``total_count_max`` are static and cannot be mapped.
+    """
     raise NotImplementedError
 
 
