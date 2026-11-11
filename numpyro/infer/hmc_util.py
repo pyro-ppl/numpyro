@@ -386,21 +386,16 @@ def find_reasonable_step_size(
     return step_size
 
 
-#: Default size of the final step-size-only adaptation window (Stan's
-#: ``term_buffer``).
-_DEFAULT_FINAL_WINDOW_SIZE = 50
-
-#: Minimum accepted final window size. Dual averaging restarts its running
-#: average at ``log(10 * step_size)`` with ``t0=10`` when the final window
-#: begins, so a final window shorter than ``t0`` keeps most of that restart
-#: bias and can leave the final step size inflated by a factor of ~10.
-_MIN_FINAL_WINDOW_SIZE = 10
-
-
-def _validate_final_window_size(final_window_size):
+def _validate_final_window_size(final_window_size, min_final_window_size=10):
     """
     Checks that ``final_window_size`` is an integer of at least
-    ``_MIN_FINAL_WINDOW_SIZE`` and returns it as a Python ``int``.
+    ``min_final_window_size`` and returns it as a Python ``int``.
+
+    The default minimum is the dual-averaging ``t0``: dual averaging restarts
+    its running average at ``log(10 * step_size)`` with ``t0=10`` when the
+    final window begins, so a final window shorter than ``t0`` keeps most of
+    that restart bias and can leave the final step size inflated by a factor
+    of ~10.
 
     Integer-like values such as ``np.int64`` or ``jnp.int32`` are accepted via
     ``operator.index``; ``bool`` is rejected explicitly.
@@ -408,24 +403,24 @@ def _validate_final_window_size(final_window_size):
     if isinstance(final_window_size, bool):
         raise ValueError(
             "final_window_size must be an integer of at least "
-            f"{_MIN_FINAL_WINDOW_SIZE}, got {final_window_size!r}"
+            f"{min_final_window_size}, got {final_window_size!r}"
         )
     try:
         final_window_size = operator.index(final_window_size)
     except TypeError:
         raise ValueError(
             "final_window_size must be an integer of at least "
-            f"{_MIN_FINAL_WINDOW_SIZE}, got {final_window_size!r}"
+            f"{min_final_window_size}, got {final_window_size!r}"
         ) from None
-    if final_window_size < _MIN_FINAL_WINDOW_SIZE:
+    if final_window_size < min_final_window_size:
         raise ValueError(
             "final_window_size must be an integer of at least "
-            f"{_MIN_FINAL_WINDOW_SIZE}, got {final_window_size!r}"
+            f"{min_final_window_size}, got {final_window_size!r}"
         )
     return final_window_size
 
 
-def build_adaptation_schedule(num_steps, final_window_size=_DEFAULT_FINAL_WINDOW_SIZE):
+def build_adaptation_schedule(num_steps, final_window_size=50):
     """
     Builds a window adaptation schedule to be used during warmup phase of HMC.
 
@@ -465,7 +460,7 @@ def build_adaptation_schedule(num_steps, final_window_size=_DEFAULT_FINAL_WINDOW
     if (start_buffer_size + final_window_size + init_window_size) > num_steps:
         start_buffer_size = int(0.15 * num_steps)
         rescaled_final_window_size = int(0.1 * num_steps)
-        if final_window_size != _DEFAULT_FINAL_WINDOW_SIZE:
+        if final_window_size != 50:
             warnings.warn(
                 f"The requested final_window_size={final_window_size} does not fit "
                 f"within num_steps={num_steps} together with the initial buffer and "
@@ -582,7 +577,7 @@ def warmup_adapter(
     dense_mass=False,
     target_accept_prob=0.8,
     regularize_mass_matrix=True,
-    final_window_size=_DEFAULT_FINAL_WINDOW_SIZE,
+    final_window_size=50,
 ):
     """
     A scheme to adapt tunable parameters, namely step size and mass matrix, during
