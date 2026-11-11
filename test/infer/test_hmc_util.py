@@ -301,16 +301,19 @@ def test_build_adaptation_schedule(num_steps, expected):
         ),
     ],
 )
-def test_warmup_adapter(jitted):
+@pytest.mark.parametrize("final_window_size", [1, 50, 100])
+def test_warmup_adapter(jitted, final_window_size):
     def find_reasonable_step_size(step_size, m_inv, z, rng_key):
         return jnp.where(step_size < 1, step_size * 4, step_size / 4)
 
-    num_steps = 150
-    adaptation_schedule = build_adaptation_schedule(num_steps)
+    num_steps = 100 + final_window_size
+    adaptation_schedule = build_adaptation_schedule(num_steps, final_window_size)
     init_step_size = 1.0
     mass_matrix_size = 3
 
-    wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
+    wa_init, wa_update = warmup_adapter(
+        num_steps, find_reasonable_step_size, final_window_size=final_window_size
+    )
     wa_update = jit(wa_update) if jitted else wa_update
 
     rng_key = random.key(0)
@@ -479,3 +482,40 @@ def test_subposterior_structure(method):
     draws = method(subposteriors, num_draws=9)
     assert draws["x"].shape == (9, 3)
     assert draws["y"].shape == (9,)
+
+
+@pytest.mark.parametrize(
+    "num_steps, final_window_size, expected",
+    [
+        (0, 200, [(0, -1)]),
+        (19, 200, [(0, 18)]),
+        (20, 200, [(0, 2), (3, 17), (18, 19)]),
+        (100, 1, [(0, 14), (15, 89), (90, 99)]),
+        (101, 1, [(0, 74), (75, 99), (100, 100)]),
+        (299, 200, [(0, 43), (44, 269), (270, 298)]),
+        (300, 200, [(0, 74), (75, 99), (100, 299)]),
+        (400, 200, [(0, 74), (75, 99), (100, 199), (200, 399)]),
+    ],
+)
+def test_build_adaptation_schedule_final_window(num_steps, final_window_size, expected):
+    schedule = build_adaptation_schedule(num_steps, final_window_size)
+    assert schedule == [AdaptWindow(*bounds) for bounds in expected]
+    assert schedule[0].start == 0
+    assert schedule[-1].end == num_steps - 1
+    assert all(a.end + 1 == b.start for a, b in zip(schedule, schedule[1:]))
+
+
+@pytest.mark.parametrize("num_steps", [0, 1, 19, 20, 50, 149, 150, 151, 1000])
+def test_build_adaptation_schedule_default_window(num_steps):
+    assert build_adaptation_schedule(num_steps) == build_adaptation_schedule(
+        num_steps, 50
+    )
+
+
+@pytest.mark.parametrize("final_window_size", [0, -1, 2.5, None, "50"])
+@pytest.mark.parametrize("num_steps", [0, 10, 1000])
+def test_build_adaptation_schedule_invalid_final_window(num_steps, final_window_size):
+    with pytest.raises(
+        ValueError, match="final_window_size must be a positive integer"
+    ):
+        build_adaptation_schedule(num_steps, final_window_size)
