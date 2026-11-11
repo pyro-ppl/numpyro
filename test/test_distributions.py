@@ -101,6 +101,21 @@ class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
         return super(cls, T).__new__(cls, jax_dist, sp_dist, params)
 
 
+class _BoundedDirichletMultinomial(dist.DirichletMultinomial):
+    def __init__(self, concentration, total_count):
+        super().__init__(concentration, total_count, total_count_max=10)
+
+
+class _BoundedMultinomialProbs(dist.MultinomialProbs):
+    def __init__(self, probs, total_count):
+        super().__init__(probs, total_count, total_count_max=10)
+
+
+class _BoundedMultinomialLogits(dist.MultinomialLogits):
+    def __init__(self, logits, total_count):
+        super().__init__(logits, total_count, total_count_max=10)
+
+
 def _mvn_to_scipy(loc, cov, prec, tril):
     jax_dist = dist.MultivariateNormal(loc, cov, prec, tril)
     mean = jax_dist.mean
@@ -4518,7 +4533,7 @@ def test_vmapped_binomial_p0():
     jax.vmap(sample_binomial_withp0)(random.split(random.key(0), 1))
 
 
-def _get_vmappable_dist_init_params(jax_dist):
+def _get_vmappable_dist_init_params(jax_dist, params):
     if jax_dist.__name__ == ("_TruncatedCauchy"):
         return [2, 3]
     elif jax_dist.__name__ == ("_TruncatedNormal"):
@@ -4550,6 +4565,12 @@ def _get_vmappable_dist_init_params(jax_dist):
         vmap_over_parameters = list(
             inspect.signature(vmap_over.dispatch(jax_dist)).parameters.keys()
         )[1:]
+        if (
+            "total_count" in vmap_over_parameters
+            and getattr(jax_dist(*params), "total_count_max", 0) is None
+        ):
+            # Only bounded counts are data leaves; unbounded counts stay static.
+            vmap_over_parameters.remove("total_count")
         return list(
             [
                 i
@@ -4578,11 +4599,19 @@ def _tree_equal(t1, t2):
 
 
 @pytest.mark.parametrize(
-    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+    "jax_dist, sp_dist, params",
+    CONTINUOUS
+    + DISCRETE
+    + DIRECTIONAL
+    + [
+        T(_BoundedDirichletMultinomial, np.array([1.0, 2.0, 3.0]), np.array([2, 3])),
+        T(_BoundedMultinomialProbs, np.array([0.2, 0.3, 0.5]), np.array([2, 3])),
+        T(_BoundedMultinomialLogits, np.array([-1.0, 0.0, 1.0]), np.array([2, 3])),
+    ],
 )
 def test_vmap_dist(jax_dist, sp_dist, params):
     param_names = list(inspect.signature(jax_dist).parameters.keys())
-    vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist)
+    vmappable_param_idxs = _get_vmappable_dist_init_params(jax_dist, params)
     vmappable_param_idxs = vmappable_param_idxs[: len(params)]
 
     if len(vmappable_param_idxs) == 0:
@@ -4749,6 +4778,27 @@ def test_multinomial_scalar_total_count_max(total_count, sample_shape):
 def test_dirichlet_multinomial_scalar_total_count_max():
     d = dist.DirichletMultinomial(jnp.ones(3), 3, total_count_max=10)
     assert d.support.check(d.sample(random.key(0))).all()
+
+
+@pytest.mark.parametrize(
+    "distribution, parameter",
+    [
+        (dist.DirichletMultinomial, np.ones(2)),
+        (dist.MultinomialProbs, np.full(2, 0.5)),
+        (dist.MultinomialLogits, np.zeros(2)),
+    ],
+)
+def test_bounded_multinomial_jit(distribution, parameter):
+    sample = jax.jit(lambda d, key: d.sample(key))
+    for counts in (jnp.array([2, 3]), jnp.array([4, 5])):
+        d = distribution(parameter, counts, total_count_max=10)
+        assert_array_equal(sample(d, random.key(0)).sum(-1), counts)
+
+
+def test_unbounded_multinomial_vmap_over_static_count():
+    d = dist.MultinomialProbs(jnp.full(2, 0.5), 3)
+    with pytest.raises(ValueError, match="Cannot map total_count"):
+        vmap_over(d, probs=0, total_count=0)
 
 
 def test_multinomial_abstract_total_count():
