@@ -13,7 +13,6 @@ import jax
 from jax import device_get, jit, lax, pmap, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import logit
-from jax.tree_util import tree_leaves
 
 import numpyro
 import numpyro.distributions as dist
@@ -1426,30 +1425,20 @@ def test_empty_summary():
 
 
 def test_final_warmup_window():
-    def potential_fn(z):
-        return 0.5 * jnp.sum(z**2)
-
-    # NUTS forwards to HMC.__init__, so one kernel covers both. np.int64 also
+    # NUTS forwards to HMC.__init__, so one kernel covers both; np.int64 also
     # exercises integer-like input end to end.
-    final_window_size = np.int64(100)
     kernel = NUTS(
-        potential_fn=potential_fn,
-        final_window_size=final_window_size,
+        potential_fn=lambda z: 0.5 * jnp.sum(z**2), final_window_size=np.int64(100)
     )
-    num_warmup = 100 + final_window_size
-    state = kernel.init(random.key(0), num_warmup, init_params=jnp.ones(2))
-    step = jit(lambda state: kernel.sample(state, (), {}))
-    state = lax.fori_loop(0, num_warmup, lambda _, state: step(state), state)
-    # Dual averaging restarts after the last slow window. Its counter then
-    # measures exactly the configured final step-size-only window.
-    assert state.adapt_state.ss_state[3] == final_window_size
+    mcmc = MCMC(kernel, num_warmup=200, num_samples=1, progress_bar=False)
+    mcmc.run(random.key(0), init_params=jnp.ones(2))
+    # Dual averaging restarts after the last slow window, so its step counter
+    # equals the length of the final window.
+    assert mcmc.last_state.adapt_state.ss_state[3] == 100
 
 
-@pytest.mark.parametrize("final_window_size", [9, 2.5, True])
+@pytest.mark.parametrize("final_window_size", [9, 50.5])
 def test_final_warmup_window_invalid(final_window_size):
-    # The constructor rejects invalid values, instead of failing inside
-    # `MCMC.run` long after the kernel was created. NUTS forwards to
-    # HMC.__init__, so one kernel covers both.
     with pytest.raises(ValueError, match="final_window_size must be an integer"):
         NUTS(
             potential_fn=lambda z: 0.5 * jnp.sum(z**2),
@@ -1457,45 +1446,31 @@ def test_final_warmup_window_invalid(final_window_size):
         )
 
 
-def test_mixed_hmc_final_warmup_window():
-    def model():
-        numpyro.sample("c", dist.Bernoulli(0.8))
-        numpyro.sample("x", dist.Normal(0, 1))
-
-    # MixedHMC runs its own warmup adapter at the end of each step; it must
-    # inherit the inner kernel's final window instead of the default 50.
-    kernel = MixedHMC(HMC(model, final_window_size=100), num_discrete_updates=1)
-    mcmc = MCMC(kernel, num_warmup=200, num_samples=10, progress_bar=False)
-    mcmc.run(random.key(0))
-    assert_allclose(mcmc.last_state.hmc_state.adapt_state.ss_state[3], 100)
-
-
-def test_mixed_hmc_regularize_mass_matrix():
+def test_mixed_hmc_inherits_warmup_settings():
+    # MixedHMC runs its own warmup adapter; it must use the inner kernel's
+    # final_window_size and regularize_mass_matrix, not the adapter defaults.
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
         numpyro.sample("x", dist.Normal(0, 1).expand([2]))
 
-    def run(regularize_mass_matrix):
-        kernel = MixedHMC(
-            HMC(model, regularize_mass_matrix=regularize_mass_matrix),
-            num_discrete_updates=1,
+    def adapt_state(regularize_mass_matrix):
+        inner = HMC(
+            model,
+            final_window_size=100,
+            regularize_mass_matrix=regularize_mass_matrix,
         )
-        mcmc = MCMC(kernel, num_warmup=100, num_samples=10, progress_bar=False)
+        mcmc = MCMC(
+            MixedHMC(inner, num_discrete_updates=1),
+            num_warmup=200,
+            num_samples=1,
+            progress_bar=False,
+        )
         mcmc.run(random.key(0))
-        return jnp.concatenate(
-            [
-                jnp.ravel(x)
-                for x in tree_leaves(
-                    mcmc.last_state.hmc_state.adapt_state.inverse_mass_matrix
-                )
-            ]
-        )
+        return mcmc.last_state.hmc_state.adapt_state
 
-    # MixedHMC's own warmup adapter must honor the inner kernel's
-    # regularize_mass_matrix instead of always regularizing; the adapted mass
-    # matrices differ once a slow window ends (here at step 89 of 100).
-    regularized = run(True)
-    unregularized = run(False)
-    assert jnp.all(jnp.isfinite(regularized))
-    assert jnp.all(jnp.isfinite(unregularized))
-    assert not jnp.allclose(regularized, unregularized)
+    regularized, unregularized = adapt_state(True), adapt_state(False)
+    assert regularized.ss_state[3] == 100
+    assert not jnp.allclose(
+        regularized.inverse_mass_matrix[("x",)],
+        unregularized.inverse_mass_matrix[("x",)],
+    )

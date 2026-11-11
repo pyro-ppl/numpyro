@@ -5,7 +5,6 @@ from collections import namedtuple
 import copy
 from functools import partial
 from typing import Any
-import warnings
 
 import numpy as np
 
@@ -198,20 +197,16 @@ class MixedHMC(MCMCKernel):
 
         # NB: the warmup adaptation can not be performed in sub-trajectories (i.e. the hmc trajectory
         # between two discrete updates), so we will do it here, at the end of each MixedHMC step.
-        # The inner kernel's init above already built the same adaptation
-        # schedule and emitted any rescale warning; don't warn twice here.
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="The requested final_window_size")
-            _, self._wa_update = warmup_adapter(
-                num_warmup,
-                adapt_step_size=self.inner_kernel._adapt_step_size,
-                adapt_mass_matrix=self.inner_kernel._adapt_mass_matrix,
-                dense_mass=self.inner_kernel._dense_mass,
-                target_accept_prob=self.inner_kernel._target_accept_prob,
-                regularize_mass_matrix=self.inner_kernel._regularize_mass_matrix,
-                final_window_size=self.inner_kernel._final_window_size,
-                find_reasonable_step_size=None,
-            )
+        _, self._wa_update = warmup_adapter(
+            num_warmup,
+            adapt_step_size=self.inner_kernel._adapt_step_size,
+            adapt_mass_matrix=self.inner_kernel._adapt_mass_matrix,
+            dense_mass=self.inner_kernel._dense_mass,
+            target_accept_prob=self.inner_kernel._target_accept_prob,
+            regularize_mass_matrix=self.inner_kernel._regularize_mass_matrix,
+            final_window_size=self.inner_kernel._final_window_size,
+            find_reasonable_step_size=None,
+        )
 
         # In HMC, when `hmc_state.r` is not None, we will skip drawing a random momentum at the
         # beginning of an HMC step. The reason is we need to maintain `r` between each sub-trajectories.

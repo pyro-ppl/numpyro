@@ -387,37 +387,22 @@ def find_reasonable_step_size(
 
 
 def _validate_final_window_size(final_window_size, min_final_window_size=10):
-    """
-    Checks that ``final_window_size`` is an integer of at least
-    ``min_final_window_size`` and returns it as a Python ``int``.
-
-    The default minimum of 10 is a tested safe lower bound for user-supplied
-    values: final windows of 9 steps or fewer gave near-zero post-warmup
-    acceptance on a Gaussian test model, while 10 adapted reliably. Shorter
-    final windows can still result from the short-warmup rescaling in
-    :func:`build_adaptation_schedule`.
-
-    Integer-like values such as ``np.int64`` or ``jnp.int32`` are accepted via
-    ``operator.index``; ``bool`` is rejected explicitly.
-    """
-    if isinstance(final_window_size, bool):
-        raise ValueError(
-            "final_window_size must be an integer of at least "
-            f"{min_final_window_size}, got {final_window_size!r}"
-        )
+    """Returns ``final_window_size`` as an ``int``; ``None`` (the default) passes through."""
+    if final_window_size is None:
+        return None
+    # operator.index accepts integer-likes (np.int64, jnp.int32) and rejects floats;
+    # bools pass it but fall below the minimum. The minimum of 10 is the smallest
+    # window that adapted reliably in testing.
     try:
-        final_window_size = operator.index(final_window_size)
+        size = operator.index(final_window_size)
     except TypeError:
-        raise ValueError(
-            "final_window_size must be an integer of at least "
-            f"{min_final_window_size}, got {final_window_size!r}"
-        ) from None
-    if final_window_size < min_final_window_size:
+        size = None
+    if size is None or size < min_final_window_size:
         raise ValueError(
             "final_window_size must be an integer of at least "
             f"{min_final_window_size}, got {final_window_size!r}"
         )
-    return final_window_size
+    return size
 
 
 def build_adaptation_schedule(num_steps, final_window_size=None):
@@ -427,12 +412,11 @@ def build_adaptation_schedule(num_steps, final_window_size=None):
     :param int num_steps: Number of warmup steps.
     :param int final_window_size: Size of the final step-size adaptation window,
         corresponding to Stan's ``term_buffer``. Defaults to 50 and must be an
-        integer of at least 10, a tested safe minimum for user-supplied values.
-        If the initial buffer (75 steps), initial slow window (25 steps), and
-        final window do not fit, the buffers are rescaled to 15% and 10% of
-        warmup, respectively; a requested value that the rescaling changes
-        emits a warning. Below 20 steps, warmup uses a single window instead
-        and a requested value is ignored with a warning.
+        integer of at least 10. If the initial buffer (75 steps), initial slow
+        window (25 steps), and final window do not fit, the buffers are rescaled
+        to 15% and 10% of warmup, respectively; a requested value that the
+        rescaling changes emits a warning. Below 20 steps, warmup uses a single
+        window and ``final_window_size`` is ignored.
     :return: a list of contiguous windows, each has attributes `start` and `end`,
         where `start` is the starting index and `end` is the ending index of the window.
 
@@ -441,23 +425,13 @@ def build_adaptation_schedule(num_steps, final_window_size=None):
     1. *Stan Reference Manual version 2.18*,
        Stan Development Team
     """
-    if final_window_size is None:
-        final_window_size = 50
-        requested_final_window_size = None
-    else:
-        requested_final_window_size = _validate_final_window_size(final_window_size)
-        final_window_size = requested_final_window_size
+    requested_final_window_size = _validate_final_window_size(final_window_size)
+    final_window_size = (
+        50 if requested_final_window_size is None else requested_final_window_size
+    )
     adaptation_schedule = []
     # from Stan, for small num_steps
     if num_steps < 20:
-        if requested_final_window_size is not None:
-            warnings.warn(
-                f"The requested final_window_size={requested_final_window_size} "
-                f"is ignored because num_steps={num_steps} uses a single "
-                "adaptation window. Use at least 20 warmup steps to apply a "
-                "final window.",
-                stacklevel=find_stack_level(),
-            )
         adaptation_schedule.append(AdaptWindow(0, num_steps - 1))
         return adaptation_schedule
 
@@ -473,17 +447,12 @@ def build_adaptation_schedule(num_steps, final_window_size=None):
     if (start_buffer_size + final_window_size + init_window_size) > num_steps:
         start_buffer_size = int(0.15 * num_steps)
         rescaled_final_window_size = int(0.1 * num_steps)
-        if (
-            requested_final_window_size is not None
-            and rescaled_final_window_size != requested_final_window_size
-        ):
+        if requested_final_window_size not in (None, rescaled_final_window_size):
             warnings.warn(
-                f"The requested final_window_size={requested_final_window_size} "
-                f"does not fit within num_steps={num_steps} together with the "
-                "initial buffer and slow windows, so it is rescaled to "
-                f"{rescaled_final_window_size}. Use at least "
-                f"{100 + requested_final_window_size} warmup steps to apply the "
-                "requested window size.",
+                f"final_window_size={requested_final_window_size} does not fit in "
+                f"num_warmup={num_steps} and is rescaled to "
+                f"{rescaled_final_window_size}. Use num_warmup >= "
+                f"{100 + requested_final_window_size} to keep it.",
                 stacklevel=find_stack_level(),
             )
         final_window_size = rescaled_final_window_size

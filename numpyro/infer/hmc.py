@@ -712,11 +712,7 @@ class HMC(MCMCKernel):
         self._find_heuristic_step_size = find_heuristic_step_size
         self._forward_mode_differentiation = forward_mode_differentiation
         self._regularize_mass_matrix = regularize_mass_matrix
-        self._final_window_size = (
-            None
-            if final_window_size is None
-            else _validate_final_window_size(final_window_size)
-        )
+        self._final_window_size = _validate_final_window_size(final_window_size)
         # Set on first call to init
         self._init_fn = None
         self._potential_fn_gen = None
