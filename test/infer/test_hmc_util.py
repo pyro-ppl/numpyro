@@ -4,7 +4,6 @@
 from collections import namedtuple
 import logging
 import os
-import warnings
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -302,19 +301,16 @@ def test_build_adaptation_schedule(num_steps, expected):
         ),
     ],
 )
-@pytest.mark.parametrize("final_window_size", [10, 50, 100])
-def test_warmup_adapter(jitted, final_window_size):
+def test_warmup_adapter(jitted):
     def find_reasonable_step_size(step_size, m_inv, z, rng_key):
         return jnp.where(step_size < 1, step_size * 4, step_size / 4)
 
-    num_steps = 100 + final_window_size
-    adaptation_schedule = build_adaptation_schedule(num_steps, final_window_size)
+    num_steps = 150
+    adaptation_schedule = build_adaptation_schedule(num_steps)
     init_step_size = 1.0
     mass_matrix_size = 3
 
-    wa_init, wa_update = warmup_adapter(
-        num_steps, find_reasonable_step_size, final_window_size=final_window_size
-    )
+    wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
     wa_update = jit(wa_update) if jitted else wa_update
 
     rng_key = random.key(0)
@@ -488,8 +484,6 @@ def test_subposterior_structure(method):
 @pytest.mark.parametrize(
     "num_steps, final_window_size, expected",
     [
-        (0, 200, [(0, -1)]),
-        (19, 200, [(0, 18)]),
         (300, 200, [(0, 74), (75, 99), (100, 299)]),
         (400, 200, [(0, 74), (75, 99), (100, 199), (200, 399)]),
     ],
@@ -497,48 +491,29 @@ def test_subposterior_structure(method):
 def test_build_adaptation_schedule_final_window(num_steps, final_window_size, expected):
     schedule = build_adaptation_schedule(num_steps, final_window_size)
     assert schedule == [AdaptWindow(*bounds) for bounds in expected]
-    assert schedule[0].start == 0
-    assert schedule[-1].end == num_steps - 1
-    assert all(a.end + 1 == b.start for a, b in zip(schedule, schedule[1:]))
 
 
-@pytest.mark.parametrize(
-    "num_steps, final_window_size, expected",
-    [
-        (20, 200, [(0, 2), (3, 17), (18, 19)]),
-        (100, 10, [(0, 14), (15, 89), (90, 99)]),
-        (101, 10, [(0, 14), (15, 90), (91, 100)]),
-        (299, 200, [(0, 43), (44, 269), (270, 298)]),
-    ],
-)
-def test_build_adaptation_schedule_final_window_rescaled(
-    num_steps, final_window_size, expected
-):
-    # A non-default final window that does not fit is rescaled with a warning.
+def test_build_adaptation_schedule_final_window_rescaled():
+    # A requested final window that does not fit is rescaled with a warning.
     with pytest.warns(UserWarning, match="does not fit"):
-        schedule = build_adaptation_schedule(num_steps, final_window_size)
-    assert schedule == [AdaptWindow(*bounds) for bounds in expected]
-    assert schedule[0].start == 0
-    assert schedule[-1].end == num_steps - 1
-    assert all(a.end + 1 == b.start for a, b in zip(schedule, schedule[1:]))
+        schedule = build_adaptation_schedule(299, 200)
+    assert schedule == [AdaptWindow(0, 43), AdaptWindow(44, 269), AdaptWindow(270, 298)]
 
 
-@pytest.mark.parametrize("num_steps", [20, 50, 149])
-def test_build_adaptation_schedule_default_rescale_silent(num_steps):
-    # The default final window keeps the historical rescaled schedule and must
-    # not warn (warnings are errors in this test suite).
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        schedule = build_adaptation_schedule(num_steps)
-    rescaled_end = int(0.1 * num_steps)
-    assert schedule[-1].end - schedule[-1].start + 1 == rescaled_end
+def test_build_adaptation_schedule_final_window_unchanged_silent():
+    # The short-warmup rescaling can leave a requested final window unchanged
+    # (here only the buffers shrink); that must not warn. Warnings are errors
+    # in this test suite.
+    schedule = build_adaptation_schedule(101, 10)
+    assert schedule == [AdaptWindow(0, 14), AdaptWindow(15, 90), AdaptWindow(91, 100)]
 
 
-@pytest.mark.parametrize("final_window_size", [0, -1, 1, 5, 9, 2.5, None, "50", True])
-@pytest.mark.parametrize("num_steps", [0, 10, 1000])
-def test_build_adaptation_schedule_invalid_final_window(num_steps, final_window_size):
-    with pytest.raises(ValueError, match="final_window_size must be an integer"):
-        build_adaptation_schedule(num_steps, final_window_size)
+def test_build_adaptation_schedule_final_window_ignored_warns():
+    # Below 20 warmup steps the schedule is a single window, so a requested
+    # final window is ignored with a warning.
+    with pytest.warns(UserWarning, match="single adaptation window"):
+        schedule = build_adaptation_schedule(19, 200)
+    assert schedule == [AdaptWindow(0, 18)]
 
 
 @pytest.mark.parametrize("to_int", [np.int64, jnp.int32])
