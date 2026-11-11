@@ -239,13 +239,16 @@ def hpdi(x: NDArray, prob: float = 0.90, axis: int = 0) -> NDArray:
     interval with probability mass ``prob``.
 
     :param numpy.ndarray x: the input array.
-    :param float prob: the probability mass of samples within the interval.
+    :param float prob: the probability mass of samples within the interval,
+        in ``(0, 1]``.
     :param int axis: the dimension to calculate hpdi.
     :return: Array containing the lower and upper bounds of the HPDI along
         the specified axis. The output has the same shape as ``x`` except
         that the size along ``axis`` is 2 (lower bound first, upper bound second).
     :rtype: numpy.ndarray
     """
+    if not 0 < prob <= 1:
+        raise ValueError("Expected `prob` to be in (0, 1], but got {}.".format(prob))
     x = np.swapaxes(_bool_to_int(x), axis, 0)
     sorted_x = np.sort(x, axis=0)
     hpd_left, hpd_right = _hpdi_of_sorted(sorted_x, prob)
@@ -258,7 +261,8 @@ def _hpdi_of_sorted(sorted_x: NDArray, prob: float) -> tuple[NDArray, NDArray]:
     # compute the hpdi bounds of samples already sorted along axis 0; both
     # bounds are returned with a leading axis of size 1
     mass = sorted_x.shape[0]
-    index_length = int(prob * mass)
+    # each candidate interval covers index_length + 1 draws, so prob=1 needs mass - 1
+    index_length = min(int(prob * mass), mass - 1)
     intervals_left = sorted_x[: (mass - index_length)]
     intervals_right = sorted_x[index_length:]
     intervals_length = intervals_right - intervals_left
@@ -325,8 +329,13 @@ def _weighted_stats(
         right = np.searchsorted(cw, cw_before + prob + tol, side="right")
         valid = right < n
         lengths = np.where(valid, xs[np.minimum(right, n - 1)] - xs, np.inf)
-        start = int(np.argmin(lengths)) if valid.any() else 0
-        hpd[:, k] = xs[start], xs[min(right[start], n - 1)]
+        if valid.any():
+            start = int(np.argmin(lengths))
+            hpd[:, k] = xs[start], xs[min(right[start], n - 1)]
+        else:
+            # prob is (numerically) 1: span the draws with positive weight
+            support = np.flatnonzero(sorted_w[:, k] > 0)
+            hpd[:, k] = xs[support[0]], xs[support[-1]]
 
     sample_shape = x.shape[1:]
     median = median.reshape(sample_shape)
@@ -356,7 +365,8 @@ def summary(
     :param samples: a collection of input samples with left most dimension is chain
         dimension and second to left most dimension is draw dimension.
     :type samples: dict or numpy.ndarray
-    :param float prob: the probability mass of samples within the HPDI interval.
+    :param float prob: the probability mass of samples within the HPDI interval,
+        in ``(0, 1]``.
     :param bool group_by_chain: If True, each variable in `samples` will be treated
         as having shape `num_chains x num_samples x sample_shape`. Otherwise, the
         corresponding shape will be `num_samples x sample_shape` (i.e. without
@@ -365,6 +375,8 @@ def summary(
         draws, with shape `num_chains x num_samples` if `group_by_chain` is True
         and `num_samples` otherwise.
     """
+    if not 0 < prob <= 1:
+        raise ValueError("Expected `prob` to be in (0, 1], but got {}.".format(prob))
     if not group_by_chain:
         samples = jax.tree.map(lambda x: x[None, ...], samples)
         if log_weights is not None:
@@ -451,7 +463,8 @@ def print_summary(
     :param samples: a collection of input samples with left most dimension is chain
         dimension and second to left most dimension is draw dimension.
     :type samples: dict or numpy.ndarray
-    :param float prob: the probability mass of samples within the HPDI interval.
+    :param float prob: the probability mass of samples within the HPDI interval,
+        in ``(0, 1]``.
     :param bool group_by_chain: If True, each variable in `samples` will be treated
         as having shape `num_chains x num_samples x sample_shape`. Otherwise, the
         corresponding shape will be `num_samples x sample_shape` (i.e. without
