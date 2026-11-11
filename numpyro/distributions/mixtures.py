@@ -4,8 +4,6 @@
 
 from typing import Optional, Union
 
-import numpy as np
-
 import jax
 from jax import Array, lax
 import jax.numpy as jnp
@@ -347,40 +345,6 @@ class MixtureSameFamily(_MixtureBase):
         return jax.nn.log_softmax(self.mixing_distribution.logits) + component_log_probs
 
 
-def _endpoint_compatible(a: Constraint, b: Constraint) -> bool:
-    """Return whether two supports differ at most at their endpoints."""
-    return a._bounds_within(b) is True and b._bounds_within(a) is True
-
-
-def _supports_compatible(a: Constraint, b: Constraint) -> bool:
-    """Same support type (the old rule), or supports that differ only at endpoints."""
-    return type(a) is type(b) or _endpoint_compatible(a, b)
-
-
-def _finite_interval_endpoints(constraint: Constraint) -> list[ArrayLike]:
-    bounds = constraint._interval_bounds()
-    if bounds is None:
-        return []
-    return [bound for bound in bounds if np.isfinite(np.asarray(bound)).all()]
-
-
-def _wider_support(a: Constraint, b: Constraint) -> Constraint:
-    """Return the support whose feasible set includes the other at the endpoints."""
-    points = _finite_interval_endpoints(a) + _finite_interval_endpoints(b)
-    if not points:
-        return a
-
-    def contains(constraint: Constraint) -> bool:
-        try:
-            return all(bool(np.asarray(constraint(point)).all()) for point in points)
-        except (TypeError, ValueError):
-            return False
-
-    if contains(b) and not contains(a):
-        return b
-    return a
-
-
 class MixtureGeneral(_MixtureBase):
     r"""
     A finite mixture of component distributions from different families
@@ -438,12 +402,9 @@ class MixtureGeneral(_MixtureBase):
         ``validate_args`` disabled is set to :math:`-\infty` outside that
         component's own support before mixing, so components with different
         supports can be combined. All components must share the same
-        ``event_shape`` and, unless ``support`` is given, compatible supports:
-        the same support type as before (including intervals with different
-        bounds), or interval constraints that differ only in whether the
-        endpoints are included (for example ``positive`` and ``nonnegative``).
-        In the latter case the mixture reports the wider of those supports;
-        otherwise it reports the first component's support.
+        ``event_shape`` and, unless ``support`` is given, the same support *type*
+        or supports that differ only at their endpoints (e.g. ``positive`` and
+        ``nonnegative``); the mixture then reports the first component's support.
         ``cdf`` raises ``NotImplementedError`` if a component does not implement
         it. ``has_rsample`` is ``False``.
 
@@ -515,22 +476,22 @@ class MixtureGeneral(_MixtureBase):
                 f"expected {self._mixture_size}, got {len(component_distributions)}"
             )
 
-        # Compatible if the support types match (the previous rule, which
-        # accepts e.g. Uniform(0, 1) and Uniform(0, 2)) or if they differ
-        # only at their endpoints (e.g. positive vs nonnegative).
-        # Constraint._bounds_within ignores endpoints, so a two-way check
-        # covers the second case. __eq__ is not consistently implemented
-        # for every support type.
+        # TODO: It would be good to check that the support of all the component
+        # distributions match, but for now we just check the type, since __eq__
+        # isn't consistently implemented for all support types. Supports that
+        # differ only at their endpoints (e.g. positive and nonnegative) also pass.
         self._support = support
         if support is None:
-            first_support = component_distributions[0].support
-            if any(
-                not _supports_compatible(first_support, d.support)
-                for d in component_distributions[1:]
-            ):
-                raise ValueError(
-                    "All component distributions must have the same support."
-                )
+            first = component_distributions[0].support
+            for d in component_distributions[1:]:
+                other = d.support
+                assert first is not None and other is not None
+                if type(other) is not type(first) and not (
+                    first._bounds_within(other) and other._bounds_within(first)
+                ):
+                    raise ValueError(
+                        "All component distributions must have the same support."
+                    )
         else:
             assert isinstance(support, constraints.Constraint), (
                 "support must be a Constraint object"
@@ -571,14 +532,6 @@ class MixtureGeneral(_MixtureBase):
             return self._support
         support = self.component_distributions[0].support
         assert support is not None
-        for component in self.component_distributions[1:]:
-            other = component.support
-            assert other is not None
-            # Widen only when the supports differ solely at the endpoints.
-            # Same-type intervals with different bounds keep the first
-            # component's support, as they did before.
-            if _endpoint_compatible(support, other):
-                support = _wider_support(support, other)
         return support
 
     @property
