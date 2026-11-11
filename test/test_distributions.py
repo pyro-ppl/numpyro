@@ -4919,20 +4919,26 @@ def test_sine_bivariate_von_mises_norm(conc):
 
 
 def test_gaussian_state_space_broadcast_initial_value():
-    initial_value = np.arange(10).reshape(5, 1, 2) / 10
+    initial_value = np.arange(4).reshape(2, 1, 2) / 10
+    scales = np.arange(1, 13).reshape(2, 3, 2) / 10
     d = dist.GaussianStateSpace(
         3,
-        np.eye(2),
-        scale_tril=np.broadcast_to(np.eye(2), (5, 2, 2)),
+        0.5 * np.eye(2),
+        scale_tril=scales[..., None, :] * np.eye(2),
         initial_value=initial_value,
     )
-    assert d.batch_shape == (5, 5)
-    assert d.mean.shape == d.batch_shape + d.event_shape
-    expected_mean = np.broadcast_to(initial_value[..., None, :], (5, 5, 3, 2))
+    assert d.batch_shape == (2, 3)
+    expected_mean = np.broadcast_to(
+        initial_value[..., None, :] * 0.5 ** np.arange(1, 4)[:, None], (2, 3, 3, 2)
+    )
     np.testing.assert_allclose(d.mean, expected_mean)
+    variance_factors = np.cumsum(0.25 ** np.arange(3))
+    np.testing.assert_allclose(
+        d.variance, scales[..., None, :] ** 2 * variance_factors[:, None], rtol=1e-6
+    )
     x = d.base_dist.sample(random.key(0), (2,))
     y = d.sample(random.key(0), (2,))
-    assert y.shape == (2, 5, 5, 3, 2)
+    assert y.shape == (2, 2, 3, 3, 2)
     np.testing.assert_allclose(d.transforms[0].inv(y), x, atol=1e-6)
     np.testing.assert_allclose(d.log_prob(y), d.base_dist.log_prob(x), rtol=1e-5)
 
