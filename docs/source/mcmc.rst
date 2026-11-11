@@ -44,13 +44,6 @@ BarkerMH
 
 HMC
 ^^^
-The ``final_window_size`` option controls the final step-size-only adaptation
-window for HMC and NUTS. The default is 50 steps. For example, a value of 200
-uses a 200-step final window when warmup has at least 300 steps. Shorter warmup
-uses the existing rescaled schedule (a 10% final buffer), and fewer than 20
-warmup steps use a single window. Increasing this option does not change the
-dual-averaging algorithm or guarantee a particular acceptance probability.
-
 .. autoclass:: numpyro.infer.hmc.HMC
     :members:
     :undoc-members:
