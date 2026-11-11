@@ -329,6 +329,10 @@ def scan_wrapper(
                     trace = handlers.trace(seeded_fn).get_trace(carry, x)
                     replay_trace_i = _replay_wrapper(subs_map, trace, i, length)
                     seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
+                else:
+                    raise NotImplementedError(
+                        f"Unsupported substitute_stack entry: {subs_type}"
+                    )
 
             with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)
