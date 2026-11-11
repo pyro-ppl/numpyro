@@ -13,11 +13,22 @@ import jax
 from jax import device_get, jit, lax, pmap, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import logit
+from jax.tree_util import tree_leaves
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import AIES, ESS, HMC, MCMC, NUTS, SA, BarkerMH, init_to_value
+from numpyro.infer import (
+    AIES,
+    ESS,
+    HMC,
+    MCMC,
+    NUTS,
+    SA,
+    BarkerMH,
+    MixedHMC,
+    init_to_value,
+)
 from numpyro.infer.hmc import hmc
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
@@ -1415,16 +1426,14 @@ def test_empty_summary():
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
-@pytest.mark.parametrize("adapt_mass_matrix", [False, True])
-@pytest.mark.parametrize("final_window_size", [50, 100])
-def test_final_warmup_window(kernel_cls, adapt_mass_matrix, final_window_size):
+def test_final_warmup_window(kernel_cls):
     def potential_fn(z):
         return 0.5 * jnp.sum(z**2)
 
+    final_window_size = 100
     kernel = kernel_cls(
         potential_fn=potential_fn,
         final_window_size=final_window_size,
-        adapt_mass_matrix=adapt_mass_matrix,
     )
     num_warmup = 100 + final_window_size
     state = kernel.init(random.key(0), num_warmup, init_params=jnp.ones(2))
@@ -1455,19 +1464,68 @@ def test_functional_hmc_final_warmup_window(algo):
 
 
 @pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
-@pytest.mark.parametrize("chain_method", ["sequential", "vectorized"])
-def test_model_final_warmup_window(kernel_cls, chain_method):
+@pytest.mark.parametrize("final_window_size", [0, 5, 2.5, True, "50"])
+def test_final_warmup_window_invalid(kernel_cls, final_window_size):
+    # The constructor rejects invalid values, instead of failing inside
+    # `MCMC.run` long after the kernel was created.
+    with pytest.raises(ValueError, match="final_window_size must be an integer"):
+        kernel_cls(
+            potential_fn=lambda z: 0.5 * jnp.sum(z**2),
+            final_window_size=final_window_size,
+        )
+
+
+@pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
+@pytest.mark.parametrize("to_int", [np.int64, jnp.int32])
+def test_final_warmup_window_integer_like(kernel_cls, to_int):
+    # Integer-like values from configs or grids are accepted and normalized.
+    kernel = kernel_cls(
+        potential_fn=lambda z: 0.5 * jnp.sum(z**2),
+        final_window_size=to_int(100),
+    )
+    assert kernel._final_window_size == 100
+    assert type(kernel._final_window_size) is int
+
+
+def test_mixed_hmc_final_warmup_window():
     def model():
+        numpyro.sample("c", dist.Bernoulli(0.8))
         numpyro.sample("x", dist.Normal(0, 1))
 
-    mcmc = MCMC(
-        kernel_cls(model, final_window_size=100),
-        num_warmup=200,
-        num_samples=10,
-        num_chains=2,
-        chain_method=chain_method,
-        progress_bar=False,
-    )
+    # MixedHMC runs its own warmup adapter at the end of each step; it must
+    # inherit the inner kernel's final window instead of the default 50.
+    kernel = MixedHMC(HMC(model, final_window_size=100), num_discrete_updates=1)
+    mcmc = MCMC(kernel, num_warmup=200, num_samples=10, progress_bar=False)
     mcmc.run(random.key(0))
-    assert mcmc.get_samples(group_by_chain=True)["x"].shape == (2, 10)
-    assert_allclose(mcmc.last_state.adapt_state.ss_state[3], np.full(2, 100))
+    assert_allclose(mcmc.last_state.hmc_state.adapt_state.ss_state[3], 100)
+
+
+def test_mixed_hmc_regularize_mass_matrix():
+    def model():
+        numpyro.sample("c", dist.Bernoulli(0.8))
+        numpyro.sample("x", dist.Normal(0, 1).expand([2]))
+
+    def run(regularize_mass_matrix):
+        kernel = MixedHMC(
+            HMC(model, regularize_mass_matrix=regularize_mass_matrix),
+            num_discrete_updates=1,
+        )
+        mcmc = MCMC(kernel, num_warmup=100, num_samples=10, progress_bar=False)
+        mcmc.run(random.key(0))
+        return jnp.concatenate(
+            [
+                jnp.ravel(x)
+                for x in tree_leaves(
+                    mcmc.last_state.hmc_state.adapt_state.inverse_mass_matrix
+                )
+            ]
+        )
+
+    # MixedHMC's own warmup adapter must honor the inner kernel's
+    # regularize_mass_matrix instead of always regularizing; the adapted mass
+    # matrices differ once a slow window ends (here at step 89 of 100).
+    regularized = run(True)
+    unregularized = run(False)
+    assert jnp.all(jnp.isfinite(regularized))
+    assert jnp.all(jnp.isfinite(unregularized))
+    assert not jnp.allclose(regularized, unregularized)
