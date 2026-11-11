@@ -292,3 +292,12 @@ def test_general_mixture_broadcast_components(batch_shapes, event_shape, jit):
         )
         actual_cdf = (jax.jit(mixture.cdf) if jit else mixture.cdf)(value)
         np.testing.assert_allclose(actual_cdf, expected_cdf, rtol=1e-6)
+
+
+def test_mixture_endpoint_compatible_supports():
+    # Exponential (nonnegative) and Gamma (positive) differ only at 0.
+    mixture = dist.MixtureGeneral(
+        dist.Categorical(probs=np.array([0.5, 0.5])),
+        [dist.Exponential(1.0), dist.Gamma(2.0, 1.0)],
+    )
+    np.testing.assert_allclose(mixture.log_prob(1.0), -1.0, rtol=1e-6)

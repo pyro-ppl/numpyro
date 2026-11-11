@@ -927,7 +927,7 @@ class Exponential(Distribution):
 
     reparametrized_params = ["rate"]
     arg_constraints = {"rate": constraints.positive}
-    support = constraints.positive
+    support = constraints.nonnegative
 
     def __init__(
         self,

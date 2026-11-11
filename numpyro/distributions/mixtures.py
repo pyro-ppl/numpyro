@@ -402,7 +402,9 @@ class MixtureGeneral(_MixtureBase):
         ``validate_args`` disabled is set to :math:`-\infty` outside that
         component's own support before mixing, so components with different
         supports can be combined. All components must share the same
-        ``event_shape`` and, unless ``support`` is given, the same support *type*.
+        ``event_shape`` and, unless ``support`` is given, the same support *type*
+        or supports that differ only at their endpoints (e.g. ``positive`` and
+        ``nonnegative``); the mixture then reports the first component's support.
         ``cdf`` raises ``NotImplementedError`` if a component does not implement
         it. ``has_rsample`` is ``False``.
 
@@ -476,16 +478,20 @@ class MixtureGeneral(_MixtureBase):
 
         # TODO: It would be good to check that the support of all the component
         # distributions match, but for now we just check the type, since __eq__
-        # isn't consistently implemented for all support types.
+        # isn't consistently implemented for all support types. Supports that
+        # differ only at their endpoints (e.g. positive and nonnegative) also pass.
         self._support = support
         if support is None:
-            support_type = type(component_distributions[0].support)
-            if any(
-                type(d.support) is not support_type for d in component_distributions[1:]
-            ):
-                raise ValueError(
-                    "All component distributions must have the same support."
-                )
+            first = component_distributions[0].support
+            for d in component_distributions[1:]:
+                other = d.support
+                assert first is not None and other is not None
+                if type(other) is not type(first) and not (
+                    first._bounds_within(other) and other._bounds_within(first)
+                ):
+                    raise ValueError(
+                        "All component distributions must have the same support."
+                    )
         else:
             assert isinstance(support, constraints.Constraint), (
                 "support must be a Constraint object"
