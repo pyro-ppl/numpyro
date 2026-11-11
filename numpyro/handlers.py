@@ -864,7 +864,7 @@ class seed(Messenger):
     def __init__(
         self,
         fn: Callable | None = None,
-        rng_seed: Array | int | None = None,
+        rng_seed: Array | int | np.integer | None = None,
         hide_types: list[str] | None = None,
     ) -> None:
         if rng_seed is not None:

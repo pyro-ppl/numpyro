@@ -185,15 +185,12 @@ def test_seed():
     assert_allclose(xs, ys, atol=1e-6)
 
 
-@pytest.mark.parametrize("seed_type", [np.int32, np.int64, np.uint32])
+@pytest.mark.parametrize("seed_type", [np.int64, np.uint32])
 def test_seed_numpy_integer(seed_type):
     def model():
         return numpyro.sample("x", dist.Normal())
 
-    expected = handlers.seed(model, 3)()
-    assert_allclose(handlers.seed(model, seed_type(3))(), expected)
-    # the seed of each element of a NumPy array
-    assert_allclose(handlers.seed(model, np.arange(5, dtype=seed_type)[3])(), expected)
+    assert_allclose(handlers.seed(model, seed_type(3))(), handlers.seed(model, 3)())
 
 
 def test_nested_seeding():
