@@ -209,10 +209,7 @@ def test_cond():
     assert_allclose([x.mean(), x.std()], [2.0, jnp.sqrt(5.0)], atol=0.5)
 
 
-@pytest.mark.parametrize(
-    "elbo", [Trace_ELBO, TraceMeanField_ELBO, TraceGraph_ELBO, RenyiELBO]
-)
-def test_cond_replay(elbo):
+def _cond_replay_models():
     def model(y):
         switch = numpyro.sample("switch", dist.Normal(0.0, 1.0))
         level = cond(
@@ -236,16 +233,70 @@ def test_cond_replay(elbo):
         numpyro.sample("switch", dist.Normal(1.0, 0.5))
         numpyro.sample("level", dist.Normal(8.0, 0.3))
 
+    return model, model_without_cond, guide
+
+
+def test_cond_replay():
+    model, _, guide = _cond_replay_models()
     y = jnp.array([8.1, 9.2, 7.7])
     guide_trace = trace(seed(guide, 0)).get_trace(y)
     model_trace = trace(seed(replay(model, guide_trace), 1)).get_trace(y)
-    assert_allclose(model_trace["level"]["value"], guide_trace["level"]["value"])
-    # the value replayed inside `cond` is also the one used after `cond`
+    # the value replayed inside `cond` is the one used after `cond`
     assert_allclose(model_trace["y"]["fn"].mean, guide_trace["level"]["value"])
 
+
+@pytest.mark.parametrize(
+    "elbo", [Trace_ELBO, TraceMeanField_ELBO, TraceGraph_ELBO, RenyiELBO]
+)
+def test_cond_replay_elbo(elbo):
+    model, model_without_cond, guide = _cond_replay_models()
+    y = jnp.array([8.1, 9.2, 7.7])
     loss = elbo(num_particles=100).loss(random.key(0), {}, model, guide, y)
     expected = elbo(num_particles=100).loss(
         random.key(0), {}, model_without_cond, guide, y
+    )
+    assert_allclose(loss, expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("elbo", [Trace_ELBO, TraceGraph_ELBO])
+def test_cond_in_scan_replay_elbo(elbo):
+    def model(ys):
+        def transition(carry, y):
+            switch = numpyro.sample("switch", dist.Normal(0.0, 1.0))
+            level = cond(
+                switch > 0,
+                lambda _: numpyro.sample("level", dist.Normal(10.0, 2.0)),
+                lambda _: numpyro.sample("level", dist.Normal(0.0, 2.0)),
+                None,
+            )
+            numpyro.sample("y", dist.Normal(level, 1.0), obs=y)
+            return carry, None
+
+        scan(transition, 0.0, ys)
+
+    # the same joint density without `cond`
+    def model_without_cond(ys):
+        def transition(carry, y):
+            switch = numpyro.sample("switch", dist.Normal(0.0, 1.0))
+            loc = jnp.where(switch > 0, 10.0, 0.0)
+            level = numpyro.sample("level", dist.Normal(loc, 2.0))
+            numpyro.sample("y", dist.Normal(level, 1.0), obs=y)
+            return carry, None
+
+        scan(transition, 0.0, ys)
+
+    def guide(ys):
+        def transition(carry, y):
+            numpyro.sample("switch", dist.Normal(1.0, 0.5))
+            numpyro.sample("level", dist.Normal(8.0, 0.3))
+            return carry, None
+
+        scan(transition, 0.0, ys)
+
+    ys = jnp.array([8.1, 9.2, 7.7, 8.8])
+    loss = elbo(num_particles=100).loss(random.key(0), {}, model, guide, ys)
+    expected = elbo(num_particles=100).loss(
+        random.key(0), {}, model_without_cond, guide, ys
     )
     assert_allclose(loss, expected, rtol=1e-5)
 

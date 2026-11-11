@@ -41,6 +41,10 @@ def wrap_fn(fn, substitute_stack):
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
                 elif subs_type == "replay":
                     seeded_fn = handlers.replay(seeded_fn, trace=subs_map)
+                else:
+                    raise NotImplementedError(
+                        f"Unsupported substitute_stack entry: {subs_type}"
+                    )
 
             with handlers.trace() as trace:
                 value = seeded_fn(operand)
