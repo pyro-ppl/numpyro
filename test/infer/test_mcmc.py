@@ -1110,6 +1110,30 @@ def test_SA_chain_gradient_free(num_chains):
     mcmc.run(random.key(0))
 
 
+@pytest.mark.parametrize("int_type", [np.int64, jnp.int32])
+def test_integer_valued_mcmc_arguments(int_type):
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    mcmc = MCMC(
+        NUTS(model),
+        num_warmup=int_type(10),
+        num_samples=int_type(20),
+        thinning=int_type(2),
+    )
+    assert type(mcmc.num_warmup) is int
+    assert type(mcmc.num_samples) is int
+    assert type(mcmc.thinning) is int
+
+
+def test_non_integer_mcmc_arguments():
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    with pytest.raises(ValueError, match="num_samples"):
+        MCMC(NUTS(model), num_warmup=5, num_samples=10.0)
+
+
 def test_model_with_lift_handler():
     def model(data):
         c = numpyro.param("c", jnp.array(1.0), constraint=dist.constraints.positive)

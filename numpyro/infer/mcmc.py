@@ -4,6 +4,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from functools import partial
+import operator
 from operator import attrgetter
 import os
 import warnings
@@ -403,14 +404,22 @@ class MCMC(object):
         self.sampler = sampler
         self._sample_field = sampler.sample_field
         self._default_fields = sampler.default_fields
-        if not isinstance(num_warmup, int) or num_warmup < 0:
+        try:
+            num_warmup = operator.index(num_warmup)
+            num_samples = operator.index(num_samples)
+            thinning = operator.index(thinning)
+        except TypeError:
+            raise ValueError(
+                "num_warmup, num_samples and thinning must be integers"
+            ) from None
+        if num_warmup < 0:
             raise ValueError("num_warmup must be a nonnegative integer")
         self.num_warmup = num_warmup
         self.num_chains = num_chains
-        if not isinstance(thinning, int) or thinning < 1:
+        if thinning < 1:
             raise ValueError("thinning must be a positive integer")
         self.thinning = thinning
-        if not isinstance(num_samples, int) or num_samples < thinning:
+        if num_samples < thinning:
             raise ValueError(
                 "num_samples must be a positive integer greater than thinning"
             )
