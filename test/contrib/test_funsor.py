@@ -226,6 +226,33 @@ def test_nested_plate():
                 assert x.shape == (2, 5)
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("history", [1, 2])
+def test_scan_enum_reverse_substitute(reverse, history):
+    T = 5
+    y = jnp.array([0.3, -1.2, 2.0, 0.5, 1.1])
+    w = jnp.array([0.5, -1.0, 2.0, 0.1, 1.2])
+
+    def model():
+        def transition(carry, y_t):
+            w_t = numpyro.sample("w", dist.Normal(0.0, 10.0))
+            c = numpyro.sample(
+                "c", dist.Bernoulli(0.5), infer={"enumerate": "parallel"}
+            )
+            numpyro.sample("y", dist.Normal(w_t + 0.5 * c, 1.0), obs=y_t)
+            return carry, None
+
+        scan(transition, 0.0, y, length=T, reverse=reverse, history=history)
+
+    # values substituted into a scan keep their positions, whatever the direction
+    log_joint, _ = log_density(enum(model), (), {}, {"w": w})
+    mix = jnp.logaddexp(
+        dist.Normal(w, 1.0).log_prob(y), dist.Normal(w + 0.5, 1.0).log_prob(y)
+    ) + jnp.log(0.5)
+    expected = dist.Normal(0.0, 10.0).log_prob(w).sum() + mix.sum()
+    assert_allclose(log_joint, expected, rtol=1e-5)
+
+
 @pytest.mark.parametrize("num_steps", [1, 10, 11])
 def test_scan_enum_one_latent(num_steps):
     data = random.normal(random.key(0), (num_steps,))

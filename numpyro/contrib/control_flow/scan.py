@@ -68,13 +68,12 @@ def _subs_wrapper(subs_map, i, length, site, reverse=False):
                 # we use the substituted values for the first shape[0] scanned
                 # items (the last positions if reverse) and generate new samples
                 # otherwise
-                if reverse:
-                    i = i - (length - shape[0])
+                idx = i - (length - shape[0]) if reverse else i
                 return lax.cond(
-                    (i >= 0) & (i < shape[0]),
+                    (idx >= 0) & (idx < shape[0]),
                     lambda val, _: val[0][val[1]],
                     lambda _, key: site["fn"](rng_key=key, sample_shape=sample_shape),
-                    (value, i),
+                    (value, idx),
                     rng_key,
                 )
             else:
@@ -160,13 +159,17 @@ def scan_enum(
         init = True if (not_jax_tracer(i) and i in range(unroll_steps)) else False
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
+        # `i` counts iterations; when running in reverse, iteration `i` handles
+        # the item at position `length - 1 - i` of the stacked sites
+        t = length - 1 - i if reverse else i
+
         # we need to tell unconstrained messenger in potential energy computation
-        # that only the item at time `i` is needed when transforming
-        fn = handlers.infer_config(f, config_fn=lambda msg: {"_scan_current_index": i})
+        # that only the item at position `t` is needed when transforming
+        fn = handlers.infer_config(f, config_fn=lambda msg: {"_scan_current_index": t})
 
         seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
         for subs_type, subs_map in substitute_stack:
-            subs_fn = partial(_subs_wrapper, subs_map, i, length)
+            subs_fn = partial(_subs_wrapper, subs_map, t, length, reverse=reverse)
             if subs_type == "condition":
                 seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
             elif subs_type == "substitute":
@@ -458,7 +461,12 @@ def scan(
     :param int | None length: optional value specifying the length of `xs`
         but can be used when `xs` is an empty pytree (e.g. None)
     :param bool reverse: optional boolean specifying whether to run the scan iteration
-        forward (the default) or in reverse
+        forward (the default) or in reverse. Sites, outputs and substituted values
+        are indexed by position in `xs`, as in :func:`jax.lax.scan`. If a series
+        shorter than the scan is substituted (e.g. for forecasting), it fills the
+        first positions when `reverse=False` and the last positions, in order, when
+        `reverse=True`. For forecasting with `reverse=True`, pad `xs` at the front
+        so that the substituted values line up with the end of the series.
     :param int history: The number of previous contexts visible from the current context.
         Defaults to 1. If zero, this is similar to :class:`numpyro.plate`.
     :return: output of scan, quoted from :func:`jax.lax.scan` docs:

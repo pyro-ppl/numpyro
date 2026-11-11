@@ -315,6 +315,20 @@ def test_scan_reverse_substitute(reverse):
     v = tr["z"]["value"]
     assert_allclose(v[-3:] if reverse else v[:3], z[:3])
 
+    # the carry continues from the last substituted value: in a deterministic
+    # chain z_t = carry + 1 the generated values extend the substituted ones
+    def chain():
+        def transition(carry, _):
+            z_t = numpyro.sample("z", dist.Delta(carry + 1.0))
+            return z_t, z_t
+
+        return scan(transition, 0.0, None, length=5, reverse=reverse)
+
+    with seed(rng_seed=0), substitute(data={"z": jnp.array([1.0, 2.0, 3.0])}):
+        _, chain_out = chain()
+    expected_chain = [3.0, 2.0, 1.0, 2.0, 3.0] if reverse else [1.0, 2.0, 3.0, 4.0, 5.0]
+    assert_allclose(chain_out, expected_chain)
+
     prev = jnp.append(z[1:], 0.0) if reverse else jnp.append(0.0, z[:-1])
     expected = dist.Normal(prev, 1.0).log_prob(z).sum()
     expected += dist.Normal(0.5 * z, 1.0).log_prob(y).sum()
