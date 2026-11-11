@@ -222,6 +222,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         model_args=(),
         model_kwargs=None,
         rng_key=None,
+        final_window_size=50,
     ):
         """
         Initializes the HMC sampler.
@@ -285,6 +286,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             only supports forward-mode differentiation. See
             `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
             for more information.
+        :param int final_window_size: Number of steps in the final warmup window,
+            during which only step size is adapted (defaults to 50). If warmup has
+            fewer than ``100 + final_window_size`` steps, the initial and final
+            buffers are rescaled to 15% and 10% of warmup. Below 20 steps, a single
+            adaptation window is used instead.
         :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
             matrix for numerical stability during warmup phase. Defaults to True. This flag
             does not take effect if ``adapt_mass_matrix == False``.
@@ -343,6 +349,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             target_accept_prob=target_accept_prob,
             find_reasonable_step_size=find_reasonable_ss,
             regularize_mass_matrix=regularize_mass_matrix,
+            final_window_size=final_window_size,
         )
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
@@ -636,6 +643,11 @@ class HMC(MCMCKernel):
         only supports forward-mode differentiation. See
         `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
         for more information.
+    :param int final_window_size: Number of steps in the final warmup window,
+        during which only step size is adapted (defaults to 50). If warmup has
+        fewer than ``100 + final_window_size`` steps, the initial and final
+        buffers are rescaled to 15% and 10% of warmup. Below 20 steps, a single
+        adaptation window is used instead.
     :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
         matrix for numerical stability during warmup phase. Defaults to True. This flag
         does not take effect if ``adapt_mass_matrix == False``.
@@ -658,6 +670,7 @@ class HMC(MCMCKernel):
         find_heuristic_step_size=False,
         forward_mode_differentiation=False,
         regularize_mass_matrix=True,
+        final_window_size=50,
     ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
@@ -698,6 +711,7 @@ class HMC(MCMCKernel):
         self._find_heuristic_step_size = find_heuristic_step_size
         self._forward_mode_differentiation = forward_mode_differentiation
         self._regularize_mass_matrix = regularize_mass_matrix
+        self._final_window_size = final_window_size
         # Set on first call to init
         self._init_fn = None
         self._potential_fn_gen = None
@@ -905,6 +919,7 @@ class HMC(MCMCKernel):
             find_heuristic_step_size=self._find_heuristic_step_size,
             forward_mode_differentiation=self._forward_mode_differentiation,
             regularize_mass_matrix=self._regularize_mass_matrix,
+            final_window_size=self._final_window_size,
             model_args=model_args,
             model_kwargs=model_kwargs,
             rng_key=rng_key,
@@ -1032,6 +1047,11 @@ class NUTS(HMC):
         only supports forward-mode differentiation. See
         `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
         for more information.
+    :param int final_window_size: Number of steps in the final warmup window,
+        during which only step size is adapted (defaults to 50). If warmup has
+        fewer than ``100 + final_window_size`` steps, the initial and final
+        buffers are rescaled to 15% and 10% of warmup. Below 20 steps, a single
+        adaptation window is used instead.
     :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
         matrix for numerical stability during warmup phase. Defaults to True. This flag
         does not take effect if ``adapt_mass_matrix == False``.
@@ -1054,6 +1074,7 @@ class NUTS(HMC):
         find_heuristic_step_size=False,
         forward_mode_differentiation=False,
         regularize_mass_matrix=True,
+        final_window_size=50,
     ):
         super(NUTS, self).__init__(
             potential_fn=potential_fn,
@@ -1070,6 +1091,7 @@ class NUTS(HMC):
             find_heuristic_step_size=find_heuristic_step_size,
             forward_mode_differentiation=forward_mode_differentiation,
             regularize_mass_matrix=regularize_mass_matrix,
+            final_window_size=final_window_size,
         )
         self._max_tree_depth = max_tree_depth
         self._algo = "NUTS"
