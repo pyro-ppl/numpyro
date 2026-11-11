@@ -74,6 +74,8 @@ def test_hpdi_invalid_prob():
         hpdi(x, prob=1.5)
     with pytest.raises(ValueError, match="prob"):
         hpdi(x, prob=-0.1)
+    with pytest.raises(ValueError, match="prob"):
+        summary(x, prob=1.5, group_by_chain=False)
 
 
 def test_autocorrelation():
