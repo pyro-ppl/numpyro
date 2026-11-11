@@ -1412,3 +1412,62 @@ def test_empty_summary():
     mcmc.run(random.key(0))
 
     mcmc.print_summary()
+
+
+@pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
+@pytest.mark.parametrize("adapt_mass_matrix", [False, True])
+@pytest.mark.parametrize("final_window_size", [50, 100])
+def test_final_warmup_window(kernel_cls, adapt_mass_matrix, final_window_size):
+    def potential_fn(z):
+        return 0.5 * jnp.sum(z**2)
+
+    kernel = kernel_cls(
+        potential_fn=potential_fn,
+        final_window_size=final_window_size,
+        adapt_mass_matrix=adapt_mass_matrix,
+    )
+    num_warmup = 100 + final_window_size
+    state = kernel.init(random.key(0), num_warmup, init_params=jnp.ones(2))
+    step = jit(lambda state: kernel.sample(state, (), {}))
+    state = lax.fori_loop(0, num_warmup, lambda _, state: step(state), state)
+    # Dual averaging restarts after the last slow window. Its counter then
+    # measures exactly the configured final step-size-only window.
+    assert state.adapt_state.ss_state[3] == final_window_size
+    assert state.adapt_state.window_idx == 3
+    assert jnp.isfinite(state.adapt_state.step_size)
+    assert jnp.all(jnp.isfinite(state.z))
+    next_state = step(state)
+    assert_allclose(next_state.adapt_state.step_size, state.adapt_state.step_size)
+    assert_allclose(
+        next_state.adapt_state.inverse_mass_matrix,
+        state.adapt_state.inverse_mass_matrix,
+    )
+
+
+@pytest.mark.parametrize("algo", ["HMC", "NUTS"])
+def test_functional_hmc_final_warmup_window(algo):
+    init, sample = hmc(lambda z: 0.5 * jnp.sum(z**2), algo=algo)
+    state = init(
+        jnp.ones(2), num_warmup=200, final_window_size=100, rng_key=random.key(0)
+    )
+    state = lax.fori_loop(0, 200, lambda _, state: sample(state), state)
+    assert state.adapt_state.ss_state[3] == 100
+
+
+@pytest.mark.parametrize("kernel_cls", [HMC, NUTS])
+@pytest.mark.parametrize("chain_method", ["sequential", "vectorized"])
+def test_model_final_warmup_window(kernel_cls, chain_method):
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    mcmc = MCMC(
+        kernel_cls(model, final_window_size=100),
+        num_warmup=200,
+        num_samples=10,
+        num_chains=2,
+        chain_method=chain_method,
+        progress_bar=False,
+    )
+    mcmc.run(random.key(0))
+    assert mcmc.get_samples(group_by_chain=True)["x"].shape == (2, 10)
+    assert_allclose(mcmc.last_state.adapt_state.ss_state[3], np.full(2, 100))
