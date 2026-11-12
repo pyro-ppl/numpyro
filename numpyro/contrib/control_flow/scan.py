@@ -4,6 +4,7 @@
 from collections import OrderedDict
 from functools import partial
 from typing import Callable, Optional
+import warnings
 
 import jax
 from jax import lax, random
@@ -13,7 +14,7 @@ from numpyro import handlers
 from numpyro.distributions.batch_util import promote_batch_shape
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 def _replay_wrapper(replay_trace, trace, i, length):
@@ -124,7 +125,6 @@ def scan_enum(
     init,
     xs,
     length,
-    reverse,
     rng_key=None,
     substitute_stack=None,
     history=1,
@@ -143,12 +143,8 @@ def scan_enum(
     # amount number of steps to unroll
     history = min(history, length)
     unroll_steps = min(2 * history - 1, length)
-    if reverse:
-        x0 = jax.tree.map(lambda x: x[-unroll_steps:][::-1], xs)
-        xs_ = jax.tree.map(lambda x: x[:-unroll_steps], xs)
-    else:
-        x0 = jax.tree.map(lambda x: x[:unroll_steps], xs)
-        xs_ = jax.tree.map(lambda x: x[unroll_steps:], xs)
+    x0 = jax.tree.map(lambda x: x[:unroll_steps], xs)
+    xs_ = jax.tree.map(lambda x: x[unroll_steps:], xs)
 
     carry_shapes = []
 
@@ -234,7 +230,7 @@ def scan_enum(
                 if length == unroll_steps:
                     return wrapped_carry, (PytreeTrace({}), y0s)
                 wrapped_carry, (pytree_trace, ys) = lax.scan(
-                    body_fn, wrapped_carry, xs_, length - unroll_steps, reverse
+                    body_fn, wrapped_carry, xs_, length - unroll_steps
                 )
 
     first_var = None
@@ -295,18 +291,28 @@ def scan_wrapper(
     if substitute_stack is None:
         substitute_stack = []
 
+    # With `reverse=True` we run a forward scan over the flipped `xs`, so that every
+    # stacked site (and every substituted or replayed series) is indexed by iteration
+    # step, i.e. step `i` handles position `length - 1 - i` of `xs`. Only `ys` is
+    # flipped back to position order, as `jax.lax.scan(reverse=True)` returns it.
+    if reverse:
+        xs = jax.tree.map(lambda x: x[::-1], xs)
+
+    def flip_ys(ys):
+        return jax.tree.map(lambda y: y[::-1], ys) if reverse else ys
+
     if enum and history > 0:
-        return scan_enum(  # TODO: replay for enum
+        last_carry, (pytree_trace, ys) = scan_enum(  # TODO: replay for enum
             f,
             init,
             xs,
             length,
-            reverse,
             rng_key,
             substitute_stack,
             history,
             first_available_dim,
         )
+        return last_carry, (pytree_trace, flip_ys(ys))
 
     def body_fn(wrapped_carry, x):
         i, rng_key, carry = wrapped_carry
@@ -336,16 +342,14 @@ def scan_wrapper(
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
     wrapped_carry = (jnp.asarray(0), rng_key, init)
-    last_carry, (pytree_trace, ys) = lax.scan(
-        body_fn, wrapped_carry, xs, length=length, reverse=reverse
-    )
+    last_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs, length=length)
     for name, site in pytree_trace.trace.items():
         if site["type"] != "sample":
             continue
         site["fn"] = promote_batch_shape(site["fn"])
         # we haven't promote shapes of values yet during `lax.scan`, so we do it here
         site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
-    return last_carry, (pytree_trace, ys)
+    return last_carry, (pytree_trace, flip_ys(ys))
 
 
 def scan(
@@ -452,7 +456,15 @@ def scan(
     :param int | None length: optional value specifying the length of `xs`
         but can be used when `xs` is an empty pytree (e.g. None)
     :param bool reverse: optional boolean specifying whether to run the scan iteration
-        forward (the default) or in reverse
+        forward (the default) or in reverse. With `reverse=True`, the scan starts from
+        the last item of `xs`, and sites recorded in a :class:`~numpyro.handlers.trace`
+        (as well as values passed to :class:`~numpyro.handlers.substitute`,
+        :class:`~numpyro.handlers.condition` or :class:`~numpyro.handlers.replay`)
+        are stacked in iteration order: the first entry belongs to the first
+        iteration, i.e. to the last item of `xs`. The returned `ys` follow
+        :func:`jax.lax.scan` and are stacked by position in `xs`. If a series
+        shorter than the scan is substituted (e.g. for forecasting), it is used for
+        the first iterations and new values are generated for the remaining ones.
     :param int history: The number of previous contexts visible from the current context.
         Defaults to 1. If zero, this is similar to :class:`numpyro.plate`.
     :return: output of scan, quoted from :func:`jax.lax.scan` docs:
@@ -460,6 +472,15 @@ def scan(
         carry value and the second element represents the stacked outputs of the
         second output of f when scanned over the leading axis of the inputs".
     """
+    if reverse:
+        warnings.warn(
+            "scan(reverse=True) stacks the scanned sites of a trace, and the values"
+            " used by substitute, condition and replay, in iteration order: the first"
+            " entry belongs to the last item of `xs`. Earlier NumPyro versions stacked"
+            " them by position in `xs`.",
+            UserWarning,
+            stacklevel=find_stack_level(),
+        )
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
         (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
