@@ -39,10 +39,6 @@ from numpyro.util import (
 if sys.version_info >= (3, 14):
     from annotationlib import Format
 
-    _SIGNATURE_KWARGS = {"annotation_format": Format.FORWARDREF}
-else:
-    _SIGNATURE_KWARGS = {}
-
 
 __all__ = [
     "find_valid_initial_params",
@@ -396,7 +392,12 @@ def _normalize_init_strategy(init_strategy):
     if isinstance(init_strategy, partial):
         return init_strategy
     try:
-        signature = inspect.signature(init_strategy, **_SIGNATURE_KWARGS)
+        if sys.version_info >= (3, 14):
+            signature = inspect.signature(
+                init_strategy, annotation_format=Format.FORWARDREF
+            )
+        else:
+            signature = inspect.signature(init_strategy)
     except (TypeError, ValueError):
         return _call_init_strategy_factory(init_strategy)
 
