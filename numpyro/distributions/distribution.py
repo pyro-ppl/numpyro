@@ -56,6 +56,7 @@ from jax.typing import ArrayLike
 
 from numpyro.distributions.transforms import AbsTransform, ComposeTransform, Transform
 from numpyro.distributions.util import (
+    _cdf_within_support,
     lazy_property,
     promote_shapes,
     sum_rightmost,
@@ -1501,12 +1502,20 @@ class TransformedDistribution(Distribution):
         raise NotImplementedError
 
     def cdf(self, value: ArrayLike) -> Array:
-        sign: Any = 1
-        for transform in reversed(self.transforms):
-            sign = sign * transform.sign
-            value = transform.inv(value)
-        q = self.base_dist.cdf(value)
-        return jnp.where(sign < 0, 1 - q, q)
+        def _cdf(value: ArrayLike) -> Array:
+            sign: Any = 1
+            for transform in reversed(self.transforms):
+                sign = sign * transform.sign
+                value = transform.inv(value)
+            q = self.base_dist.cdf(value)
+            return jnp.where(sign < 0, 1 - q, q)
+
+        if not hasattr(self.support, "lower_bound"):
+            return _cdf(value)
+        # The support is that of the transformed variable, so the cdf is 0 below it
+        # and 1 above it whichever direction the transforms run. The lower bound is
+        # excluded because inverse transforms such as log diverge there.
+        return _cdf_within_support(_cdf, value, self.support, include_low=False)
 
     def icdf(self, q: ArrayLike) -> Array:
         sign: Any = 1

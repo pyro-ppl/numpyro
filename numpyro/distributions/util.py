@@ -6,7 +6,7 @@ from collections import namedtuple
 import functools as ft
 from functools import partial, update_wrapper
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable, Optional
 import warnings
 
 import numpy as np
@@ -20,6 +20,9 @@ from jax.scipy.special import digamma
 from jax.typing import ArrayLike
 
 from numpyro.util import not_jax_tracer
+
+if TYPE_CHECKING:
+    from numpyro.distributions.constraints import Constraint
 
 
 def array_equiv(a: ArrayLike, b: ArrayLike, static: bool = False):
@@ -559,6 +562,46 @@ def logdiffexp(a: ArrayLike, b: ArrayLike) -> Array:
 def clamp_probs(probs: ArrayLike) -> Array:
     finfo = jnp.finfo(jnp.result_type(probs, float))
     return jnp.clip(probs, finfo.tiny, 1.0 - finfo.eps)
+
+
+def _cdf_within_support(
+    cdf_fn: Callable[[ArrayLike], ArrayLike],
+    value: ArrayLike,
+    support: "Constraint",
+    include_low: bool = True,
+    safe_value: Optional[ArrayLike] = None,
+) -> Array:
+    """
+    Evaluate ``cdf_fn`` on the support and return 0 below and 1 above it.
+
+    Values outside the support are replaced by a point strictly inside it before
+    ``cdf_fn`` is called, so that out-of-support evaluations cannot leak NaNs into
+    the result or its gradients.
+
+    :param cdf_fn: Cumulative distribution function, valid on the support.
+    :param value: Value to evaluate.
+    :param support: Support of the distribution, a constraint with a ``lower_bound``
+        and, if it is bounded above, an ``upper_bound``.
+    :param include_low: Whether ``cdf_fn`` is evaluated at the lower bound. Set to
+        ``False`` if its gradients are not finite there.
+    :param safe_value: Point strictly inside the support that replaces values outside
+        it. Defaults to ``lower_bound + 1`` if the support is unbounded above and to
+        its midpoint otherwise. Pass a point at the scale of the parameters if the
+        default can overflow ``cdf_fn`` or its gradients, or round onto the bound.
+    :return: The cumulative distribution function evaluated at ``value``.
+    """
+    # Expects a support with a lower_bound and, optionally, an upper_bound.
+    low = getattr(support, "lower_bound")
+    high = getattr(support, "upper_bound", None)
+    below = jnp.less(value, low) if include_low else jnp.less_equal(value, low)
+    above = False if high is None else jnp.greater(value, high)
+    if safe_value is None:
+        # Strictly interior points, matching feasible_like of greater_than and interval.
+        safe_value = low + 1 if high is None else (low + high) / 2
+    # The substitute only picks where cdf_fn is evaluated, so it carries no gradient.
+    safe_value = lax.stop_gradient(safe_value)
+    cdf = cdf_fn(jnp.where(below | above, safe_value, value))
+    return jnp.where(below, 0.0, jnp.where(above, 1.0, cdf))
 
 
 def betainc(a, b, x):
