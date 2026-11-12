@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
 import inspect
+import sys
 from typing import Callable, NamedTuple, Optional
 import warnings
 
@@ -34,6 +35,14 @@ from numpyro.util import (
     soft_vmap,
     while_loop,
 )
+
+if sys.version_info >= (3, 14):
+    from annotationlib import Format
+
+    _SIGNATURE_KWARGS = {"annotation_format": Format.FORWARDREF}
+else:
+    _SIGNATURE_KWARGS = {}
+
 
 __all__ = [
     "find_valid_initial_params",
@@ -387,7 +396,7 @@ def _normalize_init_strategy(init_strategy):
     if isinstance(init_strategy, partial):
         return init_strategy
     try:
-        signature = inspect.signature(init_strategy)
+        signature = inspect.signature(init_strategy, **_SIGNATURE_KWARGS)
     except (TypeError, ValueError):
         return _call_init_strategy_factory(init_strategy)
 
@@ -439,7 +448,9 @@ def find_valid_initial_params(
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param callable init_strategy: a per-site initialization function.
+    :param callable init_strategy: a per-site initialization function requiring a
+        positional ``site`` argument, or a factory returning one. A callable accepting
+        zero arguments (e.g. ``site=None`` or ``*args``) is treated as a factory.
     :param bool enum: whether to enumerate over discrete latent sites.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
@@ -799,7 +810,9 @@ def initialize_model(
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param callable init_strategy: a per-site initialization function.
+    :param callable init_strategy: a per-site initialization function requiring a
+        positional ``site`` argument, or a factory returning one. A callable accepting
+        zero arguments (e.g. ``site=None`` or ``*args``) is treated as a factory.
         See :ref:`init_strategy` section for available functions.
     :param bool dynamic_args: if `True`, the `potential_fn` and
         `constraints_fn` are themselves dependent on model arguments.

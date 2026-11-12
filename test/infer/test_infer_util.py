@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import sys
+import typing
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -805,3 +807,23 @@ def test_init_strategy_body_type_error():
     with pytest.raises(TypeError, match="^initialization body error$"):
         initialize_model(random.key(0), model, init_strategy=strategy)
     assert calls == ["x"]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 14), reason="PEP 649 lazy annotations")
+@pytest.mark.parametrize("initializer", [find_valid_initial_params, initialize_model])
+@pytest.mark.parametrize("kind", ["factory", "per_site"])
+def test_init_strategy_unresolved_annotation(initializer, kind):
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    def factory(site: UndefinedSite = None):  # noqa: F821
+        if site is None:
+            return partial(factory)
+        return 0.0
+
+    def per_site(site: typing.Nope):
+        return 0.0
+
+    strategy = factory if kind == "factory" else per_site
+    info = initializer(random.key(0), model, init_strategy=strategy)[0]
+    assert_allclose(info[0]["x"], 0.0)
