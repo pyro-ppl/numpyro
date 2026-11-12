@@ -290,6 +290,19 @@ def test_scan_mvn():
     assert tr["val"]["fn"].batch_shape == (4, 5)
 
 
+def test_scan_reverse_warns():
+    def model():
+        def transition(carry, _):
+            z = numpyro.sample("z", dist.Normal(carry, 1.0))
+            return z, z
+
+        return scan(transition, 0.0, None, length=3, reverse=True)
+
+    with pytest.warns(UserWarning, match="iteration order"):
+        trace(seed(model, 0)).get_trace()
+
+
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
 @pytest.mark.parametrize("reverse", [False, True])
 def test_scan_reverse_substitute(reverse):
     y = jnp.arange(5.0)
@@ -333,6 +346,7 @@ def test_scan_reverse_substitute(reverse):
     assert_allclose(actual, expected, rtol=1e-6)
 
 
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
 @pytest.mark.parametrize("reverse", [False, True])
 def test_scan_reverse_potential_energy(reverse):
     y = jnp.arange(5.0)
@@ -357,6 +371,7 @@ def test_scan_reverse_potential_energy(reverse):
     assert_allclose(actual, expected, rtol=1e-5)
 
 
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
 @pytest.mark.parametrize("reverse", [False, True])
 def test_scan_reverse_elbo(reverse):
     y = jnp.array([0.3, -1.2, 2.0, 0.5, 1.1, -0.4])

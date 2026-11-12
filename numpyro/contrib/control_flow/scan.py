@@ -4,6 +4,7 @@
 from collections import OrderedDict
 from functools import partial
 from typing import Callable, Optional
+import warnings
 
 import jax
 from jax import lax, random
@@ -13,7 +14,7 @@ from numpyro import handlers
 from numpyro.distributions.batch_util import promote_batch_shape
 from numpyro.ops.pytree import PytreeTrace
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
-from numpyro.util import not_jax_tracer
+from numpyro.util import find_stack_level, not_jax_tracer
 
 
 def _replay_wrapper(replay_trace, trace, i, length):
@@ -471,6 +472,15 @@ def scan(
         carry value and the second element represents the stacked outputs of the
         second output of f when scanned over the leading axis of the inputs".
     """
+    if reverse:
+        warnings.warn(
+            "scan(reverse=True) stacks the scanned sites of a trace, and the values"
+            " used by substitute, condition and replay, in iteration order: the first"
+            " entry belongs to the last item of `xs`. Earlier NumPyro versions stacked"
+            " them by position in `xs`.",
+            UserWarning,
+            stacklevel=find_stack_level(),
+        )
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
         (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(

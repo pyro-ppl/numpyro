@@ -228,6 +228,7 @@ def test_nested_plate():
                 assert x.shape == (2, 5)
 
 
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("history", [1, 2])
 def test_scan_enum_reverse_substitute(reverse, history):
@@ -262,6 +263,7 @@ def test_scan_enum_reverse_substitute(reverse, history):
     assert_allclose(pe, -expected, rtol=1e-5)
 
 
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("history", [1, 2])
 def test_scan_enum_reverse_markov_chain(reverse, history):
