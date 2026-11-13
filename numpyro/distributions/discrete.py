@@ -1853,6 +1853,32 @@ class Poisson(Distribution):
         return jnp.where(value < 0, 0.0, jnp.where(jnp.isposinf(value), 1.0, cdf))
 
 
+@jax.custom_jvp
+def _zero_inflated_zero_log_prob(gate: Array, log_prob: Array) -> Array:
+    return jnp.logaddexp(jnp.log(gate), jnp.log1p(-gate) + log_prob)
+
+
+# Differentiate the mixture rather than the endpoint logarithms. This keeps
+# d/dgate = (1 - exp(log_prob)) / exp(result) at gate=0 and gate=1.
+@_zero_inflated_zero_log_prob.defjvp
+def _zero_inflated_zero_log_prob_jvp(
+    primals: tuple[Array, Array],
+    tangents: tuple[Array, Array],
+) -> tuple[Array, Array]:
+    gate, log_prob = primals
+    gate_tangent, log_prob_tangent = tangents
+    result = _zero_inflated_zero_log_prob(gate, log_prob)
+    # Cap the inverse mass so materialized zero tangents cannot produce 0 * inf.
+    # Mask before exp as well, to avoid NaNs when differentiating this rule.
+    maximum = jnp.finfo(result.dtype).max
+    overflow = -result >= jnp.log(maximum)
+    safe_result = jnp.where(overflow, 0.0, result)
+    inv_total = jnp.where(overflow, maximum, jnp.exp(-safe_result))
+    tangent = -gate_tangent * jnp.expm1(log_prob) * inv_total
+    tangent += log_prob_tangent * (1 - gate) * jnp.exp(log_prob - result)
+    return result, tangent
+
+
 class ZeroInflatedProbs(Distribution):
     r"""
     A generic zero-inflated distribution built from a discrete base distribution.
@@ -1927,8 +1953,15 @@ class ZeroInflatedProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
-        log_prob = jnp.log1p(-self.gate) + self.base_dist.log_prob(value)
-        return jnp.where(value == 0, jnp.log(self.gate + jnp.exp(log_prob)), log_prob)
+        base_log_prob = self.base_dist.log_prob(value)
+        # Mask inputs of both branches: an unused endpoint log or overflowing
+        # gate derivative must not contaminate the selected branch's gradient.
+        log_prob = jnp.log1p(-jnp.where(value == 0, 0.0, self.gate)) + base_log_prob
+        zero_log_prob = _zero_inflated_zero_log_prob(
+            jnp.where(value == 0, self.gate, 0.5),
+            jnp.where(value == 0, base_log_prob, 0.0),
+        )
+        return jnp.where(value == 0, zero_log_prob, log_prob)
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self) -> constraints.Constraint:
