@@ -31,6 +31,11 @@ def vindex(tensor, args):
         event_shape = (x.size(1),)
         assert xij.shape == batch_shape + event_shape
 
+    Under enumeration, supply all indices in a single operation:
+    ``Vindex(x)[i, j]``, not ``Vindex(x)[i][j]``. The first call returns an
+    ordinary array that still carries the enumeration dimension, so a second
+    index applies to that dimension rather than to the one intended.
+
     To handle the case when ``x`` may also contain batch dimensions (e.g. if
     ``x`` was sampled in a plated context as when using vectorized particles),
     :func:`vindex` uses the special convention that ``Ellipsis`` denotes batch
