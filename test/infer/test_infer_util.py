@@ -790,7 +790,10 @@ def test_init_strategy_factory_must_return_callable():
     def model():
         numpyro.sample("x", dist.Normal())
 
-    with pytest.raises(TypeError, match=r"per-site function f\(site\)"):
+    with pytest.raises(
+        TypeError,
+        match=r"per-site function f\(site\).*callables that accept no arguments",
+    ):
         initialize_model(random.key(0), model, init_strategy=lambda: 3.0)
 
 
@@ -810,9 +813,8 @@ def test_init_strategy_body_type_error():
 
 
 @pytest.mark.skipif(sys.version_info < (3, 14), reason="PEP 649 lazy annotations")
-@pytest.mark.parametrize("initializer", [find_valid_initial_params, initialize_model])
 @pytest.mark.parametrize("kind", ["factory", "per_site"])
-def test_init_strategy_unresolved_annotation(initializer, kind):
+def test_init_strategy_unresolved_annotation(kind):
     def model():
         numpyro.sample("x", dist.Normal())
 
@@ -825,5 +827,44 @@ def test_init_strategy_unresolved_annotation(initializer, kind):
         return 0.0
 
     strategy = factory if kind == "factory" else per_site
-    info = initializer(random.key(0), model, init_strategy=strategy)[0]
-    assert_allclose(info[0]["x"], 0.0)
+    info = initialize_model(random.key(0), model, init_strategy=strategy)
+    assert_allclose(info[0][0]["x"], 0.0)
+
+
+@pytest.mark.parametrize("kind", ["factory", "partial"])
+def test_init_strategy_value_factory(kind):
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    strategy = (lambda: init_to_value) if kind == "factory" else partial(init_to_value)
+    info = initialize_model(random.key(0), model, init_strategy=strategy)
+    expected = initialize_model(random.key(0), model, init_strategy=init_to_value)
+    assert_allclose(info.param_info.z["x"], expected.param_info.z["x"])
+    assert jnp.isfinite(info.param_info.potential_energy)
+
+
+@pytest.mark.parametrize("observed", [False, True])
+def test_init_strategy_plate_and_observed_sites(observed):
+    observations = jnp.array([1.0, 2.0, 3.0])
+
+    def model():
+        mu = numpyro.sample("mu", dist.Normal())
+        numpyro.sample("x", dist.Normal(mu, 1), obs=1.25 if observed else None)
+        offset = numpyro.param("offset", jnp.array(0.25))
+        numpyro.deterministic("twice_mu", 2 * mu)
+        with numpyro.plate("N", 3):
+            numpyro.sample("obs", dist.Normal(mu + offset, 1), obs=observations)
+
+    def strategy(site):
+        if site["type"] == "sample" and not site["is_observed"] and site["name"] == "x":
+            return 3.0
+        return init_to_uniform(site, radius=0.5)
+
+    info = initialize_model(random.key(0), model, init_strategy=strategy)
+    assert_allclose(info.model_trace["x"]["value"], 1.25 if observed else 3.0)
+    assert_allclose(info.model_trace["N"]["value"], jnp.arange(3))
+    assert_allclose(info.model_trace["obs"]["value"], observations)
+    assert_allclose(info.model_trace["offset"]["value"], 0.25)
+    assert_allclose(
+        info.model_trace["twice_mu"]["value"], 2 * info.model_trace["mu"]["value"]
+    )

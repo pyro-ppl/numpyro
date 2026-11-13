@@ -421,7 +421,8 @@ def _call_init_strategy_factory(factory):
         return partial(strategy)
     raise TypeError(
         "Initialization strategy factory must return a per-site function f(site); "
-        f"got {type(strategy).__name__}."
+        f"got {type(strategy).__name__} "
+        "(callables that accept no arguments are treated as factories)."
     )
 
 
@@ -449,9 +450,8 @@ def find_valid_initial_params(
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param callable init_strategy: a per-site initialization function requiring a
-        positional ``site`` argument, or a factory returning one. A callable accepting
-        zero arguments (e.g. ``site=None`` or ``*args``) is treated as a factory.
+    :param callable init_strategy: an initialization strategy. See :ref:`init_strategy`
+        for the callable contract and available functions.
     :param bool enum: whether to enumerate over discrete latent sites.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
@@ -811,10 +811,8 @@ def initialize_model(
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param callable init_strategy: a per-site initialization function requiring a
-        positional ``site`` argument, or a factory returning one. A callable accepting
-        zero arguments (e.g. ``site=None`` or ``*args``) is treated as a factory.
-        See :ref:`init_strategy` section for available functions.
+    :param callable init_strategy: an initialization strategy. See :ref:`init_strategy`
+        for the callable contract and available functions.
     :param bool dynamic_args: if `True`, the `potential_fn` and
         `constraints_fn` are themselves dependent on model arguments.
         When provided a `*model_args, **model_kwargs`, they return
@@ -884,7 +882,7 @@ def initialize_model(
     )
 
     if (init_strategy.func is init_to_value) and not replay_model:
-        init_values = init_strategy.keywords.get("values")
+        init_values = init_strategy.keywords.get("values", {})
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
         init_strategy = _init_to_unconstrained_value(values=unconstrained_values)
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)

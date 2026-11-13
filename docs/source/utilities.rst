@@ -81,6 +81,35 @@ find_valid_initial_params
 Initialization Strategies
 -------------------------
 
+Initialization strategies can be supplied as callables:
+
+- A per-site function ``f(site)`` receives ``site`` positionally. It is called for
+  every site handled by :class:`~numpyro.handlers.substitute`: ``sample``
+  (including observed samples), ``plate``, ``param``, ``deterministic`` and
+  ``mutable`` sites. Any return value other than ``None`` replaces that site's
+  value; return ``None`` to leave it unchanged. Built-in strategies initialize
+  unobserved sample sites and return ``None`` for other sites. For example,
+  customize an unobserved sample and delegate all other sites to a built-in:
+
+  .. code-block:: python
+
+      from numpyro.infer import init_to_uniform
+
+      def my_init(site):
+          if (
+              site["type"] == "sample"
+              and not site["is_observed"]
+              and site["name"] == "x"
+          ):
+              return 3.0
+          return init_to_uniform(site, radius=0.5)
+
+- A callable accepting no arguments (for example, ``init_to_uniform`` or
+  ``f(site=None, ...)``) is treated as a factory and must return a per-site
+  function. This also applies to callables accepting ``*args``.
+- :class:`functools.partial` objects are always used as per-site functions,
+  even if they can be called without arguments.
+
 init_to_feasible
 ^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.initialization.init_to_feasible
