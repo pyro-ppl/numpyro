@@ -1412,3 +1412,46 @@ def test_empty_summary():
     mcmc.run(random.key(0))
 
     mcmc.print_summary()
+
+
+@jax.tree_util.register_pytree_node_class
+class _ArrayBox:
+    """A pytree whose ``__eq__`` only works on arrays, like a unit-carrying Quantity."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def tree_flatten(self):
+        return (self.value,), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
+
+    def __eq__(self, other):
+        return jnp.all(jnp.asarray(self.value) == jnp.asarray(other.value))
+
+    def __hash__(self):
+        return hash(type(self))
+
+
+@pytest.mark.parametrize("num_chains", [1, 2])
+def test_run_twice_with_pytree_arg(num_chains):
+    def model(box):
+        m = numpyro.sample("m", dist.Normal(0.0, 1.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=box.value)
+
+    box = _ArrayBox(jnp.ones(5))
+    mcmc = MCMC(
+        NUTS(model),
+        num_warmup=10,
+        num_samples=10,
+        num_chains=num_chains,
+        chain_method="sequential",
+        progress_bar=False,
+    )
+    mcmc.run(random.PRNGKey(0), box)
+    mcmc.run(random.PRNGKey(1), box)
+    assert mcmc.get_samples()["m"].shape == (10 * num_chains,)
+    # the second run reuses the compiled sample function
+    assert len(mcmc._cache) == 1

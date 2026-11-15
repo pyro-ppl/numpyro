@@ -285,6 +285,22 @@ def _hashable(x):
     return x
 
 
+def _hashable_tree(tree):
+    # Key on the tree structure and the hashable leaves. Mapping `_hashable` over
+    # the tree with `jax.tree.map` would rebuild user pytree nodes around the
+    # leaf ids, and comparing those keys calls the nodes' own `__eq__`.
+    leaves, treedef = jax.tree.flatten(tree)
+    return treedef, tuple(_hashable(leaf) for leaf in leaves)
+
+
+def _init_state_key(rng_key, args, kwargs):
+    return (
+        _hashable(rng_key),
+        _hashable_tree(args),
+        _hashable_tree(tuple(sorted(kwargs.items()))),
+    )
+
+
 class MCMC(object):
     """
     Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
@@ -465,10 +481,8 @@ class MCMC(object):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
-            args = jax.tree.map(lambda x: _hashable(x), self._args)
-            kwargs = jax.tree.map(
-                lambda x: _hashable(x), tuple(sorted(self._kwargs.items()))
-            )
+            args = (_hashable_tree(self._args),)
+            kwargs = (_hashable_tree(tuple(sorted(self._kwargs.items()))),)
         key = args + kwargs
         try:
             fns = self._cache.get(key, None)
@@ -522,10 +536,7 @@ class MCMC(object):
         return fns
 
     def _get_cached_init_state(self, rng_key, args, kwargs):
-        rng_key = (_hashable(rng_key),)
-        args = jax.tree.map(lambda x: _hashable(x), args)
-        kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
-        key = rng_key + args + kwargs
+        key = _init_state_key(rng_key, args, kwargs)
         try:
             return self._init_state_cache.get(key, None)
         # If unhashable arguments are provided, return None
@@ -604,10 +615,7 @@ class MCMC(object):
         self.run(
             rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs
         )
-        rng_key = (_hashable(rng_key),)
-        args = jax.tree.map(lambda x: _hashable(x), args)
-        kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
-        key = rng_key + args + kwargs
+        key = _init_state_key(rng_key, args, kwargs)
         try:
             if not _is_under_jax_transform():
                 self._init_state_cache[key] = self._last_state
