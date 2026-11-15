@@ -25,6 +25,7 @@ from numpyro.distributions.util import (
     log1mexp,
     logdiffexp,
     multinomial,
+    promote_shapes,
     safe_normalize,
     vec_to_tril_matrix,
     von_mises_centered,
@@ -445,3 +446,28 @@ def test_no_tracer_leak_at_lazy_property_sample(my_dist):
     jit_sample = jax.jit(my_dist.sample)
     with jax.check_tracer_leaks():
         jit_sample(jax.random.key(5))
+
+
+class _ArrayLike:
+    """A minimal array-like type that is not a JAX array, e.g. a unit-carrying Quantity."""
+
+    def __init__(self, value):
+        self.value = jnp.asarray(value)
+
+    @property
+    def shape(self):
+        return self.value.shape
+
+    @property
+    def ndim(self):
+        return self.value.ndim
+
+    def reshape(self, shape):
+        return _ArrayLike(self.value.reshape(shape))
+
+
+def test_promote_shapes_array_like():
+    x, y = promote_shapes(_ArrayLike(jnp.ones(3)), _ArrayLike(2.0))
+    assert isinstance(y, _ArrayLike)
+    assert y.shape == (1,)
+    assert x.shape == (3,)
