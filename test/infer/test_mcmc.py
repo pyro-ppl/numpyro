@@ -1058,7 +1058,7 @@ def test_get_proposal_loc_and_scale(dense_mass):
     expected_loc = jnp.stack(expected_loc)
     expected_scale = jnp.stack(expected_scale)
     assert_allclose(actual_loc, expected_loc, rtol=1e-4)
-    assert_allclose(actual_scale, expected_scale, atol=1e-6, rtol=0.3)
+    assert_allclose(actual_scale, expected_scale, atol=1e-5, rtol=1e-4)
 
 
 @pytest.mark.parametrize("shape", [(4,), (3, 2)])
@@ -1312,6 +1312,25 @@ def test_fixed_num_steps():
     mcmc.run(rng_key, data, extra_fields=("num_steps",))
     num_steps_list = np.array(mcmc.get_extra_fields()["num_steps"])
     assert all(step == 5 for step in num_steps_list)
+
+
+def test_short_trajectory_length():
+    # The step size is adapted beyond the trajectory length here, which must not
+    # leave HMC with zero leapfrog steps (a chain that never moves).
+    def model():
+        numpyro.sample("x", dist.Normal(0.0, 1.0))
+
+    mcmc = MCMC(
+        HMC(model, trajectory_length=1.0),
+        num_warmup=500,
+        num_samples=1000,
+        progress_bar=False,
+    )
+    mcmc.run(random.key(0), extra_fields=("num_steps",))
+    assert (mcmc.get_extra_fields()["num_steps"] >= 1).all()
+    samples = mcmc.get_samples()["x"]
+    assert_allclose(jnp.mean(samples), 0.0, atol=0.15)
+    assert_allclose(jnp.std(samples), 1.0, atol=0.15)
 
 
 @pytest.mark.parametrize("num_steps", [None, 10])

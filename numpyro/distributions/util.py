@@ -354,6 +354,21 @@ def _reshape(x, shape):
         return jnp.reshape(x, shape)
 
 
+def promote_to_inexact(value: ArrayLike) -> ArrayLike:
+    """Promote integer and boolean parameters, preserving inexact inputs."""
+    if isinstance(value, int):
+        return float(value)
+    with jax.ensure_compile_time_eval():
+        if isinstance(value, (list, tuple)):
+            value = jnp.asarray(value)
+        if jnp.issubdtype(jnp.result_type(value), jnp.inexact):
+            return value
+        dtype = jnp.result_type(value, float)
+        if isinstance(value, (np.ndarray, np.generic)):
+            return np.asarray(value, dtype=dtype)
+        return jnp.asarray(value).astype(dtype)
+
+
 def promote_shapes(*args, shape=(), return_shapes: bool = False):
     """
     Promote the shapes of arrays so they have the same number of dimensions and are
@@ -434,7 +449,7 @@ def cholesky_update(L, x, coef=1):
         wj = w[..., j]
         gamma = b * Dj + coef * jnp.square(wj)
         Dj_new = gamma / b
-        b = gamma / Dj_new
+        b = gamma / Dj
 
         # update vectors w and L_j
         w = w - wj[..., None] * L_j

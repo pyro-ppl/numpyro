@@ -556,7 +556,7 @@ class RenyiELBO(ELBO):
             indep_plates = set.intersection(*site_plates.values())
         else:
             indep_plates = set()
-        for frame in set.union(*site_plates.values()):
+        for frame in set().union(*site_plates.values()):
             if frame not in indep_plates:
                 subsample_size = frame.size
                 size = model_trace[frame.name]["args"][0]

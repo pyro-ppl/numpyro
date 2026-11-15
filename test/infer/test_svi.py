@@ -102,6 +102,17 @@ def test_renyi_nonnested_plates():
     assert elbo.shape == ()
 
 
+def test_renyi_no_sample_sites():
+    def model():
+        pass
+
+    def guide():
+        pass
+
+    loss = RenyiELBO(num_particles=10).loss(random.key(0), {}, model, guide)
+    assert_allclose(loss, 0.0)
+
+
 @pytest.mark.parametrize(
     "n,k",
     [(3, 5), (2, 5), (3, 3), (2, 3)],

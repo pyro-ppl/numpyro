@@ -21,7 +21,11 @@ from numpyro.distributions.discrete import (
     ZeroInflatedDistribution,
 )
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import promote_shapes, validate_sample
+from numpyro.distributions.util import (
+    promote_shapes,
+    promote_to_inexact,
+    validate_sample,
+)
 from numpyro.util import is_prng_key
 
 
@@ -585,22 +589,32 @@ class GammaPoisson(Distribution):
 
     def cdf(self, value: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{GammaPoisson}(\alpha, \lambda)`, then the cumulative
-        distribution function is:
+        distribution function, for :math:`k = \lfloor x \rfloor \geq 0`, is:
 
         .. math::
-            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, x + 1)}
-            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{x} dt
+            F_{X}(x) = \frac{1}{\mathrm{B}(\alpha, k + 1)}
+            \int_{0}^{\frac{\lambda}{1 + \lambda}} t^{\alpha - 1} (1 - t)^{k} dt
 
-        which is the regularized incomplete beta function.
-        This implementation uses :func:`~jax.scipy.special.betainc`.
+        which is the regularized incomplete beta function. The CDF is zero for
+        :math:`x < 0` and one at :math:`x = \infty`.
+        This implementation uses :func:`~jax.scipy.special.betainc`, which does not
+        support gradients with respect to its first argument, so the CDF is not
+        differentiable with respect to ``concentration``.
         """
         rate_fraction = jnp.where(
             jnp.isinf(self.rate),
             jnp.ones_like(self.rate),
             self.rate / (self.rate + 1.0),
         )
-        bt = betainc(self.concentration, value + 1.0, rate_fraction)
-        return bt
+        value = jnp.floor(value)
+        is_negative = value < 0
+        is_inf = jnp.isposinf(value)
+        # betainc returns NaN for b close to the largest float, so clamp huge thresholds.
+        dtype = jnp.result_type(self.concentration, value, rate_fraction, float)
+        max_value = jnp.sqrt(jnp.finfo(dtype).max)
+        safe_value = jnp.where(is_negative | is_inf, 0.0, jnp.minimum(value, max_value))
+        bt = betainc(self.concentration, safe_value + 1.0, rate_fraction)
+        return jnp.where(is_negative, 0.0, jnp.where(is_inf, 1.0, bt))
 
 
 def NegativeBinomial(
@@ -716,6 +730,7 @@ class NegativeBinomialLogits(GammaPoisson):
         *,
         validate_args: Optional[bool] = None,
     ):
+        logits = promote_to_inexact(logits)
         self.total_count, self.logits = promote_shapes(total_count, logits)
         concentration = total_count
         rate = jnp.exp(jnp.negative(logits))

@@ -207,3 +207,59 @@ def test_softmax_logits(logits, expected):
     # batched along the event dimension
     batched = np.array([logits, [0.0, 1.0]])
     assert (constraints.softmax_logits(batched) == [expected, True]).all()
+
+
+@pytest.mark.parametrize(
+    "constraint, other, expected",
+    [
+        (constraints.positive, constraints.real, True),
+        (constraints.real, constraints.positive, False),
+        (constraints.unit_interval, constraints.positive, True),
+        (constraints.unit_interval, constraints.interval(0.0, 1.0), True),
+        (constraints.interval(-1.0, 1.0), constraints.positive, False),
+        (constraints.less_than(0.0), constraints.real, True),
+        (constraints.less_than(0.0), constraints.positive, False),
+        (constraints.nonnegative_integer, constraints.nonnegative, True),
+        (constraints.integer_interval(0, 3), constraints.greater_than(1), False),
+        (constraints.real_vector, constraints.real, True),
+        (constraints.real_vector, constraints.positive, False),
+        (constraints.positive, constraints.real_vector, True),
+        (
+            constraints.interval(np.array([0.0, -1.0]), 1.0),
+            constraints.positive,
+            False,
+        ),
+        (constraints.interval(np.array([0.0, 1.0]), 2.0), constraints.positive, True),
+        # unrelated constraints cannot be decided
+        (constraints.simplex, constraints.real_vector, None),
+        (constraints.real, constraints.simplex, None),
+        (constraints.corr_matrix, constraints.corr_matrix, True),
+        (constraints.simplex, constraints.unit_interval, None),
+        (constraints.real, constraints.extended_real, True),
+        # end points are ignored
+        (constraints.nonnegative, constraints.positive, True),
+        (constraints.interval(0.0, 1.0), constraints.open_interval(0.0, 1.0), True),
+        # a continuous constraint is never within a discrete one
+        (constraints.positive, constraints.nonnegative_integer, None),
+        (constraints.unit_interval, constraints.integer_interval(0, 1), None),
+    ],
+)
+def test_bounds_within(constraint, other, expected):
+    assert constraint._bounds_within(other) is expected
+
+
+def test_bounds_within_traced_bounds():
+    @jit
+    def bounds_within(lower):
+        return constraints.greater_than(lower)._bounds_within(constraints.positive)
+
+    assert bounds_within(1.0) is None
+
+    @jit
+    def bounds_within_strict(lower):
+        return constraints.greater_than(lower)._bounds_within(
+            constraints.positive, strict=True
+        )
+
+    with pytest.raises(RuntimeError, match="inside jitted code"):
+        bounds_within_strict(1.0)

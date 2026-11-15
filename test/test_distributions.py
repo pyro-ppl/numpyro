@@ -13,9 +13,9 @@ from typing import Callable, get_args, get_origin, get_type_hints
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 import pytest
-import scipy
 import scipy.integrate as osp_integrate
 from scipy.sparse import csr_matrix
+import scipy.special
 import scipy.stats as osp
 
 import jax
@@ -57,7 +57,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix,
 )
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.nn import AutoregressiveNN
 
 
@@ -109,10 +109,6 @@ def _mvn_to_scipy(loc, cov, prec, tril):
 
 
 def _multivariate_t_to_scipy(df, loc, tril):
-    if scipy.__version__ < "1.6.0":
-        pytest.skip(
-            "Multivariate Student-T distribution is not available in scipy < 1.6"
-        )
     jax_dist = dist.MultivariateStudentT(df, loc, tril)
     mean = jax_dist.mean
     cov = jax_dist.covariance_matrix
@@ -645,6 +641,13 @@ CONTINUOUS = [
         5,
         np.array([[0.8, 0.2], [-0.1, 1.1]]),
         np.array([0.1, 0.3, 0.25])[:, None, None] * np.array([[0.8, 0.2], [0.2, 0.7]]),
+    ),
+    T(
+        dist.GaussianStateSpace,
+        5,
+        np.array([[0.8, 0.2], [-0.1, 1.1]]),
+        np.array([[0.1, 0.3, 0.25], [0.5, 0.2, 0.4]])[..., None, None]
+        * np.array([[0.8, 0.2], [0.2, 0.7]]),
     ),
     T(
         dist.GaussianStateSpace,
@@ -2073,6 +2076,52 @@ def test_discrete_uniform_icdf(low, high):
 
 
 @pytest.mark.parametrize(
+    "probs",
+    [0.0, 0.3, 1.0, np.array([0.0, 0.2, 0.5, 0.9, 1.0])],
+    ids=["0.0", "0.3", "1.0", "batch"],
+)
+@pytest.mark.parametrize("parametrization", ["probs", "logits"])
+def test_bernoulli_cdf_icdf(parametrization, probs):
+    if parametrization == "probs":
+        d = dist.BernoulliProbs(probs)
+    else:
+        d = dist.BernoulliLogits(scipy.special.logit(probs))
+    sp_dist = osp.bernoulli(probs)
+    batch_dims = (1,) * np.ndim(probs)
+
+    x = np.array([-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]).reshape((-1,) + batch_dims)
+    assert_allclose(d.cdf(x), sp_dist.cdf(x), rtol=1e-5)
+    # levels away from the jump at P(X = 0)
+    quantiles = np.linspace(0.005, 0.995, 100).reshape((-1,) + batch_dims)
+    assert_array_equal(d.icdf(quantiles), sp_dist.ppf(quantiles))
+
+    # the level P(X = 0) itself is the largest one mapped to 0
+    prob_zero = np.asarray(d.cdf(0.0))
+    assert_array_equal(d.icdf(prob_zero), 0.0)
+    above = np.where(
+        prob_zero > 0, np.nextafter(prob_zero, 2), np.finfo(prob_zero.dtype).tiny
+    )
+    assert_array_equal(d.icdf(above), 1.0)
+
+    support = np.stack([np.zeros(np.shape(probs)), np.ones(np.shape(probs))])
+    pmf = np.stack([1 - np.asarray(probs), np.asarray(probs)])
+    roundtrip = d.icdf(d.cdf(support))
+    assert_array_equal(np.where(pmf > 0, roundtrip, support), support)
+
+    assert np.isnan(d.cdf(np.nan)).all()
+    assert np.isnan(d.icdf(np.nan)).all()
+
+
+@pytest.mark.parametrize("logits", [20.0, 30.0, 50.0])
+def test_bernoulli_logits_cdf_icdf_saturated(logits):
+    # 1 - expit(logits) rounds to 0 here, so P(X = 0) must come from expit(-logits)
+    d = dist.BernoulliLogits(logits)
+    prob_zero = scipy.special.expit(-logits)
+    assert_allclose(d.cdf(0.0), prob_zero, rtol=1e-5)
+    assert_array_equal(d.icdf(np.array([0.5, 2.0]) * prob_zero), [0.0, 1.0])
+
+
+@pytest.mark.parametrize(
     "jax_dist, params, ppf",
     [
         (dist.Cauchy, (1.0, 2.0), osp.cauchy(1.0, 2.0).ppf),
@@ -2365,6 +2414,43 @@ def test_gamma_poisson_log_prob(shape):
     expected = logsumexp(log_probs, 0) - jnp.log(num_samples)
     actual = dist.GammaPoisson(gamma_conc, gamma_rate).log_prob(value)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+def test_gamma_poisson_cdf_real_thresholds():
+    value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, np.inf])
+    actual = dist.GammaPoisson(2.0, 3.0).cdf(value)
+    assert_allclose(actual, osp.nbinom.cdf(value, 2.0, 0.75), rtol=1e-5, atol=1e-7)
+    # Differentiate the finite sums for P(X <= 0) and P(X <= 1) at rate=3.
+    grad_cdf = jax.vmap(
+        jax.grad(lambda r, x: dist.GammaPoisson(2.0, r).cdf(x)), (None, 0)
+    )
+    expected = np.array([0.0, 0.0, 3 / 32, 3 / 32, 9 / 128, 0.0])
+    assert_allclose(grad_cdf(3.0, value), expected, rtol=1e-5, atol=1e-7)
+
+
+@pytest.mark.parametrize(
+    "jax_dist", [dist.GammaPoisson, dist.NegativeBinomial2, dist.NegativeBinomialLogits]
+)
+@pytest.mark.parametrize("integer_values", [False, True])
+def test_gamma_poisson_cdf_batched(jax_dist, integer_values):
+    # rate=inf puts all mass at zero; NegativeBinomialLogits reaches it with logits=-inf.
+    concentration = np.array([0.5, 2.0, 5.0])
+    rate = np.array([0.25, 3.0, np.inf])
+    conc, r = jnp.asarray(concentration), jnp.asarray(rate)
+    if jax_dist is dist.GammaPoisson:
+        d = jax_dist(conc, r)
+    elif jax_dist is dist.NegativeBinomial2:
+        d = jax_dist(conc / r, conc)
+    else:
+        d = jax_dist(conc, -jnp.log(r))
+    if integer_values:
+        value = np.array([-2, -1, 0, 1, 2, 7], dtype=np.int32)
+    else:
+        # Large finite thresholds are common as censoring bounds.
+        big = np.finfo(np.float32).max
+        value = np.array([-np.inf, -0.5, 0.0, 0.5, 1.75, 1e30, big, np.inf], np.float32)
+    expected = osp.nbinom.cdf(value[:, None], concentration, 1 / (1 + 1 / rate))
+    assert_allclose(d.cdf(value[:, None]), expected, rtol=1e-5, atol=1e-7)
 
 
 @pytest.mark.parametrize(
@@ -3160,6 +3246,46 @@ def test_validate_args_of_derived_parameter_under_jit():
             np.array([[True, True], [False, False]]),
         ),
         (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=-1, lengths=[2, 1]
+            ),
+            np.array([[0.0, 1.0, 2.0], [np.nan, 1.0, 2.0], [0.0, 1.0, -1.0]]),
+            np.array([True, False, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.simplex, constraints.simplex], dim=-1, lengths=[2, 2]
+            ),
+            np.array([[0.5, 0.5, 0.3, 0.7], [0.5, 0.5, 0.3, 0.6]]),
+            np.array([True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=-2, lengths=[1, 2]
+            ),
+            np.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]]),
+            np.array([True, True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_vector, constraints.positive], dim=0, lengths=[1, 2]
+            ),
+            np.array([[0.0, 1.0], [1.0, 2.0], [-1.0, 2.0]]),
+            np.array([True, True, False]),
+        ),
+        (
+            constraints.cat(
+                [constraints.real_matrix, constraints.positive], dim=-2, lengths=[1, 2]
+            ),
+            np.array(
+                [
+                    [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]],
+                    [[1.0, 1.0], [1.0, 1.0], [1.0, -1.0]],
+                ]
+            ),
+            np.array([True, False]),
+        ),
+        (
             constraints.corr_cholesky,
             np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
             np.array([True, False]),
@@ -3323,6 +3449,25 @@ def test_zero_sum_support_of_samples(scale, event_shape):
     mask = d.support(samples)
     assert jnp.shape(mask) == (100,)
     assert jnp.all(mask)
+
+
+def test_cat_constraint_validated_transformed_distribution():
+    transform = transforms.CatTransform(
+        [
+            transforms.IndependentTransform(transforms.AffineTransform(0.0, 2.0), 1),
+            transforms.ExpTransform(),
+        ],
+        dim=-1,
+        lengths=[2, 1],
+    )
+    distribution = dist.TransformedDistribution(
+        dist.Normal(jnp.zeros(3), 1.0).to_event(1), transform, validate_args=True
+    )
+    x = jnp.array([[0.1, 0.2, 0.3], [-0.4, 0.5, -0.2]])
+    y = transform(x)
+    expected = -0.5 * (jnp.sum(x**2, axis=-1) + 3 * math.log(2 * math.pi))
+    expected -= 2 * math.log(2) + x[..., -1]
+    assert_allclose(distribution.log_prob(y), expected, rtol=1e-6)
 
 
 def test_cat_constraint_pytree_and_validation():
@@ -3726,10 +3871,10 @@ def test_transformed_distribution_log_prob_reuses_intermediates():
 def test_transformed_transformed_distribution():
     loc, scale = -2, 3
     dist1 = dist.TransformedDistribution(
-        dist.Normal(2, 3), transforms.PowerTransform(2.0)
+        dist.Gamma(2, 3), transforms.PowerTransform(2.0)
     )
     dist2 = dist.TransformedDistribution(dist1, transforms.AffineTransform(-2, 3))
-    assert isinstance(dist2.base_dist, dist.Normal)
+    assert isinstance(dist2.base_dist, dist.Gamma)
     assert len(dist2.transforms) == 2
     assert isinstance(dist2.transforms[0], transforms.PowerTransform)
     assert isinstance(dist2.transforms[1], transforms.AffineTransform)
@@ -3738,6 +3883,125 @@ def test_transformed_transformed_distribution():
     assert_allclose(loc + scale * dist1.sample(rng_key), dist2.sample(rng_key))
     intermediates = dist2.sample_with_intermediates(rng_key)
     assert len(intermediates) == 2
+
+
+@pytest.mark.parametrize(
+    "base_dist, transform",
+    [
+        (lambda: dist.Normal(0, 1), lambda: transforms.ExpTransform()),
+        (lambda: dist.Beta(5, 5), lambda: transforms.AffineTransform(1, 1)),
+        (lambda: dist.Uniform(0, 1), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Uniform(1, 2), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Beta(2, 2), lambda: transforms.SigmoidTransform().inv),
+        (lambda: dist.Exponential(1.0), lambda: transforms.PowerTransform(0.5)),
+        (lambda: dist.Poisson(3.0), lambda: transforms.AffineTransform(1, 2)),
+        (
+            lambda: dist.Dirichlet(jnp.ones(3)),
+            lambda: transforms.AffineTransform(0, 2),
+        ),
+        (
+            lambda: dist.Normal(jnp.zeros(3), 1),
+            lambda: transforms.StickBreakingTransform(),
+        ),
+        (
+            lambda: dist.Uniform(0, 1),
+            lambda: [transforms.ExpTransform(), transforms.ExpTransform()],
+        ),
+    ],
+)
+def test_transformed_distribution_support_in_domain(base_dist, transform):
+    d = dist.TransformedDistribution(base_dist(), transform(), validate_args=True)
+    x = d.sample(random.key(0), (100,))
+    assert jnp.isfinite(x).all()
+    assert jnp.isfinite(d.log_prob(x)).all()
+
+
+@pytest.mark.parametrize(
+    "base_dist, transform",
+    [
+        (lambda: dist.Normal(0, 1), lambda: transforms.ExpTransform().inv),
+        (lambda: dist.Normal(0, 1), lambda: transforms.PowerTransform(2.0)),
+        (lambda: dist.Exponential(1.0), lambda: transforms.SigmoidTransform().inv),
+        (lambda: dist.Uniform(-1, 1), lambda: transforms.ExpTransform().inv),
+        (
+            lambda: dist.Uniform(jnp.array([1.0, -1.0]), 2.0),
+            lambda: transforms.ExpTransform().inv,
+        ),
+        (
+            lambda: dist.Normal(jnp.zeros(3), 1).to_event(1),
+            lambda: transforms.ExpTransform().inv,
+        ),
+        (
+            lambda: dist.Normal(0, 1),
+            lambda: [transforms.ExpTransform().inv, transforms.ExpTransform()],
+        ),
+        (
+            lambda: dist.Normal(0, 1),
+            lambda: transforms.ComposeTransform(
+                [transforms.SigmoidTransform().inv, transforms.ExpTransform()]
+            ),
+        ),
+    ],
+)
+def test_transformed_distribution_support_not_in_domain(base_dist, transform):
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(base_dist(), transform(), validate_args=True)
+    # No check is performed when validation is disabled.
+    dist.TransformedDistribution(base_dist(), transform(), validate_args=False)
+
+
+def test_transformed_distribution_support_in_domain_nested():
+    # Nested transformed distributions are flattened, so the check is against
+    # the innermost base distribution and the first of all transforms.
+    d = dist.TransformedDistribution(
+        dist.LogNormal(0, 1), transforms.ExpTransform().inv, validate_args=True
+    )
+    assert isinstance(d.base_dist, dist.Normal)
+
+    d = dist.TransformedDistribution(
+        dist.Normal(0, 1), transforms.ExpTransform().inv, validate_args=False
+    )
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(d, transforms.ExpTransform(), validate_args=True)
+
+
+def test_transformed_distribution_support_in_domain_event_dim():
+    # The domain has event_dim 1, so batch dims of the base distribution are
+    # reinterpreted as event dims before the check.
+    transform = [transforms.ExpTransform().inv, transforms.StickBreakingTransform()]
+    d = dist.TransformedDistribution(
+        dist.Exponential(jnp.ones((4, 3))), transform, validate_args=True
+    )
+    assert d.batch_shape == (4,)
+    assert d.event_shape == (4,)
+    with pytest.raises(ValueError, match="not contained in the domain"):
+        dist.TransformedDistribution(
+            dist.Normal(jnp.zeros((4, 3)), 1.0), transform, validate_args=True
+        )
+
+
+def test_transformed_distribution_support_in_domain_jit():
+    # Bounds that depend on traced values cannot be checked and are skipped.
+    def f(low):
+        d = dist.TransformedDistribution(
+            dist.Uniform(low, 1.0), transforms.ExpTransform().inv, validate_args=True
+        )
+        return d.log_prob(-0.5)
+
+    jax.jit(f)(-1.0)
+
+
+def test_transformed_distribution_support_in_domain_strict():
+    # `strict=True` raises inside jitted code, as for the parameter checks.
+    def f(low):
+        d = dist.TransformedDistribution(
+            dist.Uniform(low, 1.0), transforms.ExpTransform().inv
+        )
+        d.validate_args(strict=True)
+        return d.log_prob(0.5)
+
+    with pytest.raises(RuntimeError, match="inside jitted code"):
+        jax.jit(f)(0.0)
 
 
 def _make_iaf(input_dim, hidden_dims, rng_key):
@@ -4741,6 +5005,57 @@ def test_consistent_pytree() -> None:
 
     # Run scan which validates that pytree structures are consistent.
     jax.lax.scan(lambda *_: (make_dist(), None), init, jnp.arange(7))
+
+
+@pytest.mark.parametrize(
+    "cls, data_fields, aux_fields",
+    [
+        (
+            dist.Normal,
+            ("loc", "scale"),
+            ("_validate_args", "_batch_shape", "_event_shape"),
+        ),
+        # NegativeBinomial2 and its base GammaPoisson both declare "concentration"
+        (
+            dist.NegativeBinomial2,
+            ("concentration", "rate", "_gamma"),
+            ("_validate_args", "_batch_shape", "_event_shape"),
+        ),
+        (
+            dist.CAR,
+            ("loc", "correlation", "conditional_precision", "adj_matrix"),
+            (
+                "_validate_args",
+                "is_sparse",
+                "adj_matrix",
+                "_batch_shape",
+                "_event_shape",
+            ),
+        ),
+        (
+            dist.MaskedDistribution,
+            ("base_dist", "_mask"),
+            (
+                "_validate_args",
+                "_mask",
+                "has_enumerate_support",
+                "_batch_shape",
+                "_event_shape",
+            ),
+        ),
+    ],
+)
+def test_pytree_fields_follow_mro_order(cls, data_fields, aux_fields):
+    """Pytree fields come out in MRO order (subclass fields first), deduplicated.
+
+    The order must not depend on the string hash seed: a distribution then
+    flattens identically in every process, so JAX's persistent compilation
+    cache can reuse the programs jit lowers from it. The expected tuples pin
+    the whole flattened layout, so adding a field to one of these classes
+    fails this test; that is expected, and updating the tuple is the fix.
+    """
+    assert cls.gather_pytree_data_fields() == data_fields
+    assert cls.gather_pytree_aux_fields() == aux_fields
 
 
 def test_distribution_repr():
@@ -6371,6 +6686,208 @@ def test_geometric_logits_extreme_moments():
 
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).mean)
     assert np.isinf(dist.GeometricLogits(np.iinfo(np.int32).min).variance)
+
+
+@pytest.mark.parametrize(
+    "make_dist",
+    [
+        lambda p: dist.BernoulliProbs(p),
+        lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0),
+        lambda p: dist.ZeroInflatedDistribution(dist.GeometricLogits(0), gate=p),
+        lambda p: dist.HurdlePoisson(gate=p, rate=2.0),
+        lambda p: dist.GeometricLogits(p),
+    ],
+    ids=[
+        "bernoulli",
+        "zero_inflated_poisson",
+        "zero_inflated_geometric",
+        "hurdle_poisson",
+        "geometric_logits",
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("param", [0, np.array([0, 1, 0])])
+def test_integer_parameter_predictive(make_dist, compiled, param):
+    """Integer parameters work through seeding, plates and expanded distributions."""
+
+    def model(p):
+        with numpyro.plate("items", 3):
+            numpyro.sample("y", make_dist(p))
+
+    predictive = Predictive(model, num_samples=5)
+    if compiled:
+        predictive = jax.jit(predictive)
+    integer_param = jnp.asarray(param)
+    float_param = integer_param.astype(jnp.result_type(integer_param, float))
+    actual = predictive(random.key(1), integer_param)["y"]
+    expected = predictive(random.key(1), float_param)["y"]
+    assert_array_equal(actual, expected)
+    assert actual.shape == (5, 3)
+
+
+@pytest.mark.parametrize(
+    "make_dist, attribute, has_entropy, values",
+    [
+        (dist.GeometricProbs, "probs", True, [1, 1]),
+        (dist.GeometricLogits, "logits", True, [0, 1]),
+        (dist.BernoulliProbs, "probs", True, [0, 1]),
+        (dist.BernoulliLogits, "logits", True, [0, 1]),
+        (lambda p: dist.BinomialLogits(p, 3), "logits", False, [0, 1]),
+        (lambda p: dist.NegativeBinomialLogits(3.0, p), "logits", False, [0, 1]),
+        (dist.CategoricalLogits, "logits", True, [0, 1]),
+        (dist.MultinomialLogits, "logits", False, [0, 1]),
+        (
+            lambda p: dist.ZeroInflatedLogits(dist.Poisson(2.0), p),
+            "gate_logits",
+            False,
+            [0, 1],
+        ),
+        (
+            lambda p: dist.HurdleLogits(dist.Poisson(2.0), p),
+            "gate_logits",
+            False,
+            [0, 1],
+        ),
+        (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
+        (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate", False, [0, 1]),
+    ],
+)
+@pytest.mark.parametrize("dtype", [int, np.int8, np.uint8, np.bool_])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_discrete_inexact_parameter_methods(
+    make_dist, attribute, has_entropy, values, dtype, compiled
+):
+    parameter = np.array(values, dtype=dtype)
+    expected_parameter = jnp.asarray(parameter).astype(jnp.result_type(float))
+
+    def evaluate(p):
+        d = make_dist(p)
+        return (
+            getattr(d, attribute),
+            d.sample(random.key(3), (8,)),
+            d.log_prob(
+                jnp.array([[1, 0], [0, 1]])
+                if d.event_shape
+                else jnp.array([0, 1])[:, None]
+            ),
+            d.mean,
+            d.variance,
+            d.entropy() if has_entropy else 0.0,
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual = evaluate(parameter)
+    expected = evaluate(expected_parameter)
+    assert jnp.issubdtype(actual[0].dtype, jnp.floating)
+    for value, reference in zip(actual, expected):
+        assert_allclose(value, reference, rtol=1e-6, atol=0)
+
+
+@pytest.mark.parametrize(
+    "make_dist",
+    [
+        dist.GeometricProbs,
+        dist.GeometricLogits,
+        dist.BernoulliProbs,
+        dist.BernoulliLogits,
+        lambda p: dist.BinomialLogits(p, 3),
+        lambda p: dist.NegativeBinomialLogits(3.0, p),
+        dist.CategoricalLogits,
+        dist.MultinomialLogits,
+        lambda p: dist.ZeroInflatedLogits(dist.Poisson(2.0), p),
+        lambda p: dist.HurdleLogits(dist.Poisson(2.0), p),
+        lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0),
+        lambda p: dist.HurdlePoisson(gate=p, rate=2.0),
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+def test_discrete_list_parameters(make_dist, compiled):
+    def evaluate(p):
+        d = make_dist(p)
+        return (
+            d.sample(random.key(4), (8,)),
+            d.log_prob(
+                jnp.array([[1, 0], [0, 1]])
+                if d.event_shape
+                else jnp.array([0, 1])[:, None]
+            ),
+            d.mean,
+            d.variance,
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    actual = evaluate([0.3, 0.5])
+    expected = evaluate(jnp.array([0.3, 0.5]))
+    for value, reference in zip(actual, expected):
+        assert_allclose(value, reference, rtol=1e-6, atol=0)
+
+
+@pytest.mark.parametrize(
+    "make_dist, attribute",
+    [
+        (dist.GeometricProbs, "probs"),
+        (dist.GeometricLogits, "logits"),
+        (dist.BernoulliProbs, "probs"),
+        (dist.CategoricalLogits, "logits"),
+        (lambda p: dist.ZeroInflatedPoisson(gate=p, rate=2.0), "gate"),
+        (lambda p: dist.HurdlePoisson(gate=p, rate=2.0), "gate"),
+    ],
+)
+def test_discrete_host_parameter_storage(make_dist, attribute):
+    parameter = np.array([0.3, 0.5])
+    d = make_dist(parameter)
+    assert isinstance(getattr(d, attribute), np.ndarray)
+
+
+@pytest.mark.parametrize("make_dist", [dist.GeometricProbs, dist.GeometricLogits])
+@pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float32])
+@pytest.mark.parametrize("compiled", [False, True])
+def test_geometric_weak_parameter_dtype(make_dist, dtype, compiled):
+    def evaluate(value):
+        return make_dist(0.3).log_prob(value)
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    value = jnp.array(1.0, dtype=dtype)
+    assert evaluate(value).dtype == value.dtype
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_zero_inflated_weak_parameter_dtype(compiled):
+    def evaluate(rate):
+        return dist.ZeroInflatedPoisson(0.3, rate).mean
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    rate = jnp.float32(2.0)
+    assert evaluate(rate).dtype == rate.dtype
+
+
+@pytest.mark.parametrize(
+    "make_dist, parameter",
+    [
+        (dist.BernoulliLogits, 0),
+        (dist.BernoulliLogits, True),
+        (dist.GeometricProbs, 1),
+        (dist.GeometricLogits, 0),
+    ],
+)
+@pytest.mark.parametrize("compiled", [False, True])
+def test_discrete_integer_scalar_dtype(make_dist, parameter, compiled):
+    def evaluate(value):
+        return (
+            make_dist(float(parameter)).log_prob(value),
+            make_dist(parameter).log_prob(value),
+        )
+
+    if compiled:
+        evaluate = jax.jit(evaluate)
+    value = jnp.array(1.0, dtype=jnp.bfloat16)
+    float_score, integer_score = evaluate(value)
+    assert integer_score.dtype == value.dtype
+    assert_array_equal(integer_score, float_score)
 
 
 @pytest.mark.parametrize("rate", [0.3, 3.0, 100.0])

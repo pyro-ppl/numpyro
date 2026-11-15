@@ -220,10 +220,10 @@ class Distribution(metaclass=DistributionMeta):
     def gather_pytree_data_fields(cls) -> tuple[str, ...]:
         bases = inspect.getmro(cls)
 
-        all_pytree_data_fields: set[str] = set()
+        all_pytree_data_fields: list[str] = []
         for base in bases:
             if issubclass(base, Distribution):
-                all_pytree_data_fields.update(
+                all_pytree_data_fields.extend(
                     base.__dict__.get(
                         "pytree_data_fields",
                         tuple(
@@ -233,7 +233,8 @@ class Distribution(metaclass=DistributionMeta):
                         ),
                     )
                 )
-        return tuple(all_pytree_data_fields)
+        # remove duplicates, keeping MRO order (subclass fields first)
+        return tuple(dict.fromkeys(all_pytree_data_fields))
 
     @classmethod
     def gather_pytree_aux_fields(cls) -> tuple[str, ...]:
@@ -243,8 +244,8 @@ class Distribution(metaclass=DistributionMeta):
         for base in bases:
             if issubclass(base, Distribution):
                 all_pytree_aux_fields += base.__dict__.get("pytree_aux_fields", ())
-        # remove duplicates
-        all_pytree_aux_fields = tuple(set(all_pytree_aux_fields))
+        # remove duplicates, keeping MRO order (subclass fields first)
+        all_pytree_aux_fields = tuple(dict.fromkeys(all_pytree_aux_fields))
         return all_pytree_aux_fields
 
     def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
@@ -1052,7 +1053,7 @@ class Independent(Distribution):
         >>> [diag_normal.batch_shape, diag_normal.event_shape]
         [(), (3,)]
 
-    :param numpyro.distribution.Distribution base_distribution: a distribution instance.
+    :param numpyro.distribution.Distribution base_dist: a distribution instance.
     :param int reinterpreted_batch_ndims: the number of batch dims to reinterpret as event dims.
     """
 
@@ -1333,7 +1334,10 @@ class TransformedDistribution(Distribution):
     :param base_distribution: the base distribution over which to apply transforms.
     :param transforms: a single transform or a list of transforms.
     :param validate_args: Whether to enable validation of distribution
-        parameters and arguments to `.log_prob` method.
+        parameters and arguments to `.log_prob` method. If enabled, a
+        `ValueError` is also raised when the support of the base distribution
+        is known to extend beyond the domain of the first transform. Only the
+        bounds are compared, so end points are not checked.
     """
 
     arg_constraints = {}
@@ -1402,6 +1406,20 @@ class TransformedDistribution(Distribution):
         super(TransformedDistribution, self).__init__(
             batch_shape, event_shape, validate_args=validate_args
         )
+
+    def validate_args(self, strict: bool = True) -> None:
+        super().validate_args(strict=strict)
+        domain = ComposeTransform(self.transforms).domain
+        support = self.base_dist.support
+        with jax.ensure_compile_time_eval():
+            if (
+                support is not None
+                and support._bounds_within(domain, strict=strict) is False
+            ):
+                raise ValueError(
+                    f"The support {support} of the base distribution is not "
+                    f"contained in the domain {domain} of the first transform."
+                )
 
     @property
     def has_rsample(self) -> bool:

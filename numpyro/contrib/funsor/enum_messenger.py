@@ -623,7 +623,9 @@ class trace(OrigTraceMessenger):
             msg["infer"]["name_to_dim"] = {
                 name: dim for dim, name in msg["infer"]["dim_to_name"].items()
             }
-        if msg["type"] in ("sample", "param"):
+        # plate sites hold the subsample indices, which `replay` needs so that a
+        # model run against a guide trace uses the same mini-batch as the guide
+        if msg["type"] in ("sample", "param", "plate"):
             super().postprocess_message(msg)
 
 

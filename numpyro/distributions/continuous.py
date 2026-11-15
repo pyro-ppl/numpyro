@@ -1368,11 +1368,8 @@ class GaussianStateSpace(TransformedDistribution):
             self.scale_tril,
             jnp.arange(self.num_steps),
         )
-        variance = (
-            jnp.diagonal(scale_tril @ scale_tril.mT, axis1=-1, axis2=-2)
-            .cumsum(axis=0)
-            .swapaxes(0, -2)
-        )
+        variance = jnp.diagonal(scale_tril @ scale_tril.mT, axis1=-1, axis2=-2)
+        variance = jnp.moveaxis(variance.cumsum(axis=0), 0, -2)
         # The variance does not depend on the (deterministic) initial value, but the
         # batch shape may be contributed by `initial_value`. Broadcast to the full
         # `batch_shape + event_shape` so the moment shape matches the distribution.

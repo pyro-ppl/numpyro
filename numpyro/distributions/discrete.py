@@ -50,6 +50,7 @@ from numpyro.distributions.util import (
     lazy_property,
     multinomial,
     promote_shapes,
+    promote_to_inexact,
     validate_sample,
 )
 from numpyro.util import is_prng_key, not_jax_tracer
@@ -62,6 +63,19 @@ def _to_probs_bernoulli(logits: ArrayLike) -> Array:
 def _to_logits_bernoulli(probs: ArrayLike) -> Array:
     ps_clamped = clamp_probs(probs)
     return jnp.log(ps_clamped) - jnp.log1p(-ps_clamped)
+
+
+def _bernoulli_cdf(value: ArrayLike, prob_zero: ArrayLike) -> Array:
+    value = jnp.asarray(value)
+    cdf = jnp.where(value < 0, 0.0, jnp.where(value < 1, prob_zero, 1.0))
+    return jnp.where(jnp.isnan(value), jnp.nan, cdf)
+
+
+def _bernoulli_icdf(q: ArrayLike, prob_zero: ArrayLike) -> Array:
+    # smallest k in {0, 1} with F(k) >= q; q == P(X = 0) maps to 0
+    q = jnp.asarray(q)
+    value = (q > prob_zero).astype(jnp.result_type(q, prob_zero, float))
+    return jnp.where(jnp.isnan(q) | jnp.isnan(prob_zero), jnp.nan, value)
 
 
 def _to_probs_multinom(logits: ArrayLike) -> Array:
@@ -99,7 +113,7 @@ class BernoulliProbs(Distribution):
         :param probs: Success probability in the interval :math:`[0, 1]`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.probs = probs
+        self.probs = promote_to_inexact(probs)
         super(BernoulliProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -183,6 +197,40 @@ class BernoulliProbs(Distribution):
         """
         return jnp.asarray(self.probs * (1 - self.probs))
 
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Evaluate the cumulative distribution function (CDF) of the Bernoulli
+        distribution.
+
+        .. math::
+            F(x) = P(X \le x) = \begin{cases}
+                0 & x < 0, \\
+                1 - p & 0 \le x < 1, \\
+                1 & x \ge 1.
+            \end{cases}
+
+        :param value: Point(s) at which to evaluate the CDF.
+        :return: The CDF evaluated at ``value``.
+        """
+        return _bernoulli_cdf(value, 1 - jnp.asarray(self.probs))
+
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Evaluate the inverse cumulative distribution function (quantile function)
+        of the Bernoulli distribution.
+
+        .. math::
+            F^{-1}(u) = \min\{k \in \{0, 1\} : F(k) \ge u\} = \begin{cases}
+                0 & u \le 1 - p, \\
+                1 & u > 1 - p.
+            \end{cases}
+
+        Levels outside :math:`[0, 1]` are clamped to the support, and :math:`u = 0`
+        maps to 0, the lowest support value, even when :math:`p = 1`.
+
+        :param q: Quantile level(s) :math:`u \in [0, 1]`.
+        :return: The inverse CDF evaluated at ``q``.
+        """
+        return _bernoulli_icdf(q, 1 - jnp.asarray(self.probs))
+
     def enumerate_support(self, expand: bool = True) -> Array:
         values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
@@ -225,7 +273,7 @@ class BernoulliLogits(Distribution):
             :math:`\mp\infty` denote :math:`p = 0` and :math:`p = 1`.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        self.logits = logits
+        self.logits = promote_to_inexact(logits)
         super(BernoulliLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
@@ -300,6 +348,43 @@ class BernoulliLogits(Distribution):
             \mathrm{Var}[X] = \sigma(\alpha) (1 - \sigma(\alpha))
         """
         return self.probs * (1 - self.probs)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        r"""Evaluate the cumulative distribution function (CDF) of the Bernoulli
+        distribution.
+
+        .. math::
+            F(x) = P(X \le x) = \begin{cases}
+                0 & x < 0, \\
+                \sigma(-\alpha) & 0 \le x < 1, \\
+                1 & x \ge 1.
+            \end{cases}
+
+        :math:`P(X = 0) = 1 - \sigma(\alpha)` is evaluated as :math:`\sigma(-\alpha)`,
+        which keeps full relative precision when :math:`\sigma(\alpha)` rounds to 1.
+
+        :param value: Point(s) at which to evaluate the CDF.
+        :return: The CDF evaluated at ``value``.
+        """
+        return _bernoulli_cdf(value, expit(-jnp.asarray(self.logits)))
+
+    def icdf(self, q: ArrayLike) -> Array:
+        r"""Evaluate the inverse cumulative distribution function (quantile function)
+        of the Bernoulli distribution.
+
+        .. math::
+            F^{-1}(u) = \min\{k \in \{0, 1\} : F(k) \ge u\} = \begin{cases}
+                0 & u \le \sigma(-\alpha), \\
+                1 & u > \sigma(-\alpha).
+            \end{cases}
+
+        Levels outside :math:`[0, 1]` are clamped to the support, and :math:`u = 0`
+        maps to 0, the lowest support value, even when :math:`\alpha = \infty`.
+
+        :param q: Quantile level(s) :math:`u \in [0, 1]`.
+        :return: The inverse CDF evaluated at ``q``.
+        """
+        return _bernoulli_icdf(q, expit(-jnp.asarray(self.logits)))
 
     def enumerate_support(self, expand: bool = True) -> Array:
         values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
@@ -533,6 +618,7 @@ class BinomialLogits(Distribution):
         :param total_count: Number of trials (non-negative integer).
         :param validate_args: If True, enforce domain constraints during initialization.
         """
+        logits = promote_to_inexact(logits)
         self.logits, self.total_count = promote_shapes(logits, total_count)
         batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(
@@ -826,8 +912,7 @@ class CategoricalLogits(Distribution):
             category; :math:`+\infty` is rejected since the softmax is then undefined.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
-        # Lists must become arrays for the sampler; NumPy inputs stay NumPy.
-        logits = logits if isinstance(logits, jax.Array) else np.asarray(logits)
+        logits = promote_to_inexact(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
@@ -1453,6 +1538,7 @@ class MultinomialLogits(Distribution):
             i.e. `max(total_count)`, used to size the sampler's internal arrays.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
+        logits = promote_to_inexact(logits)
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape, event_shape = self.infer_shapes(
@@ -1809,6 +1895,7 @@ class ZeroInflatedProbs(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ):
+        gate = promote_to_inexact(gate)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
         support = base_dist.support
@@ -1896,6 +1983,7 @@ class ZeroInflatedLogits(ZeroInflatedProbs):
         *,
         validate_args: Optional[bool] = None,
     ):
+        gate_logits = promote_to_inexact(gate_logits)
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
@@ -2009,7 +2097,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(jnp.asarray(gate), rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -2074,6 +2162,7 @@ class HurdleProbs(Distribution):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        gate = promote_to_inexact(gate)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate,) = promote_shapes(gate, shape=batch_shape)
         if base_dist.event_shape:
@@ -2218,6 +2307,7 @@ class HurdleLogits(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
+        gate_logits = promote_to_inexact(gate_logits)
         gate = _to_probs_bernoulli(gate_logits)
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
         (self.gate_logits,) = promote_shapes(gate_logits, shape=batch_shape)
@@ -2326,7 +2416,7 @@ class HurdlePoisson(HurdleProbs):
         *,
         validate_args: Optional[bool] = None,
     ) -> None:
-        _, self.rate = promote_shapes(gate, rate)
+        _, self.rate = promote_shapes(jnp.asarray(gate), rate)
         super().__init__(Poisson(self.rate), gate, validate_args=validate_args)
 
 
@@ -2356,7 +2446,7 @@ class GeometricProbs(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, probs: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.probs = probs
+        self.probs = promote_to_inexact(probs)
         super(GeometricProbs, self).__init__(
             batch_shape=jnp.shape(self.probs), validate_args=validate_args
         )
@@ -2468,7 +2558,7 @@ class GeometricLogits(Distribution):
     support = constraints.nonnegative_integer
 
     def __init__(self, logits: ArrayLike, *, validate_args: Optional[bool] = None):
-        self.logits = logits
+        self.logits = promote_to_inexact(logits)
         super(GeometricLogits, self).__init__(
             batch_shape=jnp.shape(self.logits), validate_args=validate_args
         )
@@ -2537,8 +2627,7 @@ class GeometricLogits(Distribution):
         where :math:`p=\sigma(\ell)`. Computed directly as
         :math:`\exp(-\ell)` to avoid cancellation when :math:`p` rounds to one.
         """
-        logits = jnp.asarray(self.logits)
-        return jnp.exp(-logits.astype(jnp.result_type(logits, float)))
+        return jnp.exp(-jnp.asarray(self.logits))
 
     @property
     def variance(self) -> Array:

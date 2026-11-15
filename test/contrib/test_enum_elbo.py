@@ -2525,3 +2525,29 @@ def test_trace_enum_elbo_with_auxiliary_site():
     elbo = infer.TraceEnum_ELBO()
     loss = elbo.loss(random.key(0), {}, model, guide)
     assert jnp.isfinite(loss), f"Expected finite loss, got {loss}"
+
+
+def test_subsample_indices_replayed_from_guide():
+    # The guide sets z = data[ind], so the ELBO does not depend on which indices
+    # are drawn, as long as the model scores the same indices as the guide.
+    data = jnp.arange(10.0)
+    locs = jnp.array([0.0, 1.0])
+
+    @config_enumerate
+    def model():
+        with pyro.plate("data", 10, subsample_size=3) as ind:
+            z = pyro.sample("z", dist.Normal(data[ind], 1.0))
+            c = pyro.sample("c", dist.Categorical(jnp.array([0.5, 0.5])))
+            pyro.sample("obs", dist.Normal(z - data[ind] + locs[c], 1.0), obs=0.0)
+
+    def guide():
+        with pyro.plate("data", 10, subsample_size=3) as ind:
+            pyro.sample("z", dist.Delta(data[ind]))
+
+    elbo = infer.TraceEnum_ELBO(num_particles=10)
+    actual_loss = elbo.loss(random.key(0), {}, model, guide)
+
+    log_z = dist.Normal(0.0, 1.0).log_prob(0.0)
+    log_obs = jax.nn.logsumexp(jnp.log(0.5) + dist.Normal(locs, 1.0).log_prob(0.0))
+    expected_loss = -10 * (log_z + log_obs)
+    assert_equal(actual_loss, expected_loss, prec=1e-5)
