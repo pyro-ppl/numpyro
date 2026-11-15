@@ -10,6 +10,7 @@ import scipy
 
 import jax
 from jax import grad, lax, random, vmap
+from jax.experimental import sparse
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 from jax.test_util import check_grads
@@ -448,26 +449,10 @@ def test_no_tracer_leak_at_lazy_property_sample(my_dist):
         jit_sample(jax.random.key(5))
 
 
-class _ArrayLike:
-    """A minimal array-like type that is not a JAX array, e.g. a unit-carrying Quantity."""
-
-    def __init__(self, value):
-        self.value = jnp.asarray(value)
-
-    @property
-    def shape(self):
-        return self.value.shape
-
-    @property
-    def ndim(self):
-        return self.value.ndim
-
-    def reshape(self, shape):
-        return _ArrayLike(self.value.reshape(shape))
-
-
 def test_promote_shapes_array_like():
-    x, y = promote_shapes(_ArrayLike(jnp.ones(3)), _ArrayLike(2.0))
-    assert isinstance(y, _ArrayLike)
+    # BCOO has reshape/shape/ndim but is not a jax.Array, so jnp.reshape rejects it
+    x, y = promote_shapes(jnp.ones(3), sparse.BCOO.fromdense(jnp.array(2.0)))
+    assert isinstance(y, sparse.BCOO)
     assert y.shape == (1,)
     assert x.shape == (3,)
+    assert_allclose(y.todense(), jnp.array([2.0]))

@@ -350,7 +350,8 @@ def binary_cross_entropy_with_logits(x, y):
 def _reshape(x, shape):
     if isinstance(x, (int, float, np.ndarray, np.generic)):
         return np.reshape(x, shape)
-    if hasattr(x, "reshape"):  # JAX arrays and array-like types such as Quantity
+    # JAX arrays, and array-like pytrees that define their own reshape
+    if hasattr(x, "reshape"):
         return x.reshape(shape)
     return jnp.reshape(x, shape)
 
