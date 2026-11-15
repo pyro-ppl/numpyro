@@ -1495,9 +1495,8 @@ class TransformedDistribution(Distribution):
         if not hasattr(self.support, "lower_bound"):
             return _cdf(value)
         # The support is that of the transformed variable, so the cdf is 0 below it
-        # and 1 above it whichever direction the transforms run. The lower bound is
-        # excluded because inverse transforms such as log diverge there.
-        return _cdf_within_support(_cdf, value, self.support, include_low=False)
+        # and 1 above it whichever direction the transforms run.
+        return _cdf_within_support(_cdf, value, self.support)
 
     def icdf(self, q: ArrayLike) -> Array:
         sign: Any = 1

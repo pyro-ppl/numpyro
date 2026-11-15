@@ -566,22 +566,21 @@ def _cdf_within_support(
     cdf_fn: Callable[[ArrayLike], ArrayLike],
     value: ArrayLike,
     support: "Constraint",
-    include_low: bool = True,
     safe_value: Optional[ArrayLike] = None,
 ) -> Array:
     """
     Evaluate ``cdf_fn`` on the support and return 0 below and 1 above it.
 
-    Values outside the support are replaced by a point strictly inside it before
-    ``cdf_fn`` is called, so that out-of-support evaluations cannot leak NaNs into
-    the result or its gradients.
+    Values outside the support, and the lower bound itself, are replaced by a point
+    strictly inside it before ``cdf_fn`` is called, so that out-of-support
+    evaluations cannot leak NaNs into the result or its gradients. The cdf of a
+    continuous distribution is 0 at its lower bound, and many formulas have
+    infinite derivatives there.
 
     :param cdf_fn: Cumulative distribution function, valid on the support.
     :param value: Value to evaluate.
     :param support: Support of the distribution, a constraint with a ``lower_bound``
         and, if it is bounded above, an ``upper_bound``.
-    :param include_low: Whether ``cdf_fn`` is evaluated at the lower bound. Set to
-        ``False`` if its gradients are not finite there.
     :param safe_value: Point strictly inside the support that replaces values outside
         it. Defaults to ``lower_bound + 1`` if the support is unbounded above and to
         its midpoint otherwise. Pass a point at the scale of the parameters if the
@@ -591,7 +590,7 @@ def _cdf_within_support(
     # Expects a support with a lower_bound and, optionally, an upper_bound.
     low = getattr(support, "lower_bound")
     high = getattr(support, "upper_bound", None)
-    below = jnp.less(value, low) if include_low else jnp.less_equal(value, low)
+    below = jnp.less_equal(value, low)
     above = False if high is None else jnp.greater(value, high)
     if safe_value is None:
         # Strictly interior points, matching feasible_like of greater_than and interval.

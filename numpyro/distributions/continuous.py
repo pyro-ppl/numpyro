@@ -6228,7 +6228,6 @@ class Levy(Distribution):
             lambda x: 2.0 - 2.0 * ndtr(jnp.sqrt(self.scale / (x - self.loc))),
             value,
             self.support,
-            include_low=False,
             safe_value=self.loc + self.scale,
         )
 
@@ -6555,7 +6554,6 @@ class Dagum(Distribution):
             ),
             value,
             self.support,
-            include_low=False,
         )
 
     def icdf(self, q: ArrayLike) -> Array:
