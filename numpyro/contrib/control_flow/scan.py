@@ -458,13 +458,19 @@ def scan(
     :param bool reverse: optional boolean specifying whether to run the scan iteration
         forward (the default) or in reverse. With `reverse=True`, the scan starts from
         the last item of `xs`, and sites recorded in a :class:`~numpyro.handlers.trace`
-        (as well as values passed to :class:`~numpyro.handlers.substitute`,
-        :class:`~numpyro.handlers.condition` or :class:`~numpyro.handlers.replay`)
-        are stacked in iteration order: the first entry belongs to the first
-        iteration, i.e. to the last item of `xs`. The returned `ys` follow
+        (hence also the scanned sites returned by
+        :class:`~numpyro.infer.util.Predictive`,
+        :func:`~numpyro.infer.util.log_likelihood` and MCMC) are stacked in
+        iteration order: the first entry belongs to the first iteration, i.e. to the
+        last item of `xs`. Flip them with ``[::-1]`` to align them with `xs`. Values
+        passed to :class:`~numpyro.handlers.substitute`,
+        :class:`~numpyro.handlers.condition` or :class:`~numpyro.handlers.replay` are
+        read in the same iteration order. The returned `ys` follow
         :func:`jax.lax.scan` and are stacked by position in `xs`. If a series
         shorter than the scan is substituted (e.g. for forecasting), it is used for
-        the first iterations and new values are generated for the remaining ones.
+        the first iterations, i.e. for the last items of `xs`, and new values are
+        generated for the remaining ones; to forecast with `reverse=True`, pad `xs`
+        at the front.
     :param int history: The number of previous contexts visible from the current context.
         Defaults to 1. If zero, this is similar to :class:`numpyro.plate`.
     :return: output of scan, quoted from :func:`jax.lax.scan` docs:
@@ -474,10 +480,11 @@ def scan(
     """
     if reverse:
         warnings.warn(
-            "scan(reverse=True) stacks the scanned sites of a trace, and the values"
-            " used by substitute, condition and replay, in iteration order: the first"
-            " entry belongs to the last item of `xs`. Earlier NumPyro versions stacked"
-            " them by position in `xs`.",
+            "scan(reverse=True) stacks scanned sites in iteration order: entry 0 of a"
+            " site in a trace (and in Predictive, log_likelihood and MCMC outputs)"
+            " belongs to the last item of `xs`. NumPyro <= 0.22.0 stacked traced"
+            " sites by position in `xs`. Series passed to substitute or condition are"
+            " read in iteration order, as before.",
             UserWarning,
             stacklevel=find_stack_level(),
         )
