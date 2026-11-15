@@ -1492,7 +1492,8 @@ class TransformedDistribution(Distribution):
             q = self.base_dist.cdf(value)
             return jnp.where(sign < 0, 1 - q, q)
 
-        if not hasattr(self.support, "lower_bound"):
+        # A discrete base has mass at the lower bound, so the cdf there is not 0.
+        if self.base_dist.is_discrete or not hasattr(self.support, "lower_bound"):
             return _cdf(value)
         # The support is that of the transformed variable, so the cdf is 0 below it
         # and 1 above it whichever direction the transforms run.

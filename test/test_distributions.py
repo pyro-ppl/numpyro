@@ -6589,3 +6589,10 @@ def test_cdf_outside_support(jax_dist, params, low, high):
     for derivative in jax.tree.leaves(derivatives):
         assert_array_equal(derivative, 0.0)
     assert jnp.isnan(evaluate(params, np.nan))
+
+
+def test_transformed_cdf_discrete_base_at_lower_bound():
+    # A discrete base has mass at the lower bound, so the cdf there is not 0.
+    base = dist.Poisson(1.0)
+    transformed = dist.TransformedDistribution(base, PowerTransform(2.0))
+    assert_allclose(transformed.cdf(0.0), base.cdf(0.0))
