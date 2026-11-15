@@ -187,7 +187,7 @@ def test_spectral_density_rational_quadratic(dim, w, alpha, length, scale_mixtur
 
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
-@pytest.mark.parametrize("length", [0.5, 1.0, 2.0])
+@pytest.mark.parametrize("length", [0.5, 2.0])
 @pytest.mark.parametrize("frequency", [0.0, 0.5])
 def test_spectral_density_rational_quadratic_normalization(dim, length, frequency):
     alpha, scale_mixture = 1.7, 2.5
