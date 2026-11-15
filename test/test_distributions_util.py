@@ -309,6 +309,23 @@ def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
     assert_allclose(actual, expected, atol=1e-3, rtol=1e-3)
 
 
+@pytest.mark.parametrize("dim", [2, 3, 5])
+@pytest.mark.parametrize("coef", [2.0, 0.5, -0.5])
+def test_cholesky_update_large_vector(dim, coef):
+    # the update vector has the same scale as the matrix, so that the
+    # rank-one term is not a small perturbation of A
+    key1, key2 = random.split(random.key(1))
+    B = random.normal(key1, (dim, dim))
+    x = random.normal(key2, (dim,))
+    A = B @ B.T + jnp.eye(dim)
+    if coef < 0:
+        # keep A + coef * x @ x.T positive definite
+        A = A + (-coef) * jnp.outer(x, x)
+    expected = jnp.linalg.cholesky(A + coef * jnp.outer(x, x))
+    actual = cholesky_update(jnp.linalg.cholesky(A), x, coef)
+    assert_allclose(actual, expected, atol=1e-5, rtol=1e-4)
+
+
 @pytest.mark.parametrize("n", [10, 100, 1000])
 @pytest.mark.parametrize("p", [0.0, 0.01, 0.05, 0.3, 0.5, 0.7, 0.95, 1.0])
 def test_binomial_mean(n, p):

@@ -1058,7 +1058,7 @@ def test_get_proposal_loc_and_scale(dense_mass):
     expected_loc = jnp.stack(expected_loc)
     expected_scale = jnp.stack(expected_scale)
     assert_allclose(actual_loc, expected_loc, rtol=1e-4)
-    assert_allclose(actual_scale, expected_scale, atol=1e-6, rtol=0.3)
+    assert_allclose(actual_scale, expected_scale, atol=1e-5, rtol=1e-4)
 
 
 @pytest.mark.parametrize("shape", [(4,), (3, 2)])

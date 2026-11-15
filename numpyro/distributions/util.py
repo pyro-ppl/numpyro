@@ -449,7 +449,7 @@ def cholesky_update(L, x, coef=1):
         wj = w[..., j]
         gamma = b * Dj + coef * jnp.square(wj)
         Dj_new = gamma / b
-        b = gamma / Dj_new
+        b = gamma / Dj
 
         # update vectors w and L_j
         w = w - wj[..., None] * L_j
