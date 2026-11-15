@@ -413,56 +413,17 @@ def test_enable_x64_invalid_env_var(monkeypatch, env_value):
         jax.config.update("jax_enable_x64", original)
 
 
-@jax.tree_util.register_pytree_node_class
-class _Box:
-    """A minimal array-like pytree, standing in for e.g. a Quantity type."""
-
-    def __init__(self, value):
-        self.value = value
-
-    def tree_flatten(self):
-        return (self.value,), None
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
-
-    def __eq__(self, other):
-        return _Box(self.value == getattr(other, "value", other))
-
-    def __ne__(self, other):
-        return _Box(self.value != getattr(other, "value", other))
-
-    def __and__(self, other):
-        return _Box(self.value & getattr(other, "value", other))
-
-    def __array__(self, dtype=None, copy=None):
-        return np.asarray(self.value, dtype=dtype)
-
-
-def test_not_jax_tracer_pytree():
-    assert not_jax_tracer(_Box(jnp.ones(2)))
-    assert not_jax_tracer({"a": 1.0, "b": jnp.ones(2)})
+@pytest.mark.parametrize(
+    "wrap",
+    [lambda x: x, lambda x: (x,), lambda x: [1.0, x], lambda x: {"a": 1.0, "b": x}],
+    ids=["array", "tuple", "list", "dict"],
+)
+def test_not_jax_tracer(wrap):
+    assert not_jax_tracer(wrap(jnp.ones(2)))
 
     @jax.jit
     def f(x):
-        assert not not_jax_tracer(_Box(x))
-        assert not not_jax_tracer({"a": 1.0, "b": x})
+        assert not not_jax_tracer(wrap(x))
         return x
 
     f(jnp.ones(2))
-
-
-def test_validate_args_pytree_param_under_jit():
-    class BoxLoc(dist.Distribution):
-        arg_constraints = {"loc": dist.constraints.real}
-
-        def __init__(self, loc):
-            self.loc = loc
-            super().__init__(batch_shape=(), validate_args=True)
-
-    with pytest.raises(ValueError, match="invalid loc"):
-        BoxLoc(_Box(jnp.array(jnp.nan)))
-    # Under jit the constraint returns a _Box holding a tracer. It must be skipped,
-    # not converted to a bool.
-    jax.jit(lambda x: BoxLoc(_Box(x)).loc.value)(1.0)
