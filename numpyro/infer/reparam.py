@@ -7,7 +7,6 @@ from typing import Iterable
 
 import numpy as np
 
-import jax
 import jax.numpy as jnp
 
 import numpyro
@@ -91,8 +90,10 @@ class LocScaleReparam(Reparam):
     """
 
     def __init__(self, centered=None, shape_params=()):
-        assert centered is None or isinstance(
-            centered, (int, float, np.generic, np.ndarray, jnp.ndarray, jax.core.Tracer)
+        assert (
+            centered is None
+            or isinstance(centered, (int, float, np.generic, np.ndarray, jnp.ndarray))
+            or not not_jax_tracer(centered)
         )
         assert isinstance(shape_params, (tuple, list))
         assert all(isinstance(name, str) for name in shape_params)

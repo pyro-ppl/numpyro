@@ -473,3 +473,14 @@ def test_promote_shapes_array_like():
     assert y.shape == (1,)
     assert x.shape == (3,)
     assert_allclose(y.todense(), jnp.array([2.0]))
+
+
+def test_multinomial_traced_n_requires_total_count_max():
+    p = jnp.array([0.2, 0.3, 0.5])
+
+    @jax.jit
+    def f(n):
+        return multinomial(random.key(0), p, n)
+
+    with pytest.raises(ValueError, match="total_count_max"):
+        f(jnp.array(10))
