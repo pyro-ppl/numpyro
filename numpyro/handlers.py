@@ -864,12 +864,12 @@ class seed(Messenger):
     def __init__(
         self,
         fn: Callable | None = None,
-        rng_seed: Array | int | None = None,
+        rng_seed: Array | int | np.integer | None = None,
         hide_types: list[str] | None = None,
     ) -> None:
         if rng_seed is not None:
             if not is_prng_key(rng_seed) and (
-                isinstance(rng_seed, int)
+                isinstance(rng_seed, (int, np.integer))
                 or (
                     isinstance(rng_seed, (np.ndarray, jnp.ndarray))
                     and not jnp.shape(rng_seed)
