@@ -83,15 +83,20 @@ Initialization Strategies
 
 Initialization strategies can be supplied as callables:
 
-- A per-site function ``f(site)`` receives ``site`` positionally. It is called for
-  every site handled by :class:`~numpyro.handlers.substitute`: ``sample``
+- A per-site function ``f(site)`` receives ``site`` positionally. It may be called
+  for any site handled by :class:`~numpyro.handlers.substitute`: ``sample``
   (including observed samples), ``plate``, ``param``, ``deterministic`` and
   ``mutable`` sites. Any return value other than ``None`` replaces that site's
-  value; return ``None`` to leave it unchanged. Built-in strategies initialize
-  unobserved sample sites and return ``None`` for other sites. For example,
-  customize an unobserved sample and delegate all other sites to a built-in:
+  value and must have the site's full shape
+  (``site["kwargs"]["sample_shape"] + site["fn"].shape()``, which includes plate
+  dimensions); it is not broadcast. Return ``None`` to leave a site unchanged.
+  Built-in strategies initialize unobserved continuous sample sites and return
+  ``None`` for other sites. For example, customize an unobserved sample and
+  delegate all other sites to a built-in:
 
   .. code-block:: python
+
+      import jax.numpy as jnp
 
       from numpyro.infer import init_to_uniform
 
@@ -101,7 +106,7 @@ Initialization strategies can be supplied as callables:
               and not site["is_observed"]
               and site["name"] == "x"
           ):
-              return 3.0
+              return jnp.full(site["fn"].shape(), 3.0)
           return init_to_uniform(site, radius=0.5)
 
 - A callable accepting no arguments (for example, ``init_to_uniform`` or
