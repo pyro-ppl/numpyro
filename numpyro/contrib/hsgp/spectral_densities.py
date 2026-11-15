@@ -252,23 +252,19 @@ def _log_spectral_density_rational_quadratic(
     dtype = jnp.result_type(float, scaled_w, nu)
     nu = jnp.asarray(nu, dtype=dtype)
 
-    # Dimension-dependent correction factor: (2 * α_mix)^((D-1)/2)
-    log_dim_factor = ((dim - 1) / 2) * jnp.log(2 * scale_mixture)
-
     # For small ω, use asymptotic expansion: z^ν K_ν(z) → Γ(ν) 2^(ν-1) as z → 0
-    # S(0) = α * π^(D/2) * a^D * (2*α_mix)^((D-1)/2) * Γ(α_mix - D/2) / Γ(α_mix)
+    # S(0) = α * π^(D/2) * a^D * Γ(α_mix - D/2) / Γ(α_mix)
     # Note: This requires α_mix > D/2 for Γ(α_mix - D/2) to be positive and finite
     log_S_0 = (
         jnp.log(alpha)
         + (dim / 2) * jnp.log(jnp.pi)
         + dim * jnp.log(a)
-        + log_dim_factor
         + special.gammaln(scale_mixture - dim / 2)
         - special.gammaln(scale_mixture)
     )
 
     # For regular case (ω ≠ 0):
-    # S(ω) = α * (2π)^(D/2) * 2^(1-α_mix) * a * (2*α_mix)^((D-1)/2)
+    # S(ω) = α * (2π)^(D/2) * 2^(1-α_mix) * a^D
     #        * (a|ω|)^(α_mix-D/2) * K_{α_mix-D/2}(a|ω|) / Γ(α_mix)
     # The branch is evaluated at a safe argument where ``small`` holds so that
     # log(0) cannot leak NaNs into the gradient through ``jnp.where``, and
@@ -280,8 +276,7 @@ def _log_spectral_density_rational_quadratic(
         jnp.log(alpha)
         + (dim / 2) * jnp.log(2 * jnp.pi)
         + (1 - scale_mixture) * jnp.log(2)
-        + jnp.log(a)
-        + log_dim_factor
+        + dim * jnp.log(a)
         + nu * jnp.log(safe_z)
         + log_bessel
         - special.gammaln(scale_mixture)
@@ -311,9 +306,8 @@ def spectral_density_rational_quadratic(
 
     .. math::
 
-        S(\\boldsymbol{\\omega}) = \\sigma^2 (2\\pi)^{D/2} \\cdot 2^{1-\\alpha_{\\text{mix}}} \\cdot a
-            \\cdot (2\\alpha_{\\text{mix}})^{(D-1)/2} \\cdot
-            \\frac{(a|\\boldsymbol{\\omega}|)^{\\alpha_{\\text{mix}}-D/2}
+        S(\\boldsymbol{\\omega}) = \\sigma^2 (2\\pi)^{D/2} \\cdot 2^{1-\\alpha_{\\text{mix}}} \\cdot a^D
+            \\cdot \\frac{(a|\\boldsymbol{\\omega}|)^{\\alpha_{\\text{mix}}-D/2}
             K_{\\alpha_{\\text{mix}}-D/2}(a|\\boldsymbol{\\omega}|)}{\\Gamma(\\alpha_{\\text{mix}})}
 
     where :math:`a = \\sqrt{2 \\alpha_{\\text{mix}}} \\cdot \\ell`, :math:`\\sigma^2` is the amplitude,
@@ -324,7 +318,7 @@ def spectral_density_rational_quadratic(
 
     .. math::
 
-        S(0) = \\sigma^2 \\pi^{D/2} a^D (2\\alpha_{\\text{mix}})^{(D-1)/2}
+        S(0) = \\sigma^2 \\pi^{D/2} a^D
             \\frac{\\Gamma(\\alpha_{\\text{mix}} - D/2)}{\\Gamma(\\alpha_{\\text{mix}})}
 
     .. note::
