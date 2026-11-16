@@ -213,6 +213,30 @@ def test_get_model_relations_auto_guide():
     assert "a" in trace
 
 
+def test_get_model_relations_auto_guide_with_model_args():
+    """
+    The eager prototype setup in get_model_relations must forward the
+    model arguments, and inspecting the same guide twice must reuse the
+    prototype and return the same relations.
+    """
+
+    def model(n):
+        numpyro.sample("a", dist.Normal(jnp.zeros(n), 1.0))
+
+    guide = AutoNormal(model)
+
+    with jax.check_tracer_leaks():
+        relations = get_model_relations(guide, model_args=(3,))
+        relations_again = get_model_relations(guide, model_args=(3,))
+    assert relations["sample_dist"] == {"a": "Normal"}
+    assert relations_again == relations
+
+    # The guide must still be traceable with the same arguments.
+    trace = handlers.trace(handlers.seed(guide, 0)).get_trace(3)
+    assert "a" in trace
+    assert trace["a"]["value"].shape == (3,)
+
+
 def test_get_model_relations_masked_observations():
     """
     Regression test for https://github.com/pyro-ppl/numpyro/issues/2254.
