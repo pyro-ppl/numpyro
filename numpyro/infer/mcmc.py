@@ -404,14 +404,9 @@ class MCMC(object):
         self.sampler = sampler
         self._sample_field = sampler.sample_field
         self._default_fields = sampler.default_fields
-        try:
-            num_warmup = operator.index(num_warmup)
-            num_samples = operator.index(num_samples)
-            thinning = operator.index(thinning)
-        except TypeError:
-            raise ValueError(
-                "num_warmup, num_samples and thinning must be integers"
-            ) from None
+        num_warmup = operator.index(num_warmup)
+        num_samples = operator.index(num_samples)
+        thinning = operator.index(thinning)
         if num_warmup < 0:
             raise ValueError("num_warmup must be a nonnegative integer")
         self.num_warmup = num_warmup

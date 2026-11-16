@@ -1130,7 +1130,7 @@ def test_non_integer_mcmc_arguments():
     def model():
         numpyro.sample("x", dist.Normal())
 
-    with pytest.raises(ValueError, match="num_samples"):
+    with pytest.raises(TypeError):
         MCMC(NUTS(model), num_warmup=5, num_samples=10.0)
 
 
