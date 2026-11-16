@@ -10,6 +10,7 @@ import scipy
 
 import jax
 from jax import grad, lax, random, vmap
+from jax.experimental import sparse
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 from jax.test_util import check_grads
@@ -25,6 +26,7 @@ from numpyro.distributions.util import (
     log1mexp,
     logdiffexp,
     multinomial,
+    promote_shapes,
     safe_normalize,
     vec_to_tril_matrix,
     von_mises_centered,
@@ -462,3 +464,12 @@ def test_no_tracer_leak_at_lazy_property_sample(my_dist):
     jit_sample = jax.jit(my_dist.sample)
     with jax.check_tracer_leaks():
         jit_sample(jax.random.key(5))
+
+
+def test_promote_shapes_array_like():
+    # BCOO has reshape/shape/ndim but is not a jax.Array, so jnp.reshape rejects it
+    x, y = promote_shapes(jnp.ones(3), sparse.BCOO.fromdense(jnp.array(2.0)))
+    assert isinstance(y, sparse.BCOO)
+    assert y.shape == (1,)
+    assert x.shape == (3,)
+    assert_allclose(y.todense(), jnp.array([2.0]))
