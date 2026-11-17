@@ -292,3 +292,50 @@ def test_general_mixture_broadcast_components(batch_shapes, event_shape, jit):
         )
         actual_cdf = (jax.jit(mixture.cdf) if jit else mixture.cdf)(value)
         np.testing.assert_allclose(actual_cdf, expected_cdf, rtol=1e-6)
+
+
+def test_mixture_endpoint_compatible_supports():
+    # Exponential (nonnegative) and Gamma (positive) differ only at 0.
+    mixture = dist.MixtureGeneral(
+        dist.Categorical(probs=np.array([0.5, 0.5])),
+        [dist.Exponential(1.0), dist.Gamma(2.0, 1.0)],
+    )
+    # 0.5 * exp(-2) + 0.5 * 2 * exp(-2); the two densities differ at x = 2.
+    np.testing.assert_allclose(mixture.log_prob(2.0), np.log(1.5) - 2.0, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        (dist.Poisson, dist.Exponential),
+        (dist.Exponential, dist.Poisson),
+        (dist.Normal, dist.Exponential),
+    ],
+)
+def test_mixture_incompatible_supports(first, second):
+    with pytest.raises(ValueError, match="same support"):
+        dist.MixtureGeneral(
+            dist.Categorical(probs=np.array([0.5, 0.5])), [first(1.0), second(1.0)]
+        )
+
+
+class _NoSupportNormal(dist.Distribution):
+    # Leaves ``support`` at the base-class default of None, like the TFP
+    # wrappers of discrete distributions.
+    def __init__(self, loc):
+        self.loc = loc
+        super().__init__(batch_shape=jnp.shape(loc), validate_args=False)
+
+    def log_prob(self, value):
+        return dist.Normal(self.loc, 1.0).log_prob(value)
+
+
+def test_mixture_components_without_support():
+    mixture = dist.MixtureGeneral(
+        dist.Categorical(probs=np.array([0.5, 0.5])),
+        [_NoSupportNormal(0.0), _NoSupportNormal(0.0)],
+        validate_args=False,
+    )
+    np.testing.assert_allclose(
+        mixture.log_prob(1.0), dist.Normal(0.0, 1.0).log_prob(1.0), rtol=1e-6
+    )
