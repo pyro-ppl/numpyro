@@ -38,6 +38,38 @@ def _get_support_value_delta(funsor_dist, name, **kwargs):
     return OrderedDict(funsor_dist.terms)[name][0]
 
 
+def _unnamed_dim_message(name, unnamed, name_to_dim, model_tr):
+    """Explain why an enumerated value cannot be matched back to its site.
+
+    `funsor.to_data` requires every input of the value to appear in
+    `name_to_dim`. An unnamed dimension such as ``_pyro_dim_3`` is allocated by
+    the enumeration messenger for a batch dimension of a *dependent* site that is
+    neither an enumerated site nor a plate, so that site is the one to report.
+    """
+    culprits = [
+        f"{site!r} (batch shape {tuple(node['fn'].batch_shape)})"
+        for site, node in model_tr.items()
+        if node["type"] == "sample"
+        and set(unnamed) & set(node["infer"].get("dim_to_name", {}).values())
+    ]
+    if len(culprits) == 1:
+        where = f"Site {culprits[0]} has"
+    elif culprits:
+        where = f"Sites {', '.join(culprits)} have"
+    else:
+        where = "The model has"
+    return (
+        f"{where} batch dimension {unnamed} that is not an enumerated site or "
+        f"plate, so the enumerated value of site {name!r} cannot be matched back "
+        f"to its dimension (named dimensions: {dict(name_to_dim)}). This usually "
+        "means an enumerated value was indexed in a way that moved or added a "
+        "batch dimension. Chained indexing is the common case: an enumerated value "
+        "carries a leading enumeration dimension, so `table[i][j]` applies `[j]` to "
+        "that dimension instead of the one intended. Index in a single operation "
+        "instead: `table[i, j]` or `Vindex(table)[i, j]`."
+    )
+
+
 def _sample_posterior(
     model, first_available_dim, temperature, rng_key, *args, **kwargs
 ):
@@ -73,9 +105,13 @@ def _sample_posterior(
         if node["infer"].get("enumerate") == "parallel":
             log_measure = approx_factors[log_measures[name]]
             value = _get_support_value(log_measure, name)
-            node["value"] = funsor.to_data(
-                value, name_to_dim=node["infer"]["name_to_dim"]
-            )
+            name_to_dim = node["infer"]["name_to_dim"]
+            unnamed = [k for k in value.inputs if k not in name_to_dim]
+            if unnamed:
+                raise ValueError(
+                    _unnamed_dim_message(name, unnamed, name_to_dim, model_tr)
+                )
+            node["value"] = funsor.to_data(value, name_to_dim=name_to_dim)
 
     data = {
         name: site["value"]
