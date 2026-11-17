@@ -125,6 +125,111 @@ def test_mixture_with_different_support(batch_shape):
     assert jnp.allclose(result, expected_log_prob)
 
 
+def test_mixture_cdf_with_different_support():
+    # a component contributes 0 to the cdf below its support and 1 above it
+    value = np.array([-1.0, 0.0, 0.25, 0.5, 1.0, 1.5])
+
+    def cdf(params):
+        mixture = dist.MixtureGeneral(
+            dist.Categorical(probs=np.ones(3) / 3),
+            [
+                dist.Normal(0.0, 1.0),
+                dist.LogNormal(params[0], params[1]),
+                dist.Beta(params[2], params[3]),
+            ],
+            support=dist.constraints.real,
+        )
+        return mixture.cdf(value)
+
+    params = np.array([0.0, 0.5, 2.0, 3.0])
+    expected = (
+        stats.norm.cdf(value)
+        + stats.lognorm.cdf(value, 0.5, scale=1.0)
+        + stats.beta.cdf(value, 2.0, 3.0)
+    ) / 3
+    np.testing.assert_allclose(cdf(params), expected, rtol=1e-6, atol=1e-7)
+    # evaluating inside the support (not only masking) keeps gradients finite
+    assert np.isfinite(jax.grad(lambda p: cdf(p).sum())(params)).all()
+
+
+def test_mixture_cdf_closed_lower_bound_atom():
+    class HurdleExponential(dist.HurdleProbs):
+        def cdf(self, value):
+            return jnp.where(
+                value < 0,
+                0.0,
+                self.gate + (1 - self.gate) * self.base_dist.cdf(value),
+            )
+
+    value = np.array([-1.0, 0.0, 1.0])
+
+    def cdf(gate):
+        mixture = dist.MixtureGeneral(
+            dist.Categorical(probs=np.ones(2) / 2),
+            [dist.Normal(0.0, 1.0), HurdleExponential(dist.Exponential(1.0), gate)],
+            support=dist.constraints.real,
+        )
+        return mixture.cdf(value)
+
+    expected = (
+        stats.norm.cdf(value) + 0.3 * (value >= 0) + 0.7 * stats.expon.cdf(value)
+    ) / 2
+    np.testing.assert_allclose(cdf(0.3), expected, rtol=1e-6)
+    np.testing.assert_allclose(jax.grad(lambda gate: cdf(gate)[1])(0.3), 0.5)
+
+
+def test_mixture_cdf_discrete_bounds():
+    value = np.array([-1.0, 0.0, 0.5, 3.0, 7.0])
+    mixture = dist.MixtureGeneral(
+        dist.Categorical(probs=np.ones(2) / 2),
+        [dist.Poisson(2.0), dist.DiscreteUniform(0, 3)],
+        support=dist.constraints.nonnegative_integer,
+    )
+    expected = (stats.poisson.cdf(value, 2.0) + stats.randint.cdf(value, 0, 4)) / 2
+    np.testing.assert_allclose(mixture.cdf(value), expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("same_family", [False, True])
+def test_mixture_cdf_common_support(same_family):
+    value = np.array([-1.0, 0.0, 0.5, 2.0])
+    scales = np.array([0.3, 1.0])
+
+    def cdf(scales):
+        components: dist.Distribution | list[dist.Distribution] = (
+            dist.HalfNormal(scales)
+            if same_family
+            else [dist.HalfNormal(scales[0]), dist.HalfNormal(scales[1])]
+        )
+        mixture = dist.Mixture(dist.Categorical(probs=np.ones(2) / 2), components)
+        return mixture.cdf(value)
+
+    expected = stats.halfnorm.cdf(value[:, None], scale=scales).mean(axis=-1)
+    np.testing.assert_allclose(cdf(scales), expected, rtol=1e-6)
+    assert np.isfinite(jax.grad(lambda s: cdf(s).sum())(scales)).all()
+
+
+def test_mixture_cdf_batched_bounds():
+    value = np.array([-2.0, 0.0, 0.5, 2.0, 5.0])[:, None, None]
+    lows = np.array([[-1.0, 0.0], [0.5, 1.0]])
+
+    def cdf(low):
+        mixture = dist.MixtureGeneral(
+            dist.Categorical(probs=np.ones(2) / 2),
+            [dist.Normal(0.0, 1.0), dist.Uniform(low, low + 2.0)],
+            support=dist.constraints.real,
+        )
+        return mixture.cdf(value)
+
+    expected = (
+        stats.norm.cdf(value)
+        + stats.uniform.cdf(value, loc=lows[:, None, None, :], scale=2.0)
+    ) / 2
+    actual = jax.jit(jax.vmap(cdf))(lows)
+    assert actual.shape == (2, 5, 1, 2)
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
+    assert np.isfinite(jax.grad(lambda low: cdf(low).sum())(lows[0])).all()
+
+
 def _test_mixture(mixing_distribution, component_distribution):
     # Create mixture
     mixture = dist.Mixture(

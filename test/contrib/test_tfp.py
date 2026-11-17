@@ -325,3 +325,20 @@ def test_kl_normal_normal(shape):
     x = p.sample(random.key(0), (10000,)).copy()
     expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
     assert_allclose(actual, expected, rtol=0.05)
+
+
+@pytest.mark.filterwarnings("ignore:Importing distributions")
+def test_mixture_general_cdf():
+    from numpyro.contrib.tfp import distributions as tfd
+
+    # TFP supports have no bounds (continuous) or are None (discrete)
+    mixing = dist.Categorical(probs=jnp.ones(2) / 2)
+    value = np.array([-1.0, 0.0, 0.5, 2.0])
+    mixture = dist.MixtureGeneral(mixing, [tfd.Normal(0.0, 1.0), tfd.Normal(1.0, 2.0)])
+    expected = (tfd.Normal(0.0, 1.0).cdf(value) + tfd.Normal(1.0, 2.0).cdf(value)) / 2
+    assert_allclose(mixture.cdf(value), expected, rtol=1e-6)
+
+    value = np.array([0.0, 1.0, 3.0])
+    mixture = dist.MixtureGeneral(mixing, [tfd.Poisson(1.0), tfd.Poisson(3.0)])
+    expected = (tfd.Poisson(1.0).cdf(value) + tfd.Poisson(3.0).cdf(value)) / 2
+    assert_allclose(mixture.cdf(value), expected, rtol=1e-6)
