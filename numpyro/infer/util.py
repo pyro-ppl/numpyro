@@ -5,6 +5,8 @@ from collections import namedtuple
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
+import inspect
+import sys
 from typing import Callable, NamedTuple, Optional
 import warnings
 
@@ -33,6 +35,10 @@ from numpyro.util import (
     soft_vmap,
     while_loop,
 )
+
+if sys.version_info >= (3, 14):
+    from annotationlib import Format
+
 
 __all__ = [
     "find_valid_initial_params",
@@ -375,6 +381,51 @@ def _init_to_unconstrained_value(site=None, values={}):
         return partial(_init_to_unconstrained_value, values=values)
 
 
+def _normalize_init_strategy(init_strategy):
+    """Return a partial of a per-site initialization function.
+
+    Factories following the ``init_to_*(site=None, **kwargs)`` convention are
+    called so fast paths can read their keywords; callables requiring a
+    positional ``site`` are wrapped as-is. A factory must return a per-site
+    function, otherwise ``TypeError`` is raised.
+    """
+    if isinstance(init_strategy, partial):
+        return init_strategy
+    try:
+        if sys.version_info >= (3, 14):
+            signature = inspect.signature(
+                init_strategy, annotation_format=Format.FORWARDREF
+            )
+        else:
+            signature = inspect.signature(init_strategy)
+    except (TypeError, ValueError):
+        return _call_init_strategy_factory(init_strategy)
+
+    def binds(*args):
+        try:
+            signature.bind(*args)
+        except TypeError:
+            return False
+        return True
+
+    if not binds() and binds(None):
+        return partial(init_strategy)
+    return _call_init_strategy_factory(init_strategy)
+
+
+def _call_init_strategy_factory(factory):
+    strategy = factory()
+    if isinstance(strategy, partial):
+        return strategy
+    if callable(strategy):
+        return partial(strategy)
+    raise TypeError(
+        "Initialization strategy factory must return a per-site function f(site); "
+        f"got {type(strategy).__name__} "
+        "(callables that accept no arguments are treated as factories)."
+    )
+
+
 def find_valid_initial_params(
     rng_key,
     model,
@@ -399,7 +450,8 @@ def find_valid_initial_params(
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param callable init_strategy: a per-site initialization function.
+    :param callable init_strategy: an initialization strategy. See :ref:`init_strategy`
+        for the callable contract and available functions.
     :param bool enum: whether to enumerate over discrete latent sites.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
@@ -413,9 +465,7 @@ def find_valid_initial_params(
         containing the initial params, their potential energy, and their gradients.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    init_strategy = (
-        init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    )
+    init_strategy = _normalize_init_strategy(init_strategy)
     # handle those init strategies differently to save computation
     if init_strategy.func is init_to_uniform:
         radius = init_strategy.keywords.get("radius")
@@ -761,8 +811,8 @@ def initialize_model(
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param callable init_strategy: a per-site initialization function.
-        See :ref:`init_strategy` section for available functions.
+    :param callable init_strategy: an initialization strategy. See :ref:`init_strategy`
+        for the callable contract and available functions.
     :param bool dynamic_args: if `True`, the `potential_fn` and
         `constraints_fn` are themselves dependent on model arguments.
         When provided a `*model_args, **model_kwargs`, they return
@@ -788,6 +838,7 @@ def initialize_model(
         at `deterministic` sites in the model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
+    init_strategy = _normalize_init_strategy(init_strategy)
     substituted_model = substitute(
         seed(model, rng_key if is_prng_key(rng_key) else rng_key[0]),
         substitute_fn=init_strategy,
@@ -830,11 +881,8 @@ def initialize_model(
         model_kwargs=model_kwargs,
     )
 
-    init_strategy = (
-        init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    )
     if (init_strategy.func is init_to_value) and not replay_model:
-        init_values = init_strategy.keywords.get("values")
+        init_values = init_strategy.keywords.get("values", {})
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
         init_strategy = _init_to_unconstrained_value(values=unconstrained_values)
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)

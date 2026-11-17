@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import sys
+import typing
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -29,6 +31,7 @@ from numpyro.infer.util import (
     Predictive,
     compute_log_probs,
     constrain_fn,
+    find_valid_initial_params,
     initialize_model,
     log_density,
     log_likelihood,
@@ -748,3 +751,87 @@ def test_log_likelihood_flax_nn():
 
     # run log likelihood
     numpyro.infer.util.log_likelihood(model, mcmc.get_samples(), X=X, y=y)
+
+
+@pytest.mark.parametrize("initializer", [find_valid_initial_params, initialize_model])
+@pytest.mark.parametrize("kind", ["function", "callable"])
+def test_per_site_init_strategy(initializer, kind):
+    def model():
+        numpyro.sample("x", dist.Normal())
+        numpyro.sample("y", dist.Normal())
+
+    def strategy(site):
+        return 3.0 if site["name"] == "x" else 7.0
+
+    class Strategy:
+        def __call__(self, site):
+            return strategy(site)
+
+    strategies = {
+        "function": strategy,
+        "callable": Strategy(),
+    }
+    info = initializer(random.key(9), model, init_strategy=strategies[kind])[0]
+    assert_allclose(info[0]["x"], 3.0)
+    assert_allclose(info[0]["y"], 7.0)
+
+
+def test_init_strategy_zero_argument_factory():
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    info = initialize_model(
+        random.key(0), model, init_strategy=lambda: lambda site: 0.0
+    )
+    assert_allclose(info[0][0]["x"], 0.0)
+
+
+def test_init_strategy_factory_must_return_callable():
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    with pytest.raises(TypeError, match=r"per-site function f\(site\)"):
+        initialize_model(random.key(0), model, init_strategy=lambda: 3.0)
+
+
+def test_init_strategy_body_type_error():
+    calls = []
+
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    def strategy(site):
+        calls.append(site["name"])
+        raise TypeError("initialization body error")
+
+    with pytest.raises(TypeError, match="^initialization body error$"):
+        initialize_model(random.key(0), model, init_strategy=strategy)
+    assert calls == ["x"]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 14), reason="PEP 649 lazy annotations")
+@pytest.mark.parametrize("kind", ["factory", "per_site"])
+def test_init_strategy_unresolved_annotation(kind):
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    def factory(site: UndefinedSite = None):  # noqa: F821
+        if site is None:
+            return partial(factory)
+        return 0.0
+
+    def per_site(site: typing.Nope):
+        return 0.0
+
+    strategy = factory if kind == "factory" else per_site
+    info = initialize_model(random.key(0), model, init_strategy=strategy)
+    assert_allclose(info[0][0]["x"], 0.0)
+
+
+def test_init_to_value_without_values():
+    def model():
+        numpyro.sample("x", dist.Normal())
+
+    info = initialize_model(random.key(0), model, init_strategy=partial(init_to_value))
+    # no values given: defers to init_to_uniform(radius=2) in unconstrained space
+    assert jnp.abs(info.param_info.z["x"]) < 2
