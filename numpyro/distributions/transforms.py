@@ -1278,11 +1278,18 @@ class SimplexToOrderedTransform(Transform[NonScalarArray]):
         return y
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
-        y = y - jnp.expand_dims(self.anchor_point, -1)
-        s = expit(y)
-        # x0 = s0, x1 = s1 - s0, x2 = s2 - s1,..., xn = 1 - s[n-1]
-        x = jnp.diff(s, prepend=0, append=1)
-        return x
+        shifted = y - jnp.expand_dims(self.anchor_point, -1)
+        s = expit(shifted)
+        pad_width = [(0, 0)] * (jnp.ndim(s) - 1)
+        upper = jnp.pad(s, pad_width + [(0, 1)], constant_values=1)
+        lower = jnp.pad(expit(-shifted), pad_width + [(1, 0)], constant_values=1)
+        # sigma(u) - sigma(l) = sigma(u) sigma(-l) (1 - exp(l - u)).
+        # Take gaps before shifting, and use unit factors at both boundaries.
+        gaps = jnp.diff(jnp.asarray(y, dtype=s.dtype), prepend=-jnp.inf, append=jnp.inf)
+        # Repeated infinite cutpoints have zero mass. Keep expm1's input finite
+        # when their undefined gap is multiplied by a zero sigmoid factor.
+        gaps = jnp.where(jnp.isnan(gaps), 0, gaps)
+        return upper * lower * (-jnp.expm1(-gaps))
 
     def log_abs_det_jacobian(
         self,
