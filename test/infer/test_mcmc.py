@@ -17,7 +17,17 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import AIES, ESS, HMC, MCMC, NUTS, SA, BarkerMH, init_to_value
+from numpyro.infer import (
+    AIES,
+    ESS,
+    HMC,
+    MCMC,
+    NUTS,
+    SA,
+    BarkerMH,
+    MixedHMC,
+    init_to_value,
+)
 from numpyro.infer.hmc import hmc
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
@@ -1412,3 +1422,55 @@ def test_empty_summary():
     mcmc.run(random.key(0))
 
     mcmc.print_summary()
+
+
+def test_final_warmup_window():
+    # NUTS forwards to HMC.__init__, so one kernel covers both; np.int64 also
+    # exercises integer-like input end to end.
+    kernel = NUTS(
+        potential_fn=lambda z: 0.5 * jnp.sum(z**2), final_window_size=np.int64(100)
+    )
+    mcmc = MCMC(kernel, num_warmup=200, num_samples=1, progress_bar=False)
+    mcmc.run(random.key(0), init_params=jnp.ones(2))
+    # Dual averaging restarts after the last slow window, so its step counter
+    # equals the length of the final window.
+    assert mcmc.last_state.adapt_state.ss_state[3] == 100
+
+
+@pytest.mark.parametrize("final_window_size", [9, 50.5])
+def test_final_warmup_window_invalid(final_window_size):
+    with pytest.raises(ValueError, match="final_window_size must be an integer"):
+        NUTS(
+            potential_fn=lambda z: 0.5 * jnp.sum(z**2),
+            final_window_size=final_window_size,
+        )
+
+
+def test_mixed_hmc_inherits_warmup_settings():
+    # MixedHMC runs its own warmup adapter; it must use the inner kernel's
+    # final_window_size and regularize_mass_matrix, not the adapter defaults.
+    def model():
+        numpyro.sample("c", dist.Bernoulli(0.8))
+        numpyro.sample("x", dist.Normal(0, 1).expand([2]))
+
+    def adapt_state(regularize_mass_matrix):
+        inner = HMC(
+            model,
+            final_window_size=100,
+            regularize_mass_matrix=regularize_mass_matrix,
+        )
+        mcmc = MCMC(
+            MixedHMC(inner, num_discrete_updates=1),
+            num_warmup=200,
+            num_samples=1,
+            progress_bar=False,
+        )
+        mcmc.run(random.key(0))
+        return mcmc.last_state.hmc_state.adapt_state
+
+    regularized, unregularized = adapt_state(True), adapt_state(False)
+    assert regularized.ss_state[3] == 100
+    assert not jnp.allclose(
+        regularized.inverse_mass_matrix[("x",)],
+        unregularized.inverse_mass_matrix[("x",)],
+    )
