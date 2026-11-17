@@ -289,8 +289,9 @@ def _args_key(args, kwargs):
     # Key on the tree structure and the hashable leaves. Mapping `_hashable` over
     # the tree with `jax.tree.map` would rebuild user pytree nodes around the
     # leaf ids, and comparing those keys calls the nodes' own `__eq__`. The
-    # treedef still compares the nodes' aux data, which can raise `TypeError` or
-    # `ValueError`; the callers then skip the cache.
+    # treedef still compares the nodes' aux data; JAX re-raises any exception
+    # from that comparison as `ValueError`, and an unhashable leaf raises
+    # `TypeError`. The callers catch both and skip the cache.
     leaves, treedef = jax.tree.flatten((args, kwargs))
     return treedef, tuple(_hashable(leaf) for leaf in leaves)
 
@@ -516,15 +517,17 @@ class MCMC(object):
                 sample_fn = partial(_sample_fn_jit_args, sampler=self.sampler)
                 postprocess_fn = _postprocess_fn
             else:
+                # Close over a copy rebuilt from the leaves the key was built from:
+                # rebinding an entry of the caller's dict/list/pytree after this
+                # run must not change what a later cache hit samples against.
+                args, kwargs = jax.tree.map(lambda x: x, (self._args, self._kwargs))
                 sample_fn = partial(
                     _sample_fn_nojit_args,
                     sampler=self.sampler,
-                    args=self._args,
-                    kwargs=self._kwargs,
+                    args=args,
+                    kwargs=kwargs,
                 )
-                postprocess_fn = partial(
-                    _postprocess_fn, args=self._args, kwargs=self._kwargs
-                )
+                postprocess_fn = partial(_postprocess_fn, args=args, kwargs=kwargs)
 
             fns = sample_fn, postprocess_fn
             if key is not None and not _is_under_jax_transform():

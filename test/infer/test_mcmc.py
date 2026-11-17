@@ -1417,6 +1417,9 @@ def test_empty_summary():
 
 @jax.tree_util.register_pytree_node_class
 class _StrictBox:
+    # Rejecting non-arrays works because the tests close over the args; JAX's
+    # in_axes handling (vectorized chains, jit_model_args) unflattens around
+    # sentinel objects, so this double does not carry over to those paths.
     def __init__(self, value):
         assert isinstance(value, jax.Array), f"rebuilt around {type(value).__name__}"
         self.value = value
@@ -1451,24 +1454,40 @@ def _small_mcmc(model, num_chains=1):
     )
 
 
+@pytest.fixture
+def cached_fns_calls(monkeypatch):
+    # every `fns` tuple `_get_cached_fns` hands out, in call order
+    returned = []
+    get_cached_fns = MCMC._get_cached_fns
+
+    def spy(self):
+        returned.append(get_cached_fns(self))
+        return returned[-1]
+
+    monkeypatch.setattr(MCMC, "_get_cached_fns", spy)
+    return returned
+
+
 @pytest.mark.parametrize("num_chains", [1, 2])
-def test_run_twice_with_pytree_arg(num_chains):
+def test_run_twice_with_pytree_arg(num_chains, cached_fns_calls):
     box = _StrictBox(jnp.ones(5))
     mcmc = _small_mcmc(_box_model, num_chains)
     mcmc.run(random.key(0), box)
     mcmc.run(random.key(1), box)
     assert mcmc.get_samples()["m"].shape == (10 * num_chains,)
-    # the second run reuses the compiled sample function
-    assert len(mcmc._cache) == 1
+    # the second run reuses the cached functions instead of rebuilding them
+    assert len(cached_fns_calls) == 2 * num_chains
+    assert all(fns is cached_fns_calls[0] for fns in cached_fns_calls)
 
 
-def test_run_twice_with_pytree_kwarg():
+def test_run_twice_with_pytree_kwarg(cached_fns_calls):
     box = _StrictBox(jnp.ones(5))
     mcmc = _small_mcmc(_box_model)
     mcmc.run(random.key(0), box=box)
     mcmc.run(random.key(1), box=box)
     assert mcmc.get_samples()["m"].shape == (10,)
-    assert len(mcmc._cache) == 1
+    assert len(cached_fns_calls) == 2
+    assert cached_fns_calls[1] is cached_fns_calls[0]
 
 
 def test_compile_with_pytree_arg():
@@ -1499,6 +1518,8 @@ def test_run_twice_with_array_aux_data():
     mcmc.run(random.key(0), _Indexed(y, np.arange(3)))
     mcmc.run(random.key(1), _Indexed(y, np.arange(3)))
     assert mcmc.get_samples()["m"].shape == (10,)
+    # the second lookup raised ValueError, so nothing new was stored
+    assert len(mcmc._cache) == 1
 
 
 @partial(jax.tree_util.register_dataclass, data_fields=["value"], meta_fields=["scale"])
@@ -1521,3 +1542,20 @@ def test_same_leaf_different_aux_data_misses_cache():
     # a false hit would sample against the arguments held by the first entry
     assert_allclose(mcmc.get_samples()["m"].mean(), 100.0, atol=1.0)
     assert len(mcmc._cache) == 2
+
+
+def test_rebinding_arg_container_does_not_leak_into_cache_hit():
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data["x"])
+
+    # keep the truth far from the init region: a stale hit stalls at the init
+    x0, x1 = jnp.full(5, 10.0), jnp.full(5, -10.0)
+    data = {"x": x0}
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), data)
+    data["x"] = x1  # reuse the container for the next dataset
+    mcmc.run(random.key(1), data)
+    # same leaf as the first run; new extra_fields forces a fresh fori_collect body
+    mcmc.run(random.key(2), {"x": x0}, extra_fields=("potential_energy",))
+    assert_allclose(mcmc.get_samples()["m"].mean(), 10.0, atol=1.0)
