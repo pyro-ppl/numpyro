@@ -26,7 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 import numpy as np
 
@@ -1337,7 +1337,36 @@ class OrderedLogistic(CategoricalProbs):
         raise NotImplementedError
 
 
-class MultinomialProbs(Distribution):
+class _MultinomialBase(Distribution):
+    """Keep bounded counts as data and unbounded counts as static metadata."""
+
+    total_count: ArrayLike
+    total_count_max: Optional[int]
+    pytree_data_fields = ("total_count",)
+    pytree_aux_fields = ("total_count", "total_count_max")
+
+    def tree_flatten(self) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+        data, aux = super().tree_flatten()
+        if self.total_count_max is None:
+            index = type(self).gather_pytree_data_fields().index("total_count")
+            data = data[:index] + (None,) + data[index + 1 :]
+        else:
+            index = type(self).gather_pytree_aux_fields().index("total_count")
+            aux = aux[:index] + (None,) + aux[index + 1 :]
+        return data, aux
+
+    @classmethod
+    def tree_unflatten(
+        cls, aux_data: tuple[Any, ...], params: tuple[Any, ...]
+    ) -> "_MultinomialBase":
+        d = cast(_MultinomialBase, super().tree_unflatten(aux_data, params))
+        if d.total_count_max is not None:
+            index = cls.gather_pytree_data_fields().index("total_count")
+            d.total_count = params[index]
+        return d
+
+
+class MultinomialProbs(_MultinomialBase):
     r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
     outcomes, parameterized by a probability vector on the simplex and a total
     count :math:`n` of i.i.d. trials.
@@ -1361,7 +1390,6 @@ class MultinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("probs",)
-    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self,
@@ -1378,6 +1406,11 @@ class MultinomialProbs(Distribution):
             it is required to specify `total_count_max`.
         :param total_count_max: The maximum number of trials,
             i.e. `max(total_count)`, used to size the sampler's internal arrays.
+            This bound is required for array or traced counts. With a bound,
+            ``total_count`` is a pytree data leaf and is returned from ``jax.jit``
+            as an Array, even when initialized with a Python int. Default
+            ``jax.vmap`` output axes can also batch this count. To map over
+            that result, specify its count axis with ``vmap_over``.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
         if jnp.ndim(probs) < 1:
@@ -1490,7 +1523,7 @@ class MultinomialProbs(Distribution):
         return batch_shape, event_shape
 
 
-class MultinomialLogits(Distribution):
+class MultinomialLogits(_MultinomialBase):
     r"""A Multinomial discrete random vector over :math:`K` mutually exclusive
     outcomes, parameterized by unnormalized log-probabilities (logits) and a
     total count :math:`n` of i.i.d. trials.
@@ -1517,7 +1550,6 @@ class MultinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     pytree_data_fields = ("logits",)
-    pytree_aux_fields = ("total_count", "total_count_max")
 
     def __init__(
         self,
@@ -1536,6 +1568,11 @@ class MultinomialLogits(Distribution):
             it is required to specify `total_count_max`.
         :param total_count_max: The maximum number of trials,
             i.e. `max(total_count)`, used to size the sampler's internal arrays.
+            This bound is required for array or traced counts. With a bound,
+            ``total_count`` is a pytree data leaf and is returned from ``jax.jit``
+            as an Array, even when initialized with a Python int. Default
+            ``jax.vmap`` output axes can also batch this count. To map over
+            that result, specify its count axis with ``vmap_over``.
         :param validate_args: If True, enforce domain constraints during initialization.
         """
         logits = promote_to_inexact(logits)
@@ -1700,7 +1737,11 @@ def Multinomial(
     :param probs: event probabilities :math:`\mathbf{p}`
     :param logits: event log probabilities :math:`\mathbf{z}`
     :param int total_count_max: the maximum number of trials,
-        i.e. `max(total_count)`
+        i.e. `max(total_count)`.
+        With a bound, ``total_count`` is a pytree data leaf and is returned from
+        ``jax.jit`` as an Array, even when initialized with a Python int. Default
+        ``jax.vmap`` output axes can also batch this count. To map over that
+        result, specify its count axis with ``vmap_over``.
 
     .. note::
         ``total_count_max`` (an upper bound on ``total_count``) must be given when
