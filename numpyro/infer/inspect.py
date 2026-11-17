@@ -11,6 +11,7 @@ import jax
 
 from numpyro import handlers
 import numpyro.distributions as dist
+from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.initialization import init_to_sample
 from numpyro.ops.provenance import eval_provenance
 from numpyro.ops.pytree import PytreeTrace
@@ -296,6 +297,16 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     """
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
+
+    # Auto guides are stateful and set up their prototype lazily on first
+    # call. If that happens under `jax.eval_shape` below, the cached
+    # prototype values are tracers of a trace that is immediately
+    # discarded, which leaks tracers and corrupts the guide for later
+    # use. Set up the prototype eagerly so that the abstract trace
+    # reuses concrete values instead.
+    if isinstance(model, AutoGuide) and model.prototype_trace is None:
+        with handlers.seed(rng_seed=0):
+            model._setup_prototype(*model_args, **model_kwargs)
 
     def _get_dist_name(fn):
         if isinstance(

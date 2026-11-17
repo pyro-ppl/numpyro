@@ -6,10 +6,13 @@ import os
 import numpy as np
 import pytest
 
+import jax
 import jax.numpy as jnp
 
 import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
+from numpyro.infer.autoguide import AutoNormal
 from numpyro.infer.inspect import (
     generate_graph_specification,
     get_model_relations,
@@ -183,6 +186,55 @@ def test_param_with_lambda_and_sample():
     assert "x" in relations["sample_dist"]
     assert relations["sample_dist"]["x"] == "CategoricalProbs"
     assert "p" in relations["sample_param"]["x"]
+
+
+def test_get_model_relations_auto_guide():
+    """
+    Regression test for https://github.com/pyro-ppl/numpyro/issues/2062.
+
+    Passing an auto guide to get_model_relations must not corrupt the
+    guide. The guide's prototype used to be set up under jax.eval_shape,
+    which cached tracers of the discarded trace on the guide, leaking
+    tracers and making later tracing of the guide raise
+    UnexpectedTracerError.
+    """
+
+    def model():
+        numpyro.sample("a", dist.Normal())
+
+    guide = AutoNormal(model)
+
+    with jax.check_tracer_leaks():
+        relations = get_model_relations(guide)
+    assert relations["sample_dist"] == {"a": "Normal"}
+
+    # The guide must still be traceable after the inspection.
+    trace = handlers.trace(handlers.seed(guide, 0)).get_trace()
+    assert "a" in trace
+
+
+def test_get_model_relations_auto_guide_with_model_args():
+    """
+    The eager prototype setup in get_model_relations must forward the
+    model arguments, and inspecting the same guide twice must reuse the
+    prototype and return the same relations.
+    """
+
+    def model(n):
+        numpyro.sample("a", dist.Normal(jnp.zeros(n), 1.0))
+
+    guide = AutoNormal(model)
+
+    with jax.check_tracer_leaks():
+        relations = get_model_relations(guide, model_args=(3,))
+        relations_again = get_model_relations(guide, model_args=(3,))
+    assert relations["sample_dist"] == {"a": "Normal"}
+    assert relations_again == relations
+
+    # The guide must still be traceable with the same arguments.
+    trace = handlers.trace(handlers.seed(guide, 0)).get_trace(3)
+    assert "a" in trace
+    assert trace["a"]["value"].shape == (3,)
 
 
 def test_get_model_relations_masked_observations():
