@@ -1110,6 +1110,33 @@ def test_SA_chain_gradient_free(num_chains):
     mcmc.run(random.key(0))
 
 
+def test_sa_vectorized_chains_multiple_runs():
+    def model(mean):
+        numpyro.sample("x", dist.Normal(mean, 1))
+
+    def make_mcmc():
+        return MCMC(
+            SA(model),
+            num_warmup=10,
+            num_samples=10,
+            num_chains=2,
+            chain_method="vectorized",
+            progress_bar=False,
+        )
+
+    mcmc = make_mcmc()
+    mcmc.run(random.key(0), 0.0)
+    assert mcmc.get_samples(group_by_chain=True)["x"].shape == (2, 10)
+
+    mcmc.run(random.key(0), 10.0)
+    fresh_mcmc = make_mcmc()
+    fresh_mcmc.run(random.key(0), 10.0)
+    assert_allclose(
+        mcmc.get_samples(group_by_chain=True)["x"],
+        fresh_mcmc.get_samples(group_by_chain=True)["x"],
+    )
+
+
 def test_model_with_lift_handler():
     def model(data):
         c = numpyro.param("c", jnp.array(1.0), constraint=dist.constraints.positive)
