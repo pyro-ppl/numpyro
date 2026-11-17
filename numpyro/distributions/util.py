@@ -571,11 +571,12 @@ def _cdf_within_support(
     """
     Evaluate ``cdf_fn`` on the support and return 0 below and 1 above it.
 
-    Values outside the support, and the lower bound itself, are replaced by a point
-    strictly inside it before ``cdf_fn`` is called, so that out-of-support
-    evaluations cannot leak NaNs into the result or its gradients. The cdf of a
-    continuous distribution is 0 at its lower bound, and many formulas have
-    infinite derivatives there.
+    Only for continuous distributions: the cdf is taken to be 0 at the lower bound
+    and 1 at the upper bound (``+inf`` if the support is unbounded above). Values
+    outside the support, and the bounds themselves, are replaced by a point strictly
+    inside it before ``cdf_fn`` is called, so that these evaluations cannot leak NaNs
+    into the result or its gradients. Many cdf formulas have infinite derivatives at
+    the bounds.
 
     :param cdf_fn: Cumulative distribution function, valid on the support.
     :param value: Value to evaluate.
@@ -591,7 +592,7 @@ def _cdf_within_support(
     low = getattr(support, "lower_bound")
     high = getattr(support, "upper_bound", None)
     below = jnp.less_equal(value, low)
-    above = False if high is None else jnp.greater(value, high)
+    above = jnp.greater_equal(value, jnp.inf if high is None else high)
     if safe_value is None:
         # Strictly interior points, matching feasible_like of greater_than and interval.
         safe_value = low + 1 if high is None else (low + high) / 2

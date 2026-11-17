@@ -6567,7 +6567,9 @@ def test_poisson_cdf_support_limits(rate, compiled):
         (dist.Gompertz, (2.0, 100.0), 0.0, np.inf),
         # The gradient of 1 / rate overflows unless the substitute is detached.
         (dist.Gompertz, (2.0, 1e-20), 0.0, np.inf),
-        (dist.Levy, (1e10, 1e3), 1e10, np.inf),
+        # In float32, loc + scale rounds to loc here, and so do the finite offsets
+        # in `below`: the row checks -inf and loc, which goes through the substitute.
+        (dist.Levy, (1e10, 100.0), 1e10, np.inf),
         (dist.Weibull, (1e-4, 10.0), 0.0, np.inf),
     ],
 )
@@ -6575,10 +6577,10 @@ def test_cdf_outside_support(jax_dist, params, low, high):
     def evaluate(params, value):
         return jax_dist(*params).cdf(value)
 
-    bounded = np.isfinite(high)
-    # The lower bound is included: the cdf is 0 there and constant to its left.
+    # Both bounds are included: the cdf is 0 at the lower one, 1 at the upper one
+    # (+inf if the support is unbounded above), and constant beyond them.
     below = low - np.array([np.inf, 50.0, 0.5, 0.0])
-    above = high + np.array([0.5, 50.0, np.inf]) if bounded else np.array([])
+    above = high + np.array([0.0, 0.5, 50.0, np.inf])
     outside = np.concatenate([below, above])
     expected = np.concatenate([np.zeros(below.shape), np.ones(above.shape)])
     assert_array_equal(evaluate(params, outside), expected)
@@ -6591,8 +6593,13 @@ def test_cdf_outside_support(jax_dist, params, low, high):
     assert jnp.isnan(evaluate(params, np.nan))
 
 
-def test_transformed_cdf_discrete_base_at_lower_bound():
-    # A discrete base has mass at the lower bound, so the cdf there is not 0.
-    base = dist.Poisson(1.0)
-    transformed = dist.TransformedDistribution(base, PowerTransform(2.0))
-    assert_allclose(transformed.cdf(0.0), base.cdf(0.0))
+def test_transformed_cdf_traced_negative_scale():
+    # AffineTransform assumes scale > 0 for a traced scale when it computes its
+    # codomain, so under jit the support of this distribution comes out as
+    # greater_than(5) instead of less_than(5).
+    transformed = dist.TransformedDistribution(
+        dist.Normal(0.0, 1.0), biject_to(constraints.less_than(5.0))
+    )
+    # P(5 - exp(X) <= 4) = P(X >= 0) = 0.5
+    cdf = jax.jit(lambda d, value: d.cdf(value))(transformed, 4.0)
+    assert_allclose(cdf, 0.5, rtol=1e-6)

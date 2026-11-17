@@ -1824,6 +1824,11 @@ class InverseGamma(TransformedDistribution):
             base_dist, PowerTransform(-1.0), validate_args=validate_args
         )
 
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
+
     @property
     def mean(self) -> Array:
         r"""Mean of the Inverse-Gamma distribution:
@@ -2761,6 +2766,11 @@ class LogNormal(TransformedDistribution):
             base_dist, ExpTransform(), validate_args=validate_args
         )
 
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
+
     @property
     def mean(self) -> Array:
         r"""Mean of the Log-Normal distribution:
@@ -2966,6 +2976,11 @@ class LogUniform(TransformedDistribution):
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
         return constraints.interval(self.low, self.high)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
 
     @property
     def mean(self) -> Array:
@@ -4393,6 +4408,11 @@ class Pareto(TransformedDistribution):
         ]
         super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
 
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
+
     @property
     def mean(self) -> Array:
         # mean is inf for alpha <= 1
@@ -4461,6 +4481,11 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms: list[Transform] = [SigmoidTransform()]
         super().__init__(base_dist, transforms, validate_args=validate_args)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
 
 
 def RelaxedBernoulli(
@@ -6228,7 +6253,7 @@ class Levy(Distribution):
             lambda x: 2.0 - 2.0 * ndtr(jnp.sqrt(self.scale / (x - self.loc))),
             value,
             self.support,
-            safe_value=self.loc + self.scale,
+            safe_value=self.loc + jnp.maximum(self.scale, jnp.abs(self.loc)),
         )
 
     @property
