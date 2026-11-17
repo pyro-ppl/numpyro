@@ -76,6 +76,7 @@ from numpyro.distributions.transforms import (
     ZeroSumTransform,
 )
 from numpyro.distributions.util import (
+    _cdf_within_support,
     _reshape,
     add_diag,
     assert_one_of,
@@ -427,7 +428,11 @@ class Beta(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return betainc(self.concentration1, self.concentration0, value)
+        return _cdf_within_support(
+            lambda x: betainc(self.concentration1, self.concentration0, x),
+            value,
+            self.support,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -998,7 +1003,11 @@ class Exponential(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return -jnp.expm1(jnp.negative(self.rate) * value)
+        return _cdf_within_support(
+            lambda x: -jnp.expm1(jnp.negative(self.rate) * x),
+            value,
+            self.support,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -1111,7 +1120,11 @@ class Gamma(Distribution):
         This method uses regularized incomplete gamma function,
         which is implemented as :func:`~jax.scipy.special.gammainc`.
         """
-        return gammainc(self.concentration, self.rate * value)
+        return _cdf_within_support(
+            lambda x: gammainc(self.concentration, self.rate * x),
+            value,
+            self.support,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""If :math:`X \sim \mathrm{Gamma}(\alpha, \lambda)`, then
@@ -1601,7 +1614,9 @@ class HalfCauchy(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return self._cauchy.cdf(value) * 2 - 1
+        return _cdf_within_support(
+            lambda x: self._cauchy.cdf(x) * 2 - 1, value, self.support
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -1714,7 +1729,9 @@ class HalfNormal(Distribution):
         :param value: Value to evaluate.
         :type value: ArrayLike
         """
-        return self._normal.cdf(value) * 2 - 1
+        return _cdf_within_support(
+            lambda x: self._normal.cdf(x) * 2 - 1, value, self.support
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse cumulative distribution function (Quantile function).
@@ -1803,6 +1820,11 @@ class InverseGamma(TransformedDistribution):
         super(InverseGamma, self).__init__(
             base_dist, PowerTransform(-1.0), validate_args=validate_args
         )
+
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
 
     @property
     def mean(self) -> Array:
@@ -1949,7 +1971,12 @@ class Gompertz(Distribution):
         :param value: Positive point :math:`x` at which to evaluate the CDF.
         :return: Probability that a Gompertz random variable is at most ``value``.
         """
-        return -jnp.expm1(-self.concentration * jnp.expm1(value * self.rate))
+        return _cdf_within_support(
+            lambda x: -jnp.expm1(-self.concentration * jnp.expm1(x * self.rate)),
+            value,
+            self.support,
+            safe_value=1 / self.rate,
+        )
 
     def icdf(self, q: ArrayLike) -> Array:
         r"""Inverse Cumulative Distribution Function (quantile function),
@@ -2736,6 +2763,11 @@ class LogNormal(TransformedDistribution):
             base_dist, ExpTransform(), validate_args=validate_args
         )
 
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
+
     @property
     def mean(self) -> Array:
         r"""Mean of the Log-Normal distribution:
@@ -2941,6 +2973,11 @@ class LogUniform(TransformedDistribution):
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self) -> constraints.Constraint:
         return constraints.interval(self.low, self.high)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
 
     @property
     def mean(self) -> Array:
@@ -4368,6 +4405,11 @@ class Pareto(TransformedDistribution):
         ]
         super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
 
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
+
     @property
     def mean(self) -> Array:
         # mean is inf for alpha <= 1
@@ -4436,6 +4478,11 @@ class RelaxedBernoulliLogits(TransformedDistribution):
         base_dist = Logistic(logits / temperature, 1 / temperature)
         transforms: list[Transform] = [SigmoidTransform()]
         super().__init__(base_dist, transforms, validate_args=validate_args)
+
+    def cdf(self, value: ArrayLike) -> Array:
+        # The transforms have a fixed direction, so the support is exact even when
+        # the parameters are traced.
+        return _cdf_within_support(super().cdf, value, self.support)
 
 
 def RelaxedBernoulli(
@@ -5021,14 +5068,17 @@ class Weibull(Distribution):
         return ll
 
     def cdf(self, value: ArrayLike) -> Array:
-        scaled_value = (value / self.scale) ** self.concentration
-        # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
-        # Use exp there to retain its derivative, and expm1 near zero.
-        return jnp.where(
-            scaled_value < jnp.log(2),
-            -jnp.expm1(-scaled_value),
-            1 - jnp.exp(-scaled_value),
-        )
+        def _cdf(value: ArrayLike) -> Array:
+            scaled_value = (value / self.scale) ** self.concentration
+            # JAX's expm1 JVP uses ans + 1, which rounds to zero in the upper tail.
+            # Use exp there to retain its derivative, and expm1 near zero.
+            return jnp.where(
+                scaled_value < jnp.log(2),
+                -jnp.expm1(-scaled_value),
+                1 - jnp.exp(-scaled_value),
+            )
+
+        return _cdf_within_support(_cdf, value, self.support, safe_value=self.scale)
 
     @property
     def mean(self) -> Array:
@@ -6196,8 +6246,12 @@ class Levy(Distribution):
         :param value: samples from Lévy distribution.
         :return: output of the cumulative distribution function evaluated at `value`.
         """
-        inv_standardized = self.scale / (value - self.loc)
-        return 2.0 - 2.0 * ndtr(jnp.sqrt(inv_standardized))
+        return _cdf_within_support(
+            lambda x: 2.0 - 2.0 * ndtr(jnp.sqrt(self.scale / (x - self.loc))),
+            value,
+            self.support,
+            safe_value=self.loc + jnp.maximum(self.scale, jnp.abs(self.loc)),
+        )
 
     @property
     def mean(self) -> Array:
@@ -6513,11 +6567,15 @@ class Dagum(Distribution):
         :param value: Positive point :math:`x` at which to evaluate the CDF.
         :return: Probability that a Dagum random variable is at most ``value``.
         """
-        return jnp.exp(
-            -self.concentration
-            * nn.softplus(
-                xlogy(self.sharpness, self.scale) - xlogy(self.sharpness, value)
-            )
+        return _cdf_within_support(
+            lambda x: jnp.exp(
+                -self.concentration
+                * nn.softplus(
+                    xlogy(self.sharpness, self.scale) - xlogy(self.sharpness, x)
+                )
+            ),
+            value,
+            self.support,
         )
 
     def icdf(self, q: ArrayLike) -> Array:

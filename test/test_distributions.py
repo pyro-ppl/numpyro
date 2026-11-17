@@ -6908,3 +6908,71 @@ def test_poisson_cdf_support_limits(rate, compiled):
     expected[finite] = -osp.poisson.pmf(np.floor(np.asarray(values)[finite]), rate)
     assert_allclose(derivative, expected, atol=1e-6)
     assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))
+
+
+@pytest.mark.parametrize(
+    "jax_dist, params, low, high",
+    [
+        (dist.Beta, (2.0, 3.0), 0.0, 1.0),
+        (dist.Dagum, (2.0, 2.0, 3.0), 0.0, np.inf),
+        (dist.DoublyTruncatedPowerLaw, (-1.5, 1.0, 5.0), 1.0, 5.0),
+        (dist.Exponential, (2.0,), 0.0, np.inf),
+        (dist.Gamma, (2.0, 1.5), 0.0, np.inf),
+        # A shape below 1 has infinite derivatives at the lower bound.
+        (dist.Gamma, (0.5, 1.5), 0.0, np.inf),
+        (dist.Gompertz, (2.0, 1.5), 0.0, np.inf),
+        (dist.HalfCauchy, (1.0,), 0.0, np.inf),
+        (dist.HalfNormal, (1.0,), 0.0, np.inf),
+        (dist.InverseGamma, (2.0, 1.5), 0.0, np.inf),
+        (dist.Levy, (1.0, 2.0), 1.0, np.inf),
+        (dist.LogNormal, (0.3, 1.0), 0.0, np.inf),
+        (dist.LogUniform, (1.0, 10.0), 1.0, 10.0),
+        (dist.Pareto, (2.0, 3.0), 2.0, np.inf),
+        (dist.RelaxedBernoulliLogits, (2.0, -1.0), 0.0, 1.0),
+        (_TruncatedGamma, (2.0, 1.5, 0.5, None), 0.5, np.inf),
+        (_TruncatedGamma, (2.0, 1.5, None, 3.0), 0.0, 3.0),
+        (_TruncatedGamma, (2.0, 1.5, 0.5, 3.0), 0.5, 3.0),
+        (_TruncatedGamma, (0.5, 1.5, None, 3.0), 0.0, 3.0),
+        (dist.Weibull, (2.0, 1.5), 0.0, np.inf),
+        (dist.Weibull, (2.0, 0.7), 0.0, np.inf),
+        # The substitute point must stay at the scale of the parameters, or the
+        # reverse-mode gradients overflow to NaN although the cdf is 0.
+        (dist.Gompertz, (2.0, 100.0), 0.0, np.inf),
+        # The gradient of 1 / rate overflows unless the substitute is detached.
+        (dist.Gompertz, (2.0, 1e-20), 0.0, np.inf),
+        # In float32, loc + scale rounds to loc here, and so do the finite offsets
+        # in `below`: the row checks -inf and loc, which goes through the substitute.
+        (dist.Levy, (1e10, 100.0), 1e10, np.inf),
+        (dist.Weibull, (1e-4, 10.0), 0.0, np.inf),
+    ],
+)
+def test_cdf_outside_support(jax_dist, params, low, high):
+    def evaluate(params, value):
+        return jax_dist(*params).cdf(value)
+
+    # Both bounds are included: the cdf is 0 at the lower one, 1 at the upper one
+    # (+inf if the support is unbounded above), and constant beyond them.
+    below = low - np.array([np.inf, 50.0, 0.5, 0.0])
+    above = high + np.array([0.0, 0.5, 50.0, np.inf])
+    outside = np.concatenate([below, above])
+    expected = np.concatenate([np.zeros(below.shape), np.ones(above.shape)])
+    assert_array_equal(evaluate(params, outside), expected)
+    # The cdf is constant outside the support, so its derivatives vanish there.
+    # Reverse mode is checked because it propagates NaNs out of the unselected
+    # branch of a where, which forward mode drops.
+    derivatives = jax.jacrev(evaluate, argnums=(0, 1))(params, outside)
+    for derivative in jax.tree.leaves(derivatives):
+        assert_array_equal(derivative, 0.0)
+    assert jnp.isnan(evaluate(params, np.nan))
+
+
+def test_transformed_cdf_traced_negative_scale():
+    # AffineTransform assumes scale > 0 for a traced scale when it computes its
+    # codomain, so under jit the support of this distribution comes out as
+    # greater_than(5) instead of less_than(5).
+    transformed = dist.TransformedDistribution(
+        dist.Normal(0.0, 1.0), biject_to(constraints.less_than(5.0))
+    )
+    # P(5 - exp(X) <= 4) = P(X >= 0) = 0.5
+    cdf = jax.jit(lambda d, value: d.cdf(value))(transformed, 4.0)
+    assert_allclose(cdf, 0.5, rtol=1e-6)
