@@ -1742,10 +1742,17 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
     Apply a linear transformation recursively such that
     :math:`y_t = A y_{t - 1} + x_t` for :math:`t > 0`, where :math:`x_t` and :math:`y_t`
     are vectors and :math:`A` is a square transition matrix. The series is initialized
-    by :math:`y_0 = 0`.
+    by :math:`y_0`, which defaults to the zero vector.
+
+    The last two input dimensions are time and state. The leading input dimensions
+    broadcast with the batch dimensions of the transition matrix and initial value.
+    For a :class:`~numpyro.distributions.TransformedDistribution`, those parameter
+    dimensions also contribute to the distribution's batch shape.
 
     :param transition_matrix: Square transition matrix :math:`A` for successive states
         or a batch of transition matrices.
+    :param initial_value: Initial state :math:`y_0` or a batch of initial states,
+        with the state dimension last. Defaults to a zero vector.
 
     **Example:**
 
@@ -1807,18 +1814,20 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
         self.initial_value = initial_value
         self.transition_matrix = transition_matrix
 
-    def _get_initial_value(self, sample_shape) -> Array:
-        iv_batch_shape, event_shape = (
+    def _broadcast_batch_shape(
+        self, input_batch_shape: tuple[int, ...]
+    ) -> tuple[int, ...]:
+        return lax.broadcast_shapes(
+            input_batch_shape,
+            self.transition_matrix.shape[:-2],
             self.initial_value.shape[:-1],
-            self.initial_value.shape[-1:],
-        )
-        transition_batch_shape = self.transition_matrix.shape[:-2]
-
-        batch_shape = jnp.broadcast_shapes(
-            sample_shape, transition_batch_shape, iv_batch_shape
         )
 
-        return jnp.broadcast_to(self.initial_value, batch_shape + event_shape)
+    def _get_initial_value(self, sample_shape: tuple[int, ...]) -> Array:
+        batch_shape = self._broadcast_batch_shape(sample_shape)
+        return jnp.broadcast_to(
+            self.initial_value, batch_shape + self.initial_value.shape[-1:]
+        )
 
     def __call__(self, x: NonScalarArray) -> NonScalarArray:
         # Move the time axis to the first position so we can scan over it.
@@ -1836,6 +1845,7 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
 
     def _inverse(self, y: NonScalarArray) -> NonScalarArray:
         # Move the time axis to the first position so we can scan over it in reverse.
+        y = jnp.broadcast_to(y, self.inverse_shape(y.shape))
         sample_shape = y.shape[:-2]
         y = jnp.moveaxis(y, -2, 0)
 
@@ -1856,7 +1866,16 @@ class RecursiveLinearTransform(Transform[NonScalarArray]):
         y: NonScalarArray,
         intermediates: Optional[PyTree] = None,
     ) -> NumLike:
-        return jnp.zeros_like(x, shape=x.shape[:-2])
+        return jnp.zeros_like(x, shape=self.forward_shape(x.shape)[:-2])
+
+    def forward_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        if len(shape) < 2:
+            raise ValueError("Too few dimensions on input")
+        batch_shape = self._broadcast_batch_shape(shape[:-2])
+        return batch_shape + shape[-2:]
+
+    def inverse_shape(self, shape: tuple[int, ...]) -> tuple[int, ...]:
+        return self.forward_shape(shape)
 
     def tree_flatten(self):
         return (self.transition_matrix, self.initial_value), (

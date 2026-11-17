@@ -1318,12 +1318,6 @@ class GaussianStateSpace(TransformedDistribution):
         self.scale_tril = base_distribution.scale_tril[..., 0, :, :]
         base_distribution = base_distribution.to_event(1)
 
-        # The base distribution must have at least the same batch shape as the initial
-        # value.
-        if initial_value is not None:
-            batch_shape = jnp.shape(initial_value)[:-1]
-            base_distribution = base_distribution.expand(batch_shape)
-
         transform = RecursiveLinearTransform(
             transition_matrix,
             initial_value=initial_value,
@@ -1351,7 +1345,8 @@ class GaussianStateSpace(TransformedDistribution):
         _, means = scan(propagate, self.initial_value, jnp.arange(self.num_steps))
         # means has shape (num_steps, ..., state_dim)
         # We need to move num_steps to axis -2 to match base_dist.mean shape
-        return jnp.moveaxis(means, 0, -2)
+        means = jnp.moveaxis(means, 0, -2)
+        return jnp.broadcast_to(means, self.batch_shape + self.event_shape)
 
     @property
     def variance(self) -> Array:
