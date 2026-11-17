@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jacobian, lax, random
+from jax import jacobian, jit, lax, random
 import jax.numpy as jnp
 
 import numpyro
@@ -591,3 +591,12 @@ def test_time_reparam_positive_support(reparam_cls, kwargs, suffix):
         return mcmc.get_samples()["x"].mean(0)
 
     assert_allclose(run({"x": reparam}), run({}), atol=0.15)
+
+
+def test_loc_scale_traced_centered():
+    @jit
+    def f(centered):
+        reparam = LocScaleReparam(centered)
+        return reparam.centered
+
+    assert f(jnp.array(0.5)) == 0.5

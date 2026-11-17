@@ -13,7 +13,6 @@ import numpy as np
 
 import jax
 from jax import Array, jit, lax, random, vmap
-from jax.core import Tracer
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import digamma
@@ -298,7 +297,7 @@ def _multinomial(key, p, n, n_max, shape=()):
 
 def multinomial(key, p, n, shape=(), total_count_max=None):
     if total_count_max is None:
-        if isinstance(n, Tracer):
+        if not not_jax_tracer(n):
             raise ValueError(
                 "Please specify total_count_max in Multinomial distribution."
             )
