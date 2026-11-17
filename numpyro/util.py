@@ -198,8 +198,11 @@ def is_prng_key(key: Any) -> bool:
 def not_jax_tracer(x):
     """
     Checks if `x` is not an array generated inside `jit`, `pmap`, `vmap`, or `lax_control_flow`.
+
+    `x` can be a pytree, such as an array-like type registered as a pytree node.
+    It is a tracer if any of its leaves is one.
     """
-    return not isinstance(x, Tracer)
+    return not any(isinstance(leaf, Tracer) for leaf in jax.tree.leaves(x))
 
 
 def identity(x, *args, **kwargs):
