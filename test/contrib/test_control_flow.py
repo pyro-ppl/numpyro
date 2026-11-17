@@ -288,3 +288,110 @@ def test_scan_mvn():
     with numpyro.handlers.seed(rng_seed=0), numpyro.handlers.trace() as tr:
         model()
     assert tr["val"]["fn"].batch_shape == (4, 5)
+
+
+def test_scan_reverse_warns():
+    def model():
+        def transition(carry, _):
+            z = numpyro.sample("z", dist.Normal(carry, 1.0))
+            return z, z
+
+        return scan(transition, 0.0, None, length=3, reverse=True)
+
+    with pytest.warns(UserWarning, match="iteration order"):
+        trace(seed(model, 0)).get_trace()
+
+
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
+@pytest.mark.parametrize("reverse", [False, True])
+def test_scan_reverse_substitute(reverse):
+    y = jnp.arange(5.0)
+    z = jnp.array([0.5, -1.0, 2.0, 0.1, 1.2])
+    y_iter = y[::-1] if reverse else y
+
+    def model():
+        def transition(carry, y_t):
+            z_t = numpyro.sample("z", dist.Normal(carry, 1.0))
+            numpyro.sample("y", dist.Normal(0.5 * z_t, 1.0), obs=y_t)
+            return z_t, z_t
+
+        return scan(transition, 0.0, y, reverse=reverse)
+
+    # sites in the trace are stacked in iteration order, `ys` by position
+    with substitute(data={"z": z}), trace() as tr:
+        _, z_out = model()
+    assert_allclose(tr["z"]["value"], z)
+    assert_allclose(tr["y"]["value"], y_iter)
+    assert_allclose(z_out, z[::-1] if reverse else z)
+
+    # the carry continues from the last substituted value: in a deterministic
+    # chain z_t = carry + 1 the generated values extend the substituted ones,
+    # and a series shorter than the scan is used for the first iterations
+    def chain():
+        def transition(carry, _):
+            z_t = numpyro.sample("z", dist.Delta(carry + 1.0))
+            return z_t, z_t
+
+        return scan(transition, 0.0, None, length=5, reverse=reverse)
+
+    with seed(rng_seed=0), substitute(data={"z": jnp.array([1.0, 3.0, 5.0])}):
+        _, chain_out = chain()
+    expected_chain = [1.0, 3.0, 5.0, 6.0, 7.0]
+    assert_allclose(chain_out, expected_chain[::-1] if reverse else expected_chain)
+
+    prev = jnp.append(0.0, z[:-1])
+    expected = dist.Normal(prev, 1.0).log_prob(z).sum()
+    expected += dist.Normal(0.5 * z, 1.0).log_prob(y_iter).sum()
+    actual, _ = log_density(model, (), {}, {"z": z})
+    assert_allclose(actual, expected, rtol=1e-6)
+
+
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
+@pytest.mark.parametrize("reverse", [False, True])
+def test_scan_reverse_potential_energy(reverse):
+    y = jnp.arange(5.0)
+    y_iter = y[::-1] if reverse else y
+    u = jnp.array([0.5, -1.0, 2.0, 0.1, 1.2])
+
+    def model():
+        def transition(carry, y_t):
+            z_t = numpyro.sample("z", dist.LogNormal(0.0, 1.0))
+            numpyro.sample("y", dist.Normal(z_t, 1.0), obs=y_t)
+            return carry, z_t
+
+        return scan(transition, 0.0, y, reverse=reverse)
+
+    z = jnp.exp(u)
+    expected = -(
+        dist.LogNormal(0.0, 1.0).log_prob(z).sum()
+        + dist.Normal(z, 1.0).log_prob(y_iter).sum()
+        + u.sum()
+    )
+    actual = potential_energy(model, (), {}, {"z": u})
+    assert_allclose(actual, expected, rtol=1e-5)
+
+
+@pytest.mark.filterwarnings("ignore:scan\\(reverse=True\\):UserWarning")
+@pytest.mark.parametrize("reverse", [False, True])
+def test_scan_reverse_elbo(reverse):
+    y = jnp.array([0.3, -1.2, 2.0, 0.5, 1.1, -0.4])
+
+    def model(y):
+        def transition(carry, y_t):
+            z = numpyro.sample("z", dist.Normal(0.0, 1.0))
+            numpyro.sample("y", dist.Normal(z, 1.0), obs=y_t)
+            return carry, z
+
+        scan(transition, 0.0, y, reverse=reverse)
+
+    def guide(y):
+        def transition(carry, y_t):
+            numpyro.sample("z", dist.Normal(y_t / 2, jnp.sqrt(0.5)))
+            return carry, 0.0
+
+        scan(transition, 0.0, y, reverse=reverse)
+
+    # the guide is the exact posterior, so every particle gives -log p(y)
+    expected = -dist.Normal(0.0, jnp.sqrt(2.0)).log_prob(y).sum()
+    actual = Trace_ELBO().loss(random.key(0), {}, model, guide, y)
+    assert_allclose(actual, expected, rtol=1e-5)
