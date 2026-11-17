@@ -485,9 +485,12 @@ class MixtureGeneral(_MixtureBase):
             first = component_distributions[0].support
             for d in component_distributions[1:]:
                 other = d.support
-                assert first is not None and other is not None
-                if type(other) is not type(first) and not (
-                    first._bounds_within(other) and other._bounds_within(first)
+                if type(other) is type(first):
+                    continue
+                if (
+                    first is None
+                    or other is None
+                    or not (first._bounds_within(other) and other._bounds_within(first))
                 ):
                     raise ValueError(
                         "All component distributions must have the same support."
