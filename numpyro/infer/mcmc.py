@@ -285,20 +285,18 @@ def _hashable(x):
     return x
 
 
-def _hashable_tree(tree):
+def _args_key(args, kwargs):
     # Key on the tree structure and the hashable leaves. Mapping `_hashable` over
     # the tree with `jax.tree.map` would rebuild user pytree nodes around the
-    # leaf ids, and comparing those keys calls the nodes' own `__eq__`.
-    leaves, treedef = jax.tree.flatten(tree)
+    # leaf ids, and comparing those keys calls the nodes' own `__eq__`. The
+    # treedef still compares the nodes' aux data, which can raise `TypeError` or
+    # `ValueError`; the callers then skip the cache.
+    leaves, treedef = jax.tree.flatten((args, kwargs))
     return treedef, tuple(_hashable(leaf) for leaf in leaves)
 
 
 def _init_state_key(rng_key, args, kwargs):
-    return (
-        _hashable(rng_key),
-        _hashable_tree(args),
-        _hashable_tree(tuple(sorted(kwargs.items()))),
-    )
+    return _hashable(rng_key), _args_key(args, kwargs)
 
 
 class MCMC(object):
@@ -479,16 +477,14 @@ class MCMC(object):
 
     def _get_cached_fns(self):
         if self._jit_model_args:
-            args, kwargs = (None,), (None,)
+            key = None, None
         else:
-            args = (_hashable_tree(self._args),)
-            kwargs = (_hashable_tree(tuple(sorted(self._kwargs.items()))),)
-        key = args + kwargs
+            key = _args_key(self._args, self._kwargs)
         try:
             fns = self._cache.get(key, None)
         # If unhashable arguments are provided, proceed normally
         # without caching
-        except TypeError:
+        except (TypeError, ValueError):
             fns, key = None, None
         if fns is None:
 
@@ -540,7 +536,7 @@ class MCMC(object):
         try:
             return self._init_state_cache.get(key, None)
         # If unhashable arguments are provided, return None
-        except TypeError:
+        except (TypeError, ValueError):
             return None
 
     def _single_chain_mcmc(self, init, args, kwargs, collect_fields, remove_sites):
@@ -620,7 +616,7 @@ class MCMC(object):
             if not _is_under_jax_transform():
                 self._init_state_cache[key] = self._last_state
         # If unhashable arguments are provided, return None
-        except TypeError:
+        except (TypeError, ValueError):
             pass
 
     @property

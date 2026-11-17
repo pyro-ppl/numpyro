@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import dataclasses
 from functools import partial
 import os
 import sys
@@ -1415,10 +1416,9 @@ def test_empty_summary():
 
 
 @jax.tree_util.register_pytree_node_class
-class _ArrayBox:
-    """A pytree whose ``__eq__`` only works on arrays, like a unit-carrying Quantity."""
-
+class _StrictBox:
     def __init__(self, value):
+        assert isinstance(value, jax.Array), f"rebuilt around {type(value).__name__}"
         self.value = value
 
     def tree_flatten(self):
@@ -1429,20 +1429,19 @@ class _ArrayBox:
         return cls(*children)
 
     def __eq__(self, other):
-        return jnp.all(jnp.asarray(self.value) == jnp.asarray(other.value))
+        raise AssertionError("cache key compared through the pytree's __eq__")
 
     def __hash__(self):
         return hash(type(self))
 
 
-@pytest.mark.parametrize("num_chains", [1, 2])
-def test_run_twice_with_pytree_arg(num_chains):
-    def model(box):
-        m = numpyro.sample("m", dist.Normal(0.0, 1.0))
-        numpyro.sample("x", dist.Normal(m, 1.0), obs=box.value)
+def _box_model(box):
+    m = numpyro.sample("m", dist.Normal(0.0, 1.0))
+    numpyro.sample("x", dist.Normal(m, 1.0), obs=box.value)
 
-    box = _ArrayBox(jnp.ones(5))
-    mcmc = MCMC(
+
+def _small_mcmc(model, num_chains=1):
+    return MCMC(
         NUTS(model),
         num_warmup=10,
         num_samples=10,
@@ -1450,8 +1449,75 @@ def test_run_twice_with_pytree_arg(num_chains):
         chain_method="sequential",
         progress_bar=False,
     )
-    mcmc.run(random.PRNGKey(0), box)
-    mcmc.run(random.PRNGKey(1), box)
+
+
+@pytest.mark.parametrize("num_chains", [1, 2])
+def test_run_twice_with_pytree_arg(num_chains):
+    box = _StrictBox(jnp.ones(5))
+    mcmc = _small_mcmc(_box_model, num_chains)
+    mcmc.run(random.key(0), box)
+    mcmc.run(random.key(1), box)
     assert mcmc.get_samples()["m"].shape == (10 * num_chains,)
     # the second run reuses the compiled sample function
     assert len(mcmc._cache) == 1
+
+
+def test_run_twice_with_pytree_kwarg():
+    box = _StrictBox(jnp.ones(5))
+    mcmc = _small_mcmc(_box_model)
+    mcmc.run(random.key(0), box=box)
+    mcmc.run(random.key(1), box=box)
+    assert mcmc.get_samples()["m"].shape == (10,)
+    assert len(mcmc._cache) == 1
+
+
+def test_compile_with_pytree_arg():
+    box = _StrictBox(jnp.ones(5))
+    mcmc = _small_mcmc(_box_model)
+    rng_key = random.key(0)
+    mcmc._compile(rng_key, box)
+    assert len(mcmc._init_state_cache) == 1
+    assert mcmc._get_cached_init_state(rng_key, (box,), {}) is not None
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["y"], meta_fields=["idx"])
+@dataclasses.dataclass(frozen=True)
+class _Indexed:
+    y: jax.Array
+    idx: np.ndarray
+
+
+def test_run_twice_with_array_aux_data():
+    # Comparing the aux data raises ValueError: the cache is skipped, not the run.
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.y[data.idx])
+
+    y = jnp.ones(5)
+    mcmc = _small_mcmc(model)
+    # same leaf, new (equal) index array: the keys land in the same bucket
+    mcmc.run(random.key(0), _Indexed(y, np.arange(3)))
+    mcmc.run(random.key(1), _Indexed(y, np.arange(3)))
+    assert mcmc.get_samples()["m"].shape == (10,)
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["value"], meta_fields=["scale"])
+@dataclasses.dataclass(frozen=True)
+class _Scaled:
+    value: jax.Array
+    scale: float
+
+
+def test_same_leaf_different_aux_data_misses_cache():
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.value * data.scale)
+
+    value = jnp.ones(5)
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), _Scaled(value, 1.0))
+    assert_allclose(mcmc.get_samples()["m"].mean(), 1.0, atol=1.0)
+    mcmc.run(random.key(0), _Scaled(value, 100.0))
+    # a false hit would sample against the arguments held by the first entry
+    assert_allclose(mcmc.get_samples()["m"].mean(), 100.0, atol=1.0)
+    assert len(mcmc._cache) == 2
