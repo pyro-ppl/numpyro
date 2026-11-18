@@ -12,6 +12,7 @@ import jax.numpy as jnp
 
 import numpyro as pyro
 from numpyro import handlers, infer
+from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.ops.indexing import Vindex
@@ -29,6 +30,48 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 transform = dist.biject_to(dist.constraints.simplex)
+
+
+@pytest.mark.parametrize("length", [1, 4])
+@pytest.mark.parametrize("history", [0, 1])
+@pytest.mark.parametrize("scan_in_guide", [False, True])
+def test_trace_enum_elbo_rejects_scan(length, history, scan_in_guide):
+    def scanned(data):
+        def observe(carry, value):
+            pyro.sample("y", dist.Normal(), obs=value)
+            return carry, None
+
+        scan(observe, None, data, history=history)
+
+    def empty(data):
+        pass
+
+    model, guide = (empty, scanned) if scan_in_guide else (scanned, empty)
+    with pytest.raises(NotImplementedError, match="TraceEnum_ELBO.*scan"):
+        infer.TraceEnum_ELBO().loss(random.key(0), {}, model, guide, jnp.arange(length))
+
+
+def test_trace_enum_elbo_accepts_prev_site_name():
+    def model():
+        pyro.sample("_PREV_y", dist.Normal(), obs=0.0)
+
+    def guide():
+        pass
+
+    loss = infer.TraceEnum_ELBO().loss(random.key(0), {}, model, guide)
+    np.testing.assert_allclose(loss, 0.5 * np.log(2 * np.pi))
+
+
+def test_trace_enum_elbo_accepts_pure_scan():
+    def model():
+        loc, _ = scan(lambda carry, x: (carry + x, None), 0.0, jnp.arange(3.0))
+        pyro.sample("y", dist.Normal(loc, 1.0), obs=3.0)
+
+    def guide():
+        pass
+
+    loss = infer.TraceEnum_ELBO().loss(random.key(0), {}, model, guide)
+    np.testing.assert_allclose(loss, 0.5 * np.log(2 * np.pi))
 
 
 def assert_equal(a, b, prec=0):
