@@ -796,16 +796,39 @@ class scope(Messenger):
         super().__init__(fn)
 
     def process_message(self, msg: Message) -> None:
+        if msg["type"] == "control_flow":
+            msg["kwargs"]["substitute_stack"].append(("scope", self))
+            return
+        self._rename(msg)
+
+    def _rename(self, msg: Message, *, inverse: bool = False) -> None:
+        prefix = f"{self.prefix}{self.divider}"
+
+        def rename(name: str) -> str:
+            return name.removeprefix(prefix) if inverse else prefix + name
+
         if msg.get("name") and msg["type"] not in self.hide_types:
-            msg["name"] = f"{self.prefix}{self.divider}{msg['name']}"
+            msg["name"] = rename(msg["name"])
 
         if msg.get("cond_indep_stack") and "plate" not in self.hide_types:
             msg["cond_indep_stack"] = [
-                CondIndepStackFrame(
-                    f"{self.prefix}{self.divider}{i.name}", i.dim, i.size
-                )
+                CondIndepStackFrame(rename(i.name), i.dim, i.size)
                 for i in msg["cond_indep_stack"]
             ]
+
+    def _wrap(self, fn: Callable) -> "scope":
+        return scope(fn, self.prefix, self.divider, hide_types=self.hide_types)
+
+
+class _ControlFlowUnscope(Messenger):
+    # Restore local names before tracing; the outer scope runs on re-emitted sites.
+    def __init__(self, fn: Callable, scopes: list[scope]) -> None:
+        self.scopes = scopes
+        super().__init__(fn)
+
+    def process_message(self, msg: Message) -> None:
+        for handler in reversed(self.scopes):
+            handler._rename(msg, inverse=True)
 
 
 class seed(Messenger):

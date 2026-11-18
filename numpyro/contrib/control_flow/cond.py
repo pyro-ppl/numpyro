@@ -33,12 +33,19 @@ def wrap_fn(fn, substitute_stack):
 
         with handlers.block():
             seeded_fn = handlers.seed(fn, rng_key) if rng_key is not None else fn
+            scopes = []
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map)
                 if subs_type == "condition":
                     seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
                 elif subs_type == "substitute":
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
+                elif subs_type == "scope":
+                    seeded_fn = subs_map._wrap(seeded_fn)
+                    scopes.append(subs_map)
+
+            if scopes:
+                seeded_fn = handlers._ControlFlowUnscope(seeded_fn, scopes)
 
             with handlers.trace() as trace:
                 value = seeded_fn(operand)
