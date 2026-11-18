@@ -9,7 +9,7 @@ import jax
 from jax import Array, lax
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import gammainc, gammaincc, logsumexp
+from jax.scipy.special import gammainc, gammaincc, log_ndtr, logsumexp
 from jax.typing import ArrayLike
 
 from numpyro._typing import NumLike
@@ -46,6 +46,52 @@ def _at_bound(
     """
     unbounded = jnp.isinf(bound)
     return jnp.where(unbounded, limit, fn(jnp.where(unbounded, inside, bound)))
+
+
+@jax.jit
+def _truncated_normal_icdf(
+    q: ArrayLike,
+    prob: Array,
+    quantile: Array,
+    low: ArrayLike,
+    high: ArrayLike,
+    loc: ArrayLike,
+    scale: ArrayLike,
+    sign: Array,
+) -> Array:
+    use_log_tail = (
+        (prob < jnp.finfo(prob.dtype).tiny) & jnp.greater(q, 0) & jnp.less(q, 1)
+    )
+
+    def log_tail_quantile():
+        def log_tail_at(bound):
+            return _at_bound(
+                lambda x: log_ndtr(sign * (x - loc) / scale),
+                bound,
+                jnp.asarray(loc),
+                jnp.where(sign * bound < 0, -jnp.inf, 0.0),
+            )
+
+        safe_q = jnp.where(use_log_tail, q, 0.5)
+        log_prob = jnp.logaddexp(
+            jnp.log1p(-safe_q) + log_tail_at(low),
+            jnp.log(safe_q) + log_tail_at(high),
+        )
+        log_prob = jnp.where(use_log_tail, log_prob, -100.0)
+
+        # Invert the standard normal log CDF in the far tail by Newton's
+        # method, starting from the leading term log Phi(x) ≈ -x²/2.
+        def step(_, x):
+            log_cdf = log_ndtr(x)
+            log_pdf = -0.5 * (x**2 + math.log(2 * math.pi))
+            return x - (log_cdf - log_prob) * jnp.exp(log_cdf - log_pdf)
+
+        z = lax.fori_loop(0, 3, step, -jnp.sqrt(-2 * log_prob))
+        tail_quantile = jnp.clip(loc + sign * scale * z, low, high)
+        return jnp.where(use_log_tail, tail_quantile, quantile)
+
+    quantile = lax.cond(jnp.any(use_log_tail), log_tail_quantile, lambda: quantile)
+    return jnp.where(jnp.equal(q, 0), low, jnp.where(jnp.equal(q, 1), high, quantile))
 
 
 class LeftTruncatedDistribution(Distribution):
@@ -471,9 +517,12 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   A = 2 * loc - icdf[(1 - q) * cdf(2*loc-low)) + q * cdf(2*loc - high)]
         loc = self.base_dist.loc
         sign = jnp.where(loc >= self.low, 1.0, -1.0)
-        ppf = (1 - sign) * loc + sign * self.base_dist.icdf(
-            clamp_probs((1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high)
-        )
+        prob = (1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high
+        ppf = (1 - sign) * loc + sign * self.base_dist.icdf(clamp_probs(prob))
+        if isinstance(self.base_dist, Normal):
+            ppf = _truncated_normal_icdf(
+                q, prob, ppf, self.low, self.high, loc, self.base_dist.scale, sign
+            )
         return jnp.where(
             jnp.logical_or(jnp.less(q, 0), jnp.greater(q, 1)), jnp.nan, ppf
         )
