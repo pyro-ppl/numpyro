@@ -1507,7 +1507,7 @@ class _Indexed:
 
 
 def test_run_twice_with_array_aux_data():
-    # Comparing the aux data raises ValueError: the cache is skipped, not the run.
+    # NumPy-array aux data is unhashable: the cache is skipped, not the run.
     def model(data):
         m = numpyro.sample("m", dist.Normal(0.0, 1.0))
         numpyro.sample("x", dist.Normal(m, 1.0), obs=data.y[data.idx])
@@ -1518,8 +1518,31 @@ def test_run_twice_with_array_aux_data():
     mcmc.run(random.key(0), _Indexed(y, np.arange(3)))
     mcmc.run(random.key(1), _Indexed(y, np.arange(3)))
     assert mcmc.get_samples()["m"].shape == (10,)
-    # the second lookup raised ValueError, so nothing new was stored
-    assert len(mcmc._cache) == 1
+    # hashing the aux data raised TypeError, so nothing was stored
+    assert len(mcmc._cache) == 0
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["y"], meta_fields=["cfg"])
+@dataclasses.dataclass
+class _Configured:
+    y: jax.Array
+    cfg: dict
+
+
+def test_mutable_aux_data_edited_in_place_skips_cache():
+    # A dict meta field is unhashable, so the pytree is never cached. A cache hit
+    # would reuse functions traced with the old metadata and stall at the init.
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.y * data.cfg["scale"])
+
+    data = _Configured(jnp.full(5, 10.0), {"scale": 1.0})
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), data)
+    data.cfg["scale"] = -1.0  # in-place edit of a meta field
+    mcmc.run(random.key(1), data)
+    assert len(mcmc._cache) == 0
+    assert_allclose(mcmc.get_samples()["m"].mean(), -10.0, atol=1.0)
 
 
 @partial(jax.tree_util.register_dataclass, data_fields=["value"], meta_fields=["scale"])
@@ -1544,7 +1567,7 @@ def test_same_leaf_different_aux_data_misses_cache():
     assert len(mcmc._cache) == 2
 
 
-def test_rebinding_arg_container_does_not_leak_into_cache_hit():
+def test_rebinding_arg_container_does_not_leak_into_cache_hit(cached_fns_calls):
     def model(data):
         m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
         numpyro.sample("x", dist.Normal(m, 1.0), obs=data["x"])
@@ -1558,4 +1581,6 @@ def test_rebinding_arg_container_does_not_leak_into_cache_hit():
     mcmc.run(random.key(1), data)
     # same leaf as the first run; new extra_fields forces a fresh fori_collect body
     mcmc.run(random.key(2), {"x": x0}, extra_fields=("potential_energy",))
+    # the third run is a cache hit on the first entry
+    assert cached_fns_calls[2] is cached_fns_calls[0]
     assert_allclose(mcmc.get_samples()["m"].mean(), 10.0, atol=1.0)

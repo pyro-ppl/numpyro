@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
+from collections import OrderedDict, defaultdict
 from collections.abc import Callable
 from functools import partial
 from operator import attrgetter
@@ -285,14 +286,28 @@ def _hashable(x):
     return x
 
 
+def _hash_aux(treedef):
+    # `PyTreeDef.__hash__` skips aux data. Hash it here, so that a pytree with
+    # unhashable (mutable) metadata skips the cache, as it did before keys were
+    # built from the treedef. Editing such metadata in place would otherwise
+    # reuse functions traced with the old metadata. Dict nodes store their keys
+    # in a list, so the builtin mappings are skipped.
+    node_data = treedef.node_data()
+    if node_data is not None and node_data[0] not in (dict, OrderedDict, defaultdict):
+        hash(node_data[1])
+    for child in treedef.children():
+        _hash_aux(child)
+
+
 def _args_key(args, kwargs):
     # Key on the tree structure and the hashable leaves. Mapping `_hashable` over
     # the tree with `jax.tree.map` would rebuild user pytree nodes around the
     # leaf ids, and comparing those keys calls the nodes' own `__eq__`. The
     # treedef still compares the nodes' aux data; JAX re-raises any exception
-    # from that comparison as `ValueError`, and an unhashable leaf raises
-    # `TypeError`. The callers catch both and skip the cache.
+    # from that comparison as `ValueError`. Unhashable aux data or an unhashable
+    # leaf raises `TypeError`. The callers catch both and skip the cache.
     leaves, treedef = jax.tree.flatten((args, kwargs))
+    _hash_aux(treedef)
     return treedef, tuple(_hashable(leaf) for leaf in leaves)
 
 
@@ -477,11 +492,11 @@ class MCMC(object):
         self._set_collection_params()
 
     def _get_cached_fns(self):
-        if self._jit_model_args:
-            key = None, None
-        else:
-            key = _args_key(self._args, self._kwargs)
         try:
+            if self._jit_model_args:
+                key = None, None
+            else:
+                key = _args_key(self._args, self._kwargs)
             fns = self._cache.get(key, None)
         # If unhashable arguments are provided, proceed normally
         # without caching
@@ -535,8 +550,8 @@ class MCMC(object):
         return fns
 
     def _get_cached_init_state(self, rng_key, args, kwargs):
-        key = _init_state_key(rng_key, args, kwargs)
         try:
+            key = _init_state_key(rng_key, args, kwargs)
             return self._init_state_cache.get(key, None)
         # If unhashable arguments are provided, return None
         except (TypeError, ValueError):
@@ -614,8 +629,8 @@ class MCMC(object):
         self.run(
             rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs
         )
-        key = _init_state_key(rng_key, args, kwargs)
         try:
+            key = _init_state_key(rng_key, args, kwargs)
             if not _is_under_jax_transform():
                 self._init_state_cache[key] = self._last_state
         # If unhashable arguments are provided, return None
