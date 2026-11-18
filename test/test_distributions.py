@@ -1287,6 +1287,8 @@ DISCRETE = [
     T(dist.Delta, np.array([0.0, 2.0]), np.array([-2.0, -4.0])),
     T(dist.DirichletMultinomial, np.array([1.0, 2.0, 3.9]), 10),
     T(dist.DirichletMultinomial, np.array([0.2, 0.7, 1.1]), np.array([5, 5])),
+    T(dist.GammaCount, 0.5, 2.0),
+    T(dist.GammaCount, np.array([0.5, 2.0]), np.array([2.0, 5.0])),
     T(dist.GammaPoisson, 2.0, 2.0),
     T(dist.GammaPoisson, np.array([6.0, 2]), np.array([2.0, 8.0])),
     T(dist.GeometricProbs, 0.2),
@@ -2234,6 +2236,146 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-5)
 
     assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=2e-6)
+
+
+def test_gamma_count_approximate_statistics():
+    concentration = 0.7
+    max_terms = 12
+    rate = 8.0
+    scaled_rate = concentration * rate
+    values = np.arange(max_terms)
+    cdf = scipy.special.gammaincc(concentration * (values + 1), scaled_rate)
+    probabilities = cdf - scipy.special.gammaincc(concentration * values, scaled_rate)
+    tail_probability = scipy.special.gammainc(concentration * max_terms, scaled_rate)
+    capped_probabilities = np.append(probabilities, tail_probability)
+    capped_values = np.arange(max_terms + 1)
+    expected_entropy = osp.entropy(capped_probabilities)
+    expected_mean = np.sum(capped_values * capped_probabilities)
+    expected_variance = np.sum(
+        (capped_values - expected_mean) ** 2 * capped_probabilities
+    )
+
+    d = dist.GammaCount(concentration, rate, max_terms=max_terms)
+    assert_allclose(d.entropy(), expected_entropy, atol=2e-5, rtol=2e-5)
+    assert_allclose(d.mean, expected_mean, atol=2e-5, rtol=2e-5)
+    assert_allclose(d.variance, expected_variance, atol=2e-5, rtol=2e-5)
+
+
+def test_gamma_count_approximation_convergence():
+    entropy = []
+    mean = []
+    variance = []
+    for max_terms in (5, 10, 20):
+        d = dist.GammaCount(1.0, 5.0, max_terms=max_terms)
+        entropy.append(d.entropy())
+        mean.append(d.mean)
+        variance.append(d.variance)
+
+    expected_entropy = osp.poisson(5.0).entropy()
+    expected_mean = 5.0
+    expected_variance = 5.0
+    for actual, expected in (
+        (entropy, expected_entropy),
+        (mean, expected_mean),
+        (variance, expected_variance),
+    ):
+        errors = jnp.abs(jnp.asarray(actual) - expected)
+        assert jnp.all(errors[1:] < errors[:-1])
+        assert_allclose(actual[-1], expected, atol=1e-5)
+
+
+@pytest.mark.parametrize("concentration", [0.5, 1.0, 2.0, 10.0])
+def test_gamma_count_cdf_and_log_prob(concentration):
+    rate = 3.5
+    values = np.arange(13)
+    scaled_rate = concentration * rate
+    left_shapes = concentration * values
+    right_shapes = concentration * (values + 1)
+    expected_cdf = scipy.special.gammaincc(right_shapes, scaled_rate)
+    expected_prob = expected_cdf - scipy.special.gammaincc(left_shapes, scaled_rate)
+
+    d = dist.GammaCount(concentration, rate)
+    assert_allclose(d.cdf(values), expected_cdf, atol=2e-6, rtol=2e-5)
+    assert_allclose(jnp.exp(d.log_prob(values)), expected_prob, atol=2e-6, rtol=2e-5)
+
+
+@pytest.mark.parametrize("value", [0.0, 3.0])
+def test_gamma_count_gradients(value):
+    def log_prob(parameters):
+        concentration, rate = parameters
+        return dist.GammaCount(concentration, rate).log_prob(value)
+
+    gradient = jax.grad(log_prob)(jnp.array([1.7, 3.5]))
+    assert jnp.all(jnp.isfinite(gradient))
+
+
+@pytest.mark.parametrize("concentration", [7.389, 20.1, 54.598])
+@pytest.mark.parametrize("rate", [1e-3, 10.0])
+@pytest.mark.parametrize("value", [0.0, 1.0, 4.0])
+def test_gamma_count_saturated_tail_gradients(concentration, rate, value):
+    # Both incomplete-gamma tails underflow well inside the useful parameter
+    # range, and further out under float32 than under float64, so probe far
+    # enough to trigger at either precision.  The value stays a correct limit
+    # there; only the gradient was indeterminate.
+    def log_prob(parameters):
+        return dist.GammaCount(parameters[0], parameters[1]).log_prob(value)
+
+    parameters = jnp.array([concentration, rate])
+    assert jnp.isfinite(log_prob(parameters))
+    assert jnp.all(jnp.isfinite(jax.grad(log_prob)(parameters)))
+
+
+def test_gamma_count_max_terms_pytree():
+    d = dist.GammaCount(1.0, 5.0, max_terms=17)
+    actual = jax.jit(lambda distribution: distribution)(d)
+    assert actual.max_terms == 17
+    assert d.expand((3,)).base_dist.max_terms == 17
+
+
+@pytest.mark.parametrize("max_terms", [-1, 0, 1.5, True])
+def test_gamma_count_max_terms_validation(max_terms):
+    with pytest.raises(ValueError, match="`max_terms` must be a positive integer"):
+        dist.GammaCount(1.0, 1.0, max_terms=max_terms)
+
+
+@pytest.mark.parametrize("concentration", [0.3, 0.5, 1.0, 2.0, 10.0])
+def test_gamma_count_normalization(concentration):
+    d = dist.GammaCount(concentration, 5.0)
+    values = jnp.arange(200)
+    assert_allclose(jnp.exp(d.log_prob(values)).sum(), 1.0, atol=1e-5)
+
+
+def test_gamma_count_poisson_special_case():
+    gamma_count = dist.GammaCount(1.0, 3.5)
+    poisson = dist.Poisson(3.5)
+    values = jnp.arange(16)
+    assert_allclose(gamma_count.cdf(values), poisson.cdf(values), atol=1e-6)
+    assert_allclose(gamma_count.log_prob(values), poisson.log_prob(values), atol=1e-5)
+
+
+def test_gamma_count_sampler():
+    d = dist.GammaCount(2.0, 4.0)
+    samples = d.sample(random.key(0), (20_000,))
+    values = jnp.arange(9)
+    actual_cdf = jnp.mean(samples[:, None] <= values, axis=0)
+    assert_allclose(actual_cdf, d.cdf(values), atol=0.015)
+
+
+def test_gamma_count_statistics_batch_shape_and_gradients():
+    concentration = jnp.array([0.5, 2.0])
+    rate = jnp.array([[2.0], [5.0]])
+    d = dist.GammaCount(concentration, rate, max_terms=20)
+    assert d.entropy().shape == (2, 2)
+    assert d.mean.shape == (2, 2)
+    assert d.variance.shape == (2, 2)
+
+    def statistics(parameters):
+        concentration, rate = parameters
+        d = dist.GammaCount(concentration, rate, max_terms=20)
+        return d.entropy() + d.mean + d.variance
+
+    gradient = jax.grad(statistics)(jnp.array([1.7, 3.5]))
+    assert jnp.all(jnp.isfinite(gradient))
 
 
 def test_zero_inflated_logits_probs_agree():
