@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import dataclasses
 from functools import partial
 import os
 import sys
@@ -1412,3 +1413,236 @@ def test_empty_summary():
     mcmc.run(random.key(0))
 
     mcmc.print_summary()
+
+
+@jax.tree_util.register_pytree_node_class
+class _StrictBox:
+    # Rejecting non-arrays works because the tests close over the args; JAX's
+    # in_axes handling (vectorized chains, jit_model_args) unflattens around
+    # sentinel objects, so this double does not carry over to those paths.
+    def __init__(self, value):
+        assert isinstance(value, jax.Array), f"rebuilt around {type(value).__name__}"
+        self.value = value
+
+    def tree_flatten(self):
+        return (self.value,), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
+
+    def __eq__(self, other):
+        raise AssertionError("cache key compared through the pytree's __eq__")
+
+    def __hash__(self):
+        return hash(type(self))
+
+
+def _box_model(box):
+    m = numpyro.sample("m", dist.Normal(0.0, 1.0))
+    numpyro.sample("x", dist.Normal(m, 1.0), obs=box.value)
+
+
+def _small_mcmc(model, num_chains=1):
+    return MCMC(
+        NUTS(model),
+        num_warmup=10,
+        num_samples=10,
+        num_chains=num_chains,
+        chain_method="sequential",
+        progress_bar=False,
+    )
+
+
+@pytest.fixture
+def cached_fns_calls(monkeypatch):
+    # every `fns` tuple `_get_cached_fns` hands out, in call order
+    returned = []
+    get_cached_fns = MCMC._get_cached_fns
+
+    def spy(self):
+        returned.append(get_cached_fns(self))
+        return returned[-1]
+
+    monkeypatch.setattr(MCMC, "_get_cached_fns", spy)
+    return returned
+
+
+@pytest.mark.parametrize("num_chains", [1, 2])
+def test_run_twice_with_pytree_arg(num_chains, cached_fns_calls):
+    box = _StrictBox(jnp.ones(5))
+    mcmc = _small_mcmc(_box_model, num_chains)
+    mcmc.run(random.key(0), box)
+    mcmc.run(random.key(1), box)
+    assert mcmc.get_samples()["m"].shape == (10 * num_chains,)
+    # the second run reuses the cached functions instead of rebuilding them
+    assert len(cached_fns_calls) == 2 * num_chains
+    assert all(fns is cached_fns_calls[0] for fns in cached_fns_calls)
+
+
+def test_run_twice_with_pytree_kwarg(cached_fns_calls):
+    box = _StrictBox(jnp.ones(5))
+    mcmc = _small_mcmc(_box_model)
+    mcmc.run(random.key(0), box=box)
+    mcmc.run(random.key(1), box=box)
+    assert mcmc.get_samples()["m"].shape == (10,)
+    assert len(cached_fns_calls) == 2
+    assert cached_fns_calls[1] is cached_fns_calls[0]
+
+
+def test_compile_with_pytree_arg():
+    box = _StrictBox(jnp.ones(5))
+    mcmc = _small_mcmc(_box_model)
+    rng_key = random.key(0)
+    mcmc._compile(rng_key, box)
+    assert len(mcmc._init_state_cache) == 1
+    assert mcmc._get_cached_init_state(rng_key, (box,), {}) is not None
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["y"], meta_fields=["idx"])
+@dataclasses.dataclass(frozen=True)
+class _Indexed:
+    y: jax.Array
+    idx: np.ndarray
+
+
+def test_run_twice_with_array_aux_data():
+    # NumPy-array aux data is unhashable: the cache is skipped, not the run.
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.y[data.idx])
+
+    y = jnp.ones(5)
+    mcmc = _small_mcmc(model)
+    mcmc.run(random.key(0), _Indexed(y, np.arange(3)))
+    mcmc.run(random.key(1), _Indexed(y, np.arange(3)))
+    assert mcmc.get_samples()["m"].shape == (10,)
+    # hashing the aux data raised TypeError, so nothing was stored
+    assert len(mcmc._cache) == 0
+
+
+class _ArrayEqTag:
+    # hashable, but `==` returns an array, so comparing treedefs raises ValueError
+    def __hash__(self):
+        return 0
+
+    def __eq__(self, other):
+        return np.array([True, False])
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["value"], meta_fields=["tag"])
+@dataclasses.dataclass(frozen=True)
+class _Tagged:
+    value: jax.Array
+    tag: _ArrayEqTag
+
+
+def test_run_twice_when_comparing_aux_data_raises():
+    value = jnp.ones(5)
+    mcmc = _small_mcmc(_box_model)
+    mcmc.run(random.key(0), _Tagged(value, _ArrayEqTag()))
+    # same leaf and aux hash: the lookup compares the tags and JAX raises
+    mcmc.run(random.key(1), _Tagged(value, _ArrayEqTag()))
+    assert mcmc.get_samples()["m"].shape == (10,)
+    assert len(mcmc._cache) == 1
+
+
+def test_dict_arg_keeps_insertion_order():
+    def model(data):
+        mu = numpyro.sample("mu", dist.Normal(0.0, 100.0).expand([2]).to_event(1))
+        x = jnp.stack(list(data.values()))
+        numpyro.sample("x", dist.Normal(mu[:, None], 1.0).to_event(2), obs=x)
+
+    data = {"b": jnp.full(5, 10.0), "a": jnp.full(5, -10.0)}
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), data)
+    assert_allclose(mcmc.get_samples()["mu"].mean(0), [10.0, -10.0], atol=1.0)
+
+
+@jax.tree_util.register_pytree_node_class
+class _Signed:
+    # `sign` is not flattened, so a rebuilt instance would lose it
+    def __init__(self, value, sign=1.0):
+        self.value = value
+        self.sign = sign
+
+    def tree_flatten(self):
+        return (self.value,), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
+
+
+def test_unflattened_attribute_reaches_the_model():
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.value * data.sign)
+
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), _Signed(jnp.full(5, 10.0), sign=-1.0))
+    assert_allclose(mcmc.get_samples()["m"].mean(), -10.0, atol=1.0)
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["y"], meta_fields=["cfg"])
+@dataclasses.dataclass
+class _Configured:
+    y: jax.Array
+    cfg: dict
+
+
+def test_mutable_aux_data_edited_in_place_skips_cache():
+    # A dict meta field is unhashable, so the pytree is never cached. A cache hit
+    # would reuse functions traced with the old metadata and stall at the init.
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.y * data.cfg["scale"])
+
+    data = _Configured(jnp.full(5, 10.0), {"scale": 1.0})
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), data)
+    data.cfg["scale"] = -1.0  # in-place edit of a meta field
+    mcmc.run(random.key(1), data)
+    assert len(mcmc._cache) == 0
+    assert_allclose(mcmc.get_samples()["m"].mean(), -10.0, atol=1.0)
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["value"], meta_fields=["scale"])
+@dataclasses.dataclass(frozen=True)
+class _Scaled:
+    value: jax.Array
+    scale: float
+
+
+def test_same_leaf_different_aux_data_misses_cache():
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.value * data.scale)
+
+    value = jnp.ones(5)
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), _Scaled(value, 1.0))
+    assert_allclose(mcmc.get_samples()["m"].mean(), 1.0, atol=1.0)
+    mcmc.run(random.key(0), _Scaled(value, 100.0))
+    # a false hit would sample against the arguments held by the first entry
+    assert_allclose(mcmc.get_samples()["m"].mean(), 100.0, atol=1.0)
+    assert len(mcmc._cache) == 2
+
+
+def test_rebinding_arg_container_does_not_leak_into_cache_hit(cached_fns_calls):
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data[0])
+
+    # keep the truth far from the init region: a stale hit stalls at the init
+    x0, x1 = jnp.full(5, 10.0), jnp.full(5, -10.0)
+    data = [x0]
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), data)
+    data[0] = x1  # reuse the container for the next dataset
+    mcmc.run(random.key(1), data)
+    # same leaf as the first run; new extra_fields forces a fresh fori_collect body
+    mcmc.run(random.key(2), [x0], extra_fields=("potential_energy",))
+    # the first entry closes over `data`, which now holds x1: it is rebuilt
+    assert cached_fns_calls[2] is not cached_fns_calls[0]
+    assert_allclose(mcmc.get_samples()["m"].mean(), 10.0, atol=1.0)

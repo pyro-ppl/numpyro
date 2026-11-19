@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
 from operator import attrgetter
@@ -285,6 +286,42 @@ def _hashable(x):
     return x
 
 
+def _hash_aux(treedef):
+    # `PyTreeDef.__hash__` skips aux data. Hash it here, so that a pytree with
+    # unhashable metadata, such as a dict or an array, skips the cache as on
+    # master. Mutable metadata that hashes by identity is not detected: editing
+    # it in place still reuses functions traced with the old metadata, which JAX
+    # rules out by requiring metadata to be immutable. Dicts skip the cache as on
+    # master too: the treedef stores their keys sorted, so two calls whose dicts
+    # differ only in insertion order would share an entry. Iterative, so deeply
+    # nested arguments can't hit the recursion limit.
+    nodes = [treedef]
+    while nodes:
+        node = nodes.pop()
+        node_data = node.node_data()
+        if node_data is not None:
+            if node_data[0] in (dict, defaultdict):
+                raise TypeError("dict arguments are not cached")
+            hash(node_data[1])
+        nodes.extend(node.children())
+
+
+def _args_key(args, kwargs):
+    # Key on the tree structure and the hashable leaves. Mapping `_hashable` over
+    # the tree with `jax.tree.map` would rebuild user pytree nodes around the
+    # leaf ids, and comparing those keys calls the nodes' own `__eq__`. The
+    # treedef still compares the nodes' aux data; JAX re-raises any exception
+    # from that comparison as `ValueError`. Unhashable aux data or an unhashable
+    # leaf raises `TypeError`. The callers catch both and skip the cache.
+    leaves, treedef = jax.tree.flatten((args, tuple(sorted(kwargs.items()))))
+    _hash_aux(treedef)
+    return treedef, tuple(_hashable(leaf) for leaf in leaves)
+
+
+def _init_state_key(rng_key, args, kwargs):
+    return _hashable(rng_key), _args_key(args, kwargs)
+
+
 class MCMC(object):
     """
     Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
@@ -462,19 +499,20 @@ class MCMC(object):
         self._set_collection_params()
 
     def _get_cached_fns(self):
-        if self._jit_model_args:
-            args, kwargs = (None,), (None,)
-        else:
-            args = jax.tree.map(lambda x: _hashable(x), self._args)
-            kwargs = jax.tree.map(
-                lambda x: _hashable(x), tuple(sorted(self._kwargs.items()))
-            )
-        key = args + kwargs
         try:
-            fns = self._cache.get(key, None)
+            if self._jit_model_args:
+                key = None, None
+            else:
+                key = _args_key(self._args, self._kwargs)
+            fns, closed = self._cache.get(key, (None, None))
+            # The entry closes over the caller's own arguments, as on master, so
+            # the model sees the objects `init` saw. Drop it if they no longer
+            # give this key, i.e. the caller rebound one of their entries since.
+            if closed is not None and _args_key(*closed) != key:
+                fns = None
         # If unhashable arguments are provided, proceed normally
         # without caching
-        except TypeError:
+        except (TypeError, ValueError):
             fns, key = None, None
         if fns is None:
 
@@ -518,18 +556,16 @@ class MCMC(object):
 
             fns = sample_fn, postprocess_fn
             if key is not None and not _is_under_jax_transform():
-                self._cache[key] = fns
+                closed = None if self._jit_model_args else (self._args, self._kwargs)
+                self._cache[key] = fns, closed
         return fns
 
     def _get_cached_init_state(self, rng_key, args, kwargs):
-        rng_key = (_hashable(rng_key),)
-        args = jax.tree.map(lambda x: _hashable(x), args)
-        kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
-        key = rng_key + args + kwargs
         try:
+            key = _init_state_key(rng_key, args, kwargs)
             return self._init_state_cache.get(key, None)
         # If unhashable arguments are provided, return None
-        except TypeError:
+        except (TypeError, ValueError):
             return None
 
     def _single_chain_mcmc(self, init, args, kwargs, collect_fields, remove_sites):
@@ -604,15 +640,12 @@ class MCMC(object):
         self.run(
             rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs
         )
-        rng_key = (_hashable(rng_key),)
-        args = jax.tree.map(lambda x: _hashable(x), args)
-        kwargs = jax.tree.map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
-        key = rng_key + args + kwargs
         try:
+            key = _init_state_key(rng_key, args, kwargs)
             if not _is_under_jax_transform():
                 self._init_state_cache[key] = self._last_state
         # If unhashable arguments are provided, return None
-        except TypeError:
+        except (TypeError, ValueError):
             pass
 
     @property
