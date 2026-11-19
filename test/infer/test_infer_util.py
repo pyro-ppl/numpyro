@@ -39,11 +39,13 @@ from numpyro.infer.util import (
 import numpyro.optim as optim
 
 
-@pytest.fixture(params=["old", "new"])
+@pytest.fixture(params=["old", "new", "rbg"])
 def rng_key(request):
     rng_type = request.param
     if rng_type == "old":
-        return random.key(0)
+        return random.PRNGKey(0)
+    elif rng_type == "rbg":
+        return random.key(0, impl="rbg")
     else:
         return random.key(0)
 

@@ -978,7 +978,7 @@ def _predictive(
     chunk_size = num_samples if parallel else 1
     return soft_vmap(
         single_prediction,
-        (jax.random.key_data(rng_key), posterior_samples),
+        (rng_key, posterior_samples),
         len(batch_shape),
         chunk_size,
     )
