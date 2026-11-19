@@ -21,6 +21,7 @@ from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import (
     CondIndepStackFrame,
+    block,
     replay,
     seed,
     substitute,
@@ -33,7 +34,6 @@ from numpyro.infer.util import (
     is_identically_one,
 )
 from numpyro.ops.provenance import eval_provenance
-from numpyro.primitives import Messenger
 from numpyro.util import _validate_model, check_model_guide_match, find_stack_level
 
 if TYPE_CHECKING:
@@ -908,15 +908,6 @@ class TraceGraph_ELBO(ELBO):
             )
 
 
-class _RejectScannedSamples(Messenger):
-    def process_message(self, msg: Message) -> None:
-        if msg["type"] == "sample" and "_scan_current_index" in msg["infer"]:
-            raise NotImplementedError(
-                "TraceEnum_ELBO does not support sample sites inside "
-                "numpyro.contrib.control_flow.scan."
-            )
-
-
 def get_importance_trace_enum(
     model: ModelT[P],
     guide: ModelT[P],
@@ -1165,8 +1156,16 @@ class TraceEnum_ELBO(ELBO):
                     seeded_model, seeded_guide, args, kwargs, param_map
                 )
 
+            def reject_scanned_sample(msg: Message) -> bool:
+                if msg["type"] == "sample" and "_scan_current_index" in msg["infer"]:
+                    raise NotImplementedError(
+                        "TraceEnum_ELBO does not support sample sites inside "
+                        "numpyro.contrib.control_flow.scan."
+                    )
+                return False
+
             # Detect scanned sites before enumeration changes their names and shapes.
-            with _RejectScannedSamples():
+            with block(hide_fn=reject_scanned_sample):
                 _model_deps, guide_deps = get_nonreparam_deps(
                     model, guide, args, kwargs, param_map
                 )
