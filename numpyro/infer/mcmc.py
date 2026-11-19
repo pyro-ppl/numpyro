@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
 from operator import attrgetter
@@ -288,15 +288,22 @@ def _hashable(x):
 
 def _hash_aux(treedef):
     # `PyTreeDef.__hash__` skips aux data. Hash it here, so that a pytree with
-    # unhashable (mutable) metadata skips the cache, as it did before keys were
-    # built from the treedef. Editing such metadata in place would otherwise
-    # reuse functions traced with the old metadata. Dict nodes store their keys
-    # in a list, so the builtin mappings are skipped.
-    node_data = treedef.node_data()
-    if node_data is not None and node_data[0] not in (dict, OrderedDict, defaultdict):
-        hash(node_data[1])
-    for child in treedef.children():
-        _hash_aux(child)
+    # unhashable metadata, such as a dict or an array, skips the cache as on
+    # master. Mutable metadata that hashes by identity is not detected: editing
+    # it in place still reuses functions traced with the old metadata, which JAX
+    # rules out by requiring metadata to be immutable. Dicts skip the cache as on
+    # master too: the treedef stores their keys sorted, so two calls whose dicts
+    # differ only in insertion order would share an entry. Iterative, so deeply
+    # nested arguments can't hit the recursion limit.
+    nodes = [treedef]
+    while nodes:
+        node = nodes.pop()
+        node_data = node.node_data()
+        if node_data is not None:
+            if node_data[0] in (dict, defaultdict):
+                raise TypeError("dict arguments are not cached")
+            hash(node_data[1])
+        nodes.extend(node.children())
 
 
 def _args_key(args, kwargs):
@@ -306,7 +313,7 @@ def _args_key(args, kwargs):
     # treedef still compares the nodes' aux data; JAX re-raises any exception
     # from that comparison as `ValueError`. Unhashable aux data or an unhashable
     # leaf raises `TypeError`. The callers catch both and skip the cache.
-    leaves, treedef = jax.tree.flatten((args, kwargs))
+    leaves, treedef = jax.tree.flatten((args, tuple(sorted(kwargs.items()))))
     _hash_aux(treedef)
     return treedef, tuple(_hashable(leaf) for leaf in leaves)
 
@@ -497,7 +504,12 @@ class MCMC(object):
                 key = None, None
             else:
                 key = _args_key(self._args, self._kwargs)
-            fns = self._cache.get(key, None)
+            fns, closed = self._cache.get(key, (None, None))
+            # The entry closes over the caller's own arguments, as on master, so
+            # the model sees the objects `init` saw. Drop it if they no longer
+            # give this key, i.e. the caller rebound one of their entries since.
+            if closed is not None and _args_key(*closed) != key:
+                fns = None
         # If unhashable arguments are provided, proceed normally
         # without caching
         except (TypeError, ValueError):
@@ -532,21 +544,20 @@ class MCMC(object):
                 sample_fn = partial(_sample_fn_jit_args, sampler=self.sampler)
                 postprocess_fn = _postprocess_fn
             else:
-                # Close over a copy rebuilt from the leaves the key was built from:
-                # rebinding an entry of the caller's dict/list/pytree after this
-                # run must not change what a later cache hit samples against.
-                args, kwargs = jax.tree.map(lambda x: x, (self._args, self._kwargs))
                 sample_fn = partial(
                     _sample_fn_nojit_args,
                     sampler=self.sampler,
-                    args=args,
-                    kwargs=kwargs,
+                    args=self._args,
+                    kwargs=self._kwargs,
                 )
-                postprocess_fn = partial(_postprocess_fn, args=args, kwargs=kwargs)
+                postprocess_fn = partial(
+                    _postprocess_fn, args=self._args, kwargs=self._kwargs
+                )
 
             fns = sample_fn, postprocess_fn
             if key is not None and not _is_under_jax_transform():
-                self._cache[key] = fns
+                closed = None if self._jit_model_args else (self._args, self._kwargs)
+                self._cache[key] = fns, closed
         return fns
 
     def _get_cached_init_state(self, rng_key, args, kwargs):

@@ -1514,12 +1514,74 @@ def test_run_twice_with_array_aux_data():
 
     y = jnp.ones(5)
     mcmc = _small_mcmc(model)
-    # same leaf, new (equal) index array: the keys land in the same bucket
     mcmc.run(random.key(0), _Indexed(y, np.arange(3)))
     mcmc.run(random.key(1), _Indexed(y, np.arange(3)))
     assert mcmc.get_samples()["m"].shape == (10,)
     # hashing the aux data raised TypeError, so nothing was stored
     assert len(mcmc._cache) == 0
+
+
+class _ArrayEqTag:
+    # hashable, but `==` returns an array, so comparing treedefs raises ValueError
+    def __hash__(self):
+        return 0
+
+    def __eq__(self, other):
+        return np.array([True, False])
+
+
+@partial(jax.tree_util.register_dataclass, data_fields=["value"], meta_fields=["tag"])
+@dataclasses.dataclass(frozen=True)
+class _Tagged:
+    value: jax.Array
+    tag: _ArrayEqTag
+
+
+def test_run_twice_when_comparing_aux_data_raises():
+    value = jnp.ones(5)
+    mcmc = _small_mcmc(_box_model)
+    mcmc.run(random.key(0), _Tagged(value, _ArrayEqTag()))
+    # same leaf and aux hash: the lookup compares the tags and JAX raises
+    mcmc.run(random.key(1), _Tagged(value, _ArrayEqTag()))
+    assert mcmc.get_samples()["m"].shape == (10,)
+    assert len(mcmc._cache) == 1
+
+
+def test_dict_arg_keeps_insertion_order():
+    def model(data):
+        mu = numpyro.sample("mu", dist.Normal(0.0, 100.0).expand([2]).to_event(1))
+        x = jnp.stack(list(data.values()))
+        numpyro.sample("x", dist.Normal(mu[:, None], 1.0).to_event(2), obs=x)
+
+    data = {"b": jnp.full(5, 10.0), "a": jnp.full(5, -10.0)}
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), data)
+    assert_allclose(mcmc.get_samples()["mu"].mean(0), [10.0, -10.0], atol=1.0)
+
+
+@jax.tree_util.register_pytree_node_class
+class _Signed:
+    # `sign` is not flattened, so a rebuilt instance would lose it
+    def __init__(self, value, sign=1.0):
+        self.value = value
+        self.sign = sign
+
+    def tree_flatten(self):
+        return (self.value,), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children)
+
+
+def test_unflattened_attribute_reaches_the_model():
+    def model(data):
+        m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data.value * data.sign)
+
+    mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
+    mcmc.run(random.key(0), _Signed(jnp.full(5, 10.0), sign=-1.0))
+    assert_allclose(mcmc.get_samples()["m"].mean(), -10.0, atol=1.0)
 
 
 @partial(jax.tree_util.register_dataclass, data_fields=["y"], meta_fields=["cfg"])
@@ -1570,17 +1632,17 @@ def test_same_leaf_different_aux_data_misses_cache():
 def test_rebinding_arg_container_does_not_leak_into_cache_hit(cached_fns_calls):
     def model(data):
         m = numpyro.sample("m", dist.Normal(0.0, 1000.0))
-        numpyro.sample("x", dist.Normal(m, 1.0), obs=data["x"])
+        numpyro.sample("x", dist.Normal(m, 1.0), obs=data[0])
 
     # keep the truth far from the init region: a stale hit stalls at the init
     x0, x1 = jnp.full(5, 10.0), jnp.full(5, -10.0)
-    data = {"x": x0}
+    data = [x0]
     mcmc = MCMC(NUTS(model), num_warmup=200, num_samples=200, progress_bar=False)
     mcmc.run(random.key(0), data)
-    data["x"] = x1  # reuse the container for the next dataset
+    data[0] = x1  # reuse the container for the next dataset
     mcmc.run(random.key(1), data)
     # same leaf as the first run; new extra_fields forces a fresh fori_collect body
-    mcmc.run(random.key(2), {"x": x0}, extra_fields=("potential_energy",))
-    # the third run is a cache hit on the first entry
-    assert cached_fns_calls[2] is cached_fns_calls[0]
+    mcmc.run(random.key(2), [x0], extra_fields=("potential_energy",))
+    # the first entry closes over `data`, which now holds x1: it is rebuilt
+    assert cached_fns_calls[2] is not cached_fns_calls[0]
     assert_allclose(mcmc.get_samples()["m"].mean(), 10.0, atol=1.0)
