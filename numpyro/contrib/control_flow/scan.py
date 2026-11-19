@@ -319,6 +319,7 @@ def scan_wrapper(
                 f, config_fn=lambda msg: {"_scan_current_index": i}
             )
             seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
+            scopes = []
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map, i, length)
                 if subs_type == "condition":
@@ -329,6 +330,12 @@ def scan_wrapper(
                     trace = handlers.trace(seeded_fn).get_trace(carry, x)
                     replay_trace_i = _replay_wrapper(subs_map, trace, i, length)
                     seeded_fn = handlers.replay(seeded_fn, trace=replay_trace_i)
+                elif subs_type == "scope":
+                    seeded_fn = subs_map._wrap(seeded_fn)
+                    scopes.append(subs_map)
+
+            if scopes:
+                seeded_fn = handlers._ControlFlowUnscope(seeded_fn, scopes)
 
             with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)
