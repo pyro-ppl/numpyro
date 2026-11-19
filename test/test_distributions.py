@@ -4877,12 +4877,20 @@ def test_truncated_normal_log_prob_in_tail(value):
     assert_allclose(numpyro_log_prob, jax_log_prob, rtol=1e-06)
 
 
-def test_sample_truncated_normal_in_tail():
-    # test, if samples from distributions truncated in
-    # tail of distribution returns any inf's
-    tail_dist = dist.TruncatedNormal(loc=0, scale=1, low=-16, high=-15)
-    samples = tail_dist.sample(random.key(0), sample_shape=(10_000,))
-    assert ~jnp.isinf(samples).any()
+@pytest.mark.parametrize("low,high", [(-16, -15), (15, 16)])
+def test_sample_truncated_normal_in_tail(low, high):
+    tail_dist = dist.TruncatedNormal(
+        loc=jnp.float32(0),
+        scale=jnp.float32(1),
+        low=jnp.float32(low),
+        high=jnp.float32(high),
+    )
+    q = np.array([0.1, 0.5, 0.9], dtype=np.float32)
+    assert_allclose(
+        tail_dist.icdf(q), osp.truncnorm.ppf(q, low, high), rtol=0, atol=2e-5
+    )
+    samples = tail_dist.sample(random.key(0), sample_shape=(256,))
+    assert tail_dist.support(samples).all()
 
 
 @jax.enable_custom_prng()
