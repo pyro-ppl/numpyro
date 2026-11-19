@@ -48,52 +48,6 @@ def _at_bound(
     return jnp.where(unbounded, limit, fn(jnp.where(unbounded, inside, bound)))
 
 
-@jax.jit
-def _truncated_normal_icdf(
-    q: ArrayLike,
-    prob: Array,
-    quantile: Array,
-    low: ArrayLike,
-    high: ArrayLike,
-    loc: ArrayLike,
-    scale: ArrayLike,
-    sign: Array,
-) -> Array:
-    use_log_tail = (
-        (prob < jnp.finfo(prob.dtype).tiny) & jnp.greater(q, 0) & jnp.less(q, 1)
-    )
-
-    def log_tail_quantile():
-        def log_tail_at(bound):
-            return _at_bound(
-                lambda x: log_ndtr(sign * (x - loc) / scale),
-                bound,
-                jnp.asarray(loc),
-                jnp.where(sign * bound < 0, -jnp.inf, 0.0),
-            )
-
-        safe_q = jnp.where(use_log_tail, q, 0.5)
-        log_prob = jnp.logaddexp(
-            jnp.log1p(-safe_q) + log_tail_at(low),
-            jnp.log(safe_q) + log_tail_at(high),
-        )
-        log_prob = jnp.where(use_log_tail, log_prob, -100.0)
-
-        # Invert the standard normal log CDF in the far tail by Newton's
-        # method, starting from the leading term log Phi(x) ≈ -x²/2.
-        def step(_, x):
-            log_cdf = log_ndtr(x)
-            log_pdf = -0.5 * (x**2 + math.log(2 * math.pi))
-            return x - (log_cdf - log_prob) * jnp.exp(log_cdf - log_pdf)
-
-        z = lax.fori_loop(0, 3, step, -jnp.sqrt(-2 * log_prob))
-        tail_quantile = jnp.clip(loc + sign * scale * z, low, high)
-        return jnp.where(use_log_tail, tail_quantile, quantile)
-
-    quantile = lax.cond(jnp.any(use_log_tail), log_tail_quantile, lambda: quantile)
-    return jnp.where(jnp.equal(q, 0), low, jnp.where(jnp.equal(q, 1), high, quantile))
-
-
 class LeftTruncatedDistribution(Distribution):
     r"""A symmetric location-scale base distribution :math:`f` truncated from below at ``low``.
 
@@ -190,6 +144,54 @@ class LeftTruncatedDistribution(Distribution):
             (1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high
         )
         return jnp.where(jnp.less(q, 0), jnp.nan, ppf)
+
+    @staticmethod
+    @jax.jit
+    def _truncated_normal_icdf(
+        q: ArrayLike,
+        prob: Array,
+        quantile: Array,
+        low: ArrayLike,
+        high: ArrayLike,
+        loc: ArrayLike,
+        scale: ArrayLike,
+        sign: Array,
+    ) -> Array:
+        use_log_tail = (
+            (prob < jnp.finfo(prob.dtype).tiny) & jnp.greater(q, 0) & jnp.less(q, 1)
+        )
+
+        def log_tail_quantile():
+            def log_tail_at(bound):
+                return _at_bound(
+                    lambda x: log_ndtr(sign * (x - loc) / scale),
+                    bound,
+                    jnp.asarray(loc),
+                    jnp.where(sign * bound < 0, -jnp.inf, 0.0),
+                )
+
+            safe_q = jnp.where(use_log_tail, q, 0.5)
+            log_prob = jnp.logaddexp(
+                jnp.log1p(-safe_q) + log_tail_at(low),
+                jnp.log(safe_q) + log_tail_at(high),
+            )
+            log_prob = jnp.where(use_log_tail, log_prob, -100.0)
+
+            # Invert the standard normal log CDF in the far tail by Newton's
+            # method, starting from the leading term log Phi(x) ≈ -x²/2.
+            def step(_, x):
+                log_cdf = log_ndtr(x)
+                log_pdf = -0.5 * (x**2 + math.log(2 * math.pi))
+                return x - (log_cdf - log_prob) * jnp.exp(log_cdf - log_pdf)
+
+            z = lax.fori_loop(0, 3, step, -jnp.sqrt(-2 * log_prob))
+            tail_quantile = jnp.clip(loc + sign * scale * z, low, high)
+            return jnp.where(use_log_tail, tail_quantile, quantile)
+
+        quantile = lax.cond(jnp.any(use_log_tail), log_tail_quantile, lambda: quantile)
+        return jnp.where(
+            jnp.equal(q, 0), low, jnp.where(jnp.equal(q, 1), high, quantile)
+        )
 
     def cdf(self, value: ArrayLike) -> Array:
         # For left truncated distribution: CDF(x) = (F(x) - F(low)) / (1 - F(low))
@@ -520,7 +522,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         prob = (1 - q) * self._tail_prob_at_low + q * self._tail_prob_at_high
         ppf = (1 - sign) * loc + sign * self.base_dist.icdf(clamp_probs(prob))
         if isinstance(self.base_dist, Normal):
-            ppf = _truncated_normal_icdf(
+            ppf = LeftTruncatedDistribution._truncated_normal_icdf(
                 q, prob, ppf, self.low, self.high, loc, self.base_dist.scale, sign
             )
         return jnp.where(
