@@ -7,7 +7,6 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-import jax
 from jax import random
 import jax.numpy as jnp
 
@@ -40,34 +39,15 @@ from numpyro.infer.util import (
 import numpyro.optim as optim
 
 
-@pytest.fixture(params=["old", "new"])
+@pytest.fixture(params=["old", "new", "rbg"])
 def rng_key(request):
     rng_type = request.param
     if rng_type == "old":
         return random.PRNGKey(0)
+    elif rng_type == "rbg":
+        return random.key(0, impl="rbg")
     else:
         return random.key(0)
-
-
-@pytest.mark.parametrize("impl", ["rbg", "unsafe_rbg"])
-@pytest.mark.parametrize("parallel", [False, True])
-@pytest.mark.parametrize("num_samples", [1, 4])
-def test_predictive_with_nondefault_prng(impl, parallel, num_samples):
-    def model():
-        numpyro.sample("y", dist.Normal(1.0, 2.0))
-
-    def sample(key):
-        _, subkey = random.split(key)
-        return dist.Normal(1.0, 2.0).sample(subkey)
-
-    key = random.key(0, impl=impl)
-    if num_samples == 1:
-        expected = sample(key)[None]
-    else:
-        keys = random.split(key, num_samples)
-        expected = jax.vmap(sample)(keys) if parallel else jax.lax.map(sample, keys)
-    actual = Predictive(model, num_samples=num_samples, parallel=parallel)(key)["y"]
-    np.testing.assert_array_equal(actual, expected)
 
 
 def beta_bernoulli():
