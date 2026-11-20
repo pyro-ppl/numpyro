@@ -585,10 +585,14 @@ def betaincinv(a, b, y):
         ) from e
 
     dtype = jnp.result_type(float)
+    y = jnp.array(y, dtype=dtype)
+    # TFP skips its root search when y == 0.5 (tensorflow/probability#2034), so
+    # move y up a little; remove this once that is fixed.
+    y = jnp.where(y == 0.5, y + max(1e-9, float(jnp.finfo(dtype).eps) / 2), y)
     return tfp_special.betaincinv(
         jnp.array(a, dtype=dtype),
         jnp.array(b, dtype=dtype),
-        jnp.array(y, dtype=dtype),
+        y,
     )
 
 
