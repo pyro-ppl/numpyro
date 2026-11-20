@@ -1728,9 +1728,11 @@ class DiscreteGibbs(MCMCKernel):
             # Compiled ahead of time and run: it reads only concrete values, so it also
             # runs when `init` is traced (e.g. under `pmap`). The AOT path is not available
             # under `jax.disable_jit()`; there it runs eagerly.
+            # getattr: the flag is set dynamically on `jax.config`, so a type
+            # checker does not see it as an attribute
             flags = (
                 check()
-                if jax.config.jax_disable_jit
+                if getattr(jax.config, "jax_disable_jit")
                 else jax.jit(check).lower().compile()()
             )
             # as Python bools: indexing the array would be staged when `init` is traced
