@@ -1728,13 +1728,13 @@ class DiscreteGibbs(MCMCKernel):
             # Compiled ahead of time and run: it reads only concrete values, so it also
             # runs when `init` is traced (e.g. under `pmap`). The AOT path is not available
             # under `jax.disable_jit()`; there it runs eagerly.
-            results = (
+            flags = (
                 check()
                 if jax.config.jax_disable_jit
                 else jax.jit(check).lower().compile()()
             )
             # as Python bools: indexing the array would be staged when `init` is traced
-            results = np.asarray(results).tolist()
+            results = np.asarray(flags).tolist()
         checked = []
         for block, result in zip(blocks, results):
             if result is None:
