@@ -4567,6 +4567,41 @@ def test_kl_dirichlet_dirichlet(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
+@pytest.mark.parametrize(
+    "loc, scale, low, high",
+    [
+        (0.5, 1.5, -1.0, 2.0),
+        (0.0, 1.0, -10.0, 3.0),
+        (0.0, 1.0, 5.0, 6.0),
+        (np.array([0.0, 1.0]), 2.0, -3.0, np.array([1.0, 4.0])),
+    ],
+)
+def test_two_sided_truncated_cauchy_moments(loc, scale, low, high):
+    d = dist.TruncatedCauchy(loc, scale, low=low, high=high)
+    expected_mean, expected_variance = [], []
+    for loc_i, scale_i, low_i, high_i in np.broadcast(loc, scale, low, high):
+        base = osp.cauchy(loc_i, scale_i)
+        mass = base.cdf(high_i) - base.cdf(low_i)
+        mean_i = osp_integrate.quad(lambda x: x * base.pdf(x), low_i, high_i)[0] / mass
+        second_i = (
+            osp_integrate.quad(lambda x: x**2 * base.pdf(x), low_i, high_i)[0] / mass
+        )
+        expected_mean.append(mean_i)
+        expected_variance.append(second_i - mean_i**2)
+    assert_allclose(d.mean, np.reshape(expected_mean, d.batch_shape), rtol=1e-5)
+    assert_allclose(d.variance, np.reshape(expected_variance, d.batch_shape), rtol=1e-4)
+
+
+def test_one_sided_truncated_cauchy_moments_are_nan():
+    for d in [
+        dist.TruncatedCauchy(0.0, 1.0, low=-1.0),
+        dist.TruncatedCauchy(0.0, 1.0, high=1.0),
+        dist.TruncatedCauchy(0.0, 1.0, low=-np.inf, high=1.0),
+    ]:
+        assert jnp.isnan(d.mean)
+        assert jnp.isnan(d.variance)
+
+
 def test_vmapped_binomial_p0():
     # test that vmapped binomial with p = 0 does not have an infinite loop
     def sample_binomial_withp0(key):
