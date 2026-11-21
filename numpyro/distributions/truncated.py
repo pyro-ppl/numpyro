@@ -510,13 +510,37 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
 
+    def _cauchy_moments(self) -> tuple[Array, Array]:
+        # With both bounds finite, the standardized variable z has density
+        # 1 / (d * (1 + z**2)) on [z_low, z_high], where d = atan(z_high) - atan(z_low),
+        # so E[z] = log((1 + z_high**2) / (1 + z_low**2)) / (2 * d) and
+        # E[z**2] = (z_high - z_low) / d - 1. With an infinite bound the moments
+        # do not exist, matching the one-sided truncated Cauchy.
+        # d and the log ratio are computed in forms that avoid cancellation when
+        # both bounds lie in the same tail.
+        loc, scale = self.base_dist.loc, self.base_dist.scale
+        finite = jnp.isfinite(self.low) & jnp.isfinite(self.high)
+        z_low = jnp.where(finite, (self.low - loc) / scale, -1.0)
+        z_high = jnp.where(finite, (self.high - loc) / scale, 1.0)
+        width = z_high - z_low
+        d = jnp.arctan2(width, 1 + z_low * z_high)
+        mean_z = jnp.log1p(width * (z_high + z_low) / (1 + z_low**2)) / (2 * d)
+        var_z = width / d - 1 - mean_z**2
+        mean = jnp.where(finite, loc + scale * mean_z, jnp.nan)
+        variance = jnp.where(finite, scale**2 * var_z, jnp.nan)
+        return (
+            jnp.broadcast_to(mean, self.batch_shape),
+            jnp.broadcast_to(variance, self.batch_shape),
+        )
+
     @property
     def mean(self) -> Array:
         if isinstance(self.base_dist, Normal):
             low_prob, high_prob = self._prob_at_low, self._prob_at_high
             return self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
-            return jnp.full(self.batch_shape, jnp.nan)
+            mean, _ = self._cauchy_moments()
+            return mean
         else:
             raise NotImplementedError("mean only available for Normal and Cauchy")
 
@@ -532,7 +556,8 @@ class TwoSidedTruncatedDistribution(Distribution):
                 - ((low_prob - high_prob) * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
-            return jnp.full(self.batch_shape, jnp.nan)
+            _, variance = self._cauchy_moments()
+            return variance
         else:
             raise NotImplementedError("variance only available for Normal and Cauchy")
 
