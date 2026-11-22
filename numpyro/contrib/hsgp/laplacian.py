@@ -14,7 +14,7 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 
 
-def eigenindices(m: list[int] | int | np.integer, dim: int) -> Array:
+def eigenindices(m: list[int] | int, dim: int) -> Array:
     """Returns the indices of the first :math:`D \\times m^\\star` eigenvalues of the laplacian operator.
 
     .. math::
@@ -30,8 +30,8 @@ def eigenindices(m: list[int] | int | np.integer, dim: int) -> Array:
            Riutort-Mayol, G., Bürkner, PC., Andersen, M.R. et al. Practical Hilbert space
            approximate Bayesian Gaussian processes for probabilistic programming. Stat Comput 33, 17 (2023).
 
-    :param list[int] | int | np.integer m: The number of desired eigenvalue indices in each dimension.
-        If a Python or NumPy integer, the same number of eigenvalues is computed in each dimension.
+    :param list[int] | int m: The number of desired eigenvalue indices in each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
     :param int dim: The dimension of the space.
 
     :returns: An array of the indices of the first :math:`D \\times m^\\star` eigenvalues.
@@ -65,17 +65,12 @@ def eigenindices(m: list[int] | int | np.integer, dim: int) -> Array:
 
     """
     if isinstance(m, (int, np.integer)):
-        ms: list[int] = [int(m)] * dim
-    else:
-        if len(m) != dim:
-            raise ValueError(
-                "The length of m must be equal to the dimension of the space."
-            )
-        ms = list(m)
+        m = [int(m)] * dim
+    elif len(m) != dim:
+        raise ValueError("The length of m must be equal to the dimension of the space.")
     return (
         jnp.stack(
-            jnp.meshgrid(*[jnp.arange(1, m_ + 1) for m_ in ms], indexing="ij"),
-            axis=-1,
+            jnp.meshgrid(*[jnp.arange(1, m_ + 1) for m_ in m], indexing="ij"), axis=-1
         )
         .reshape(-1, dim)
         .T
@@ -199,36 +194,29 @@ def eigenfunctions_periodic(x: ArrayLike, w0: ArrayLike, m: int) -> tuple[Array,
     return cosines, sines
 
 
-def _convert_ell(
-    ell: float | int | np.floating | np.integer | list[float | int] | ArrayLike,
-    dim: int,
-) -> Array:
+def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> Array:
     """
     Process the half-length of the approximation interval and return a `D \\times 1` array.
 
-    If `ell` is a Python or NumPy real scalar, it is converted to a list of length dim,
-    then transformed into an Array.
+    If `ell` is a scalar, it is converted to a list of length dim, then transformed into an Array.
 
-    :param float | int | np.floating | np.integer | list[float | int] | ArrayLike ell:
-        The length of the interval in each dimension divided by 2.
-        If a Python or NumPy real scalar, the same length is used in each dimension.
+    :param float | int | list[float | int] | ArrayLike ell: The length of the interval in each dimension divided by 2.
+        If a float or int, the same length is used in each dimension.
     :param int dim: The dimension of the space.
 
     :returns: A `D \\times 1` array of the half-lengths of the approximation interval.
     :rtype: Array
     """
-    if isinstance(ell, (float, int, np.floating, np.integer)):
-        ell_ = jnp.array([ell] * dim)[..., None]
-    elif isinstance(ell, list):
+    if isinstance(ell, list):
         if len(ell) != dim:
             raise ValueError(
                 "The length of ell must be equal to the dimension of the space."
             )
         ell_ = jnp.array(ell)[..., None]  # dim x 1 array
-    elif isinstance(ell, Array) | isinstance(ell, np.ndarray):
-        ell_ = jnp.array(ell)
+    elif jnp.ndim(ell) == 0:  # Python, NumPy or JAX scalar
+        ell_ = jnp.full((dim, 1), ell)
     else:
-        raise ValueError("ell must be a scalar or a list of length `dim`.")
+        ell_ = jnp.asarray(ell)
     if jnp.shape(ell_) != (dim, 1):
         raise ValueError("ell must be a scalar or a list of length `dim`.")
     return ell_

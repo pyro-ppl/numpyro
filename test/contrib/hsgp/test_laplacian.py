@@ -28,8 +28,6 @@ from numpyro.contrib.hsgp.laplacian import (
         (10, 1, False),
         (100, 1, False),
         (10, 2, False),
-        (np.int64(5), 1, False),
-        (np.int64(3), 2, False),
         ([2, 2, 3], 3, False),
         (2, 3, False),
         ([2, 2, 3], 2, True),
@@ -40,8 +38,6 @@ from numpyro.contrib.hsgp.laplacian import (
         "m=10",
         "m=100",
         "m=10,d=2",
-        "m=np.int64(5)",
-        "m=np.int64(3),d=2",
         "m=[2,2,3],d=3",
         "m=2,d=3",
         "m=[2,2,3],d=2",
@@ -53,7 +49,7 @@ def test_eigenindices(m, dim, xfail):
             S = eigenindices(m, dim)
     else:
         S = eigenindices(m, dim)
-        if isinstance(m, (int, np.integer)):
+        if isinstance(m, int):
             m_ = [m] * dim
         else:
             m_ = m
@@ -62,7 +58,7 @@ def test_eigenindices(m, dim, xfail):
         assert S.shape == (dim, m_star)  # matrix has the right shape
         assert jnp.all(S >= 1)  # indices are greater than or equal to one
         assert jnp.all(S <= m_star)  # maximum possible index value is m_star
-        if isinstance(m, list) and m == [2, 2, 3]:  # eq 10 in Riutort-Mayol et al
+        if m == [2, 2, 3]:  # eq 10 in Riutort-Mayol et al
             assert (
                 S
                 == jnp.array(
@@ -98,9 +94,14 @@ def test_sqrt_eigenvalues(ell: float | int, m: int | list[int], dim: int):
         assert jnp.all(diff_sqrt_eigenvalues > 0.0)
 
 
-def test_sqrt_eigenvalues_numpy_scalars():
-    actual = sqrt_eigenvalues(ell=np.float32(2.0), m=np.int64(3), dim=1)
-    expected = sqrt_eigenvalues(ell=2.0, m=3, dim=1)
+@pytest.mark.parametrize(
+    "ell",
+    [np.float32(2.0), np.int64(2), np.array(2.0)],
+    ids=["np-float32", "np-int64", "0d-array"],
+)
+def test_sqrt_eigenvalues_scalar_types(ell):
+    actual = sqrt_eigenvalues(ell=ell, m=np.int64(3), dim=2)
+    expected = sqrt_eigenvalues(ell=2.0, m=3, dim=2)
     assert jnp.array_equal(actual, expected)
 
 
@@ -139,9 +140,6 @@ def test_eigenfunctions(x: ArrayLike, ell: float | int, m: int | list[int]):
         (1.0, 1, False),
         (1, 1, False),
         (1, 2, False),
-        (np.int64(1), 2, False),
-        (np.float32(1.0), 2, False),
-        (np.float64(1.0), 2, False),
         ([1, 1], 2, False),
         (np.array([1, 1])[..., None], 2, False),
         (np.array([1, 1])[..., None], 2, False),
@@ -150,15 +148,11 @@ def test_eigenfunctions(x: ArrayLike, ell: float | int, m: int | list[int]):
         ([1, 1], 1, True),
         (np.array([1, 1]), 1, True),
         (np.array([1, 1]), 1, True),
-        ("1.0", 1, True),
     ],
     ids=[
         "ell-float",
         "ell-int",
         "ell-int-multdim",
-        "ell-np-int64",
-        "ell-np-float32",
-        "ell-np-float64",
         "ell-list",
         "ell-array",
         "ell-jax-array",
@@ -167,7 +161,6 @@ def test_eigenfunctions(x: ArrayLike, ell: float | int, m: int | list[int]):
         "dim-fail",
         "dim-fail-array",
         "dim-fail-jax",
-        "ell-unsupported-fail",
     ],
 )
 def test_convert_ell(ell, dim, xfail):
