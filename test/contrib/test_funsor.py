@@ -405,6 +405,34 @@ def test_scan_enum_discrete_outside():
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
+def test_scoped_scan_enum_matches_unscoped():
+    data = jnp.array([0.3, 1.2, 2.5])
+    levels = jnp.array([0.2, 1.0, 2.0])
+
+    def model():
+        z = numpyro.sample("z", dist.Bernoulli(0.5), infer={"enumerate": "parallel"})
+
+        def transition_fn(carry, y):
+            level = numpyro.sample("level", dist.Normal(carry, 1.0))
+            numpyro.sample("y", dist.Normal(level + 0.5 * z, 1.0), obs=y)
+            return level, None
+
+        scan(transition_fn, 0.0, data)
+
+    def joint(fn, params):
+        fn = enum(config_enumerate(numpyro.handlers.seed(fn, 0)))
+        return log_density(fn, (), {}, params)
+
+    expected_log_joint, expected_trace = joint(model, {"level": levels})
+    actual_log_joint, actual_trace = joint(
+        numpyro.handlers.scope(model, prefix="a"), {"a/level": levels}
+    )
+    assert set(actual_trace) == {f"a/{name}" for name in expected_trace}
+    for name, site in expected_trace.items():
+        assert_allclose(actual_trace[f"a/{name}"]["value"], site["value"])
+    assert_allclose(actual_log_joint, expected_log_joint, rtol=1e-6)
+
+
 def test_scan_enum_two_latents():
     num_steps = 11
     data = random.normal(random.key(0), (num_steps,))

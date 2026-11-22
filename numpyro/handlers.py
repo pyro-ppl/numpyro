@@ -822,6 +822,9 @@ class scope(Messenger):
 
 class _ControlFlowUnscope(Messenger):
     # Restore local names before tracing; the outer scope runs on re-emitted sites.
+    # ``removeprefix`` undoes each scope exactly because the handlers rebuilt
+    # between the scope wrappers and this one (condition, substitute and replay)
+    # never rename sites. A renaming ``substitute_stack`` entry would break this.
     def __init__(self, fn: Callable, scopes: list[scope]) -> None:
         self.scopes = scopes
         super().__init__(fn)

@@ -54,6 +54,32 @@ def test_scoped_control_flow_uses_qualified_site_names(flow, handler):
     assert_allclose(density, expected)
 
 
+def test_scoped_cond_in_scan_matches_unscoped():
+    def model():
+        def step(carry, x):
+            level = cond(
+                x > 0,
+                lambda _: numpyro.sample("level", dist.Normal(1.0, 1.0)),
+                lambda _: numpyro.sample("level", dist.Normal(-1.0, 2.0)),
+                None,
+            )
+            numpyro.sample("obs", dist.Normal(level, 1.0), obs=x)
+            return carry, None
+
+        scan(step, None, jnp.array([1.5, -0.5]))
+
+    levels = jnp.array([0.7, -1.3])
+    expected, _ = log_density(
+        substitute(seed(model, 0), data={"level": levels}), (), {}, {}
+    )
+    scoped = seed(scope(model, prefix="a"), 0)
+    actual, sites = log_density(
+        substitute(scoped, data={"a/level": levels}), (), {}, {}
+    )
+    assert_allclose(sites["a/level"]["value"], levels)
+    assert_allclose(actual, expected)
+
+
 def test_scoped_scan_replays_guide_sites():
     def model():
         def step(carry, _):
