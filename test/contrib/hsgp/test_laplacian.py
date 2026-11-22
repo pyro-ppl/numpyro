@@ -95,6 +95,17 @@ def test_sqrt_eigenvalues(ell: float | int, m: int | list[int], dim: int):
 
 
 @pytest.mark.parametrize(
+    "ell",
+    [np.float32(2.0), np.int64(2), np.array(2.0)],
+    ids=["np-float32", "np-int64", "0d-array"],
+)
+def test_sqrt_eigenvalues_scalar_types(ell):
+    actual = sqrt_eigenvalues(ell=ell, m=np.int64(3), dim=2)
+    expected = sqrt_eigenvalues(ell=2.0, m=3, dim=2)
+    assert jnp.array_equal(actual, expected)
+
+
+@pytest.mark.parametrize(
     argnames="x, ell, m",
     argvalues=[
         (np.linspace(0, 1, 10), 1, 1),

@@ -64,8 +64,8 @@ def eigenindices(m: list[int] | int, dim: int) -> Array:
                    [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3]], dtype=int32)
 
     """
-    if isinstance(m, int):
-        m = [m] * dim
+    if isinstance(m, (int, np.integer)):
+        m = [int(m)] * dim
     elif len(m) != dim:
         raise ValueError("The length of m must be equal to the dimension of the space.")
     return (
@@ -207,17 +207,16 @@ def _convert_ell(ell: float | int | list[float | int] | ArrayLike, dim: int) -> 
     :returns: A `D \\times 1` array of the half-lengths of the approximation interval.
     :rtype: Array
     """
-    ell_ = jnp.empty((dim, 1))
-    if isinstance(ell, float) | isinstance(ell, int):
-        ell = jnp.array([ell] * dim)[..., None]
     if isinstance(ell, list):
         if len(ell) != dim:
             raise ValueError(
                 "The length of ell must be equal to the dimension of the space."
             )
         ell_ = jnp.array(ell)[..., None]  # dim x 1 array
-    elif isinstance(ell, Array) | isinstance(ell, np.ndarray):
-        ell_ = jnp.array(ell)
+    elif jnp.ndim(ell) == 0:  # Python, NumPy or JAX scalar
+        ell_ = jnp.full((dim, 1), ell)
+    else:
+        ell_ = jnp.asarray(ell)
     if jnp.shape(ell_) != (dim, 1):
         raise ValueError("ell must be a scalar or a list of length `dim`.")
     return ell_
