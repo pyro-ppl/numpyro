@@ -10,11 +10,91 @@ import jax.numpy as jnp
 import numpyro
 from numpyro.contrib.control_flow import cond, scan
 import numpyro.distributions as dist
-from numpyro.handlers import mask, seed, substitute, trace
+from numpyro.handlers import condition, mask, replay, scope, seed, substitute, trace
 from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.infer.util import log_density, potential_energy
 from numpyro.optim import Adam
+
+
+@pytest.mark.parametrize("flow", ["cond", "scan"])
+@pytest.mark.parametrize("handler", [substitute, condition])
+def test_scoped_control_flow_uses_qualified_site_names(flow, handler):
+    def body():
+        level = numpyro.sample("level", dist.Normal(0.0, 1.0))
+        numpyro.sample("observed", dist.Normal(level, 1.0), obs=3.0)
+
+    def submodel():
+        if flow == "cond":
+            cond(True, lambda _: body(), lambda _: body(), None)
+        else:
+
+            def step(carry, _):
+                body()
+                return carry, None
+
+            scan(step, None, None, length=2)
+
+    def model():
+        numpyro.sample("level", dist.Normal(0.0, 1.0))
+        with scope(prefix="outer", divider=":"):
+            scope(submodel, prefix="inner")()
+
+    level = jnp.array([2.0, 4.0]) if flow == "scan" else 2.0
+    name = "outer:inner/level"
+    data = {"level": -10.0, name: level}
+    density, sites = log_density(handler(seed(model, 0), data=data), (), {}, {})
+    expected = (
+        dist.Normal(0.0, 1.0).log_prob(-10.0)
+        + dist.Normal(0.0, 1.0).log_prob(level).sum()
+        + dist.Normal(level, 1.0).log_prob(3.0).sum()
+    )
+    assert set(sites) == {"level", name, "outer:inner/observed"}
+    assert_allclose(sites[name]["value"], level)
+    assert_allclose(density, expected)
+
+
+def test_scoped_cond_in_scan_matches_unscoped():
+    def model():
+        def step(carry, x):
+            level = cond(
+                x > 0,
+                lambda _: numpyro.sample("level", dist.Normal(1.0, 1.0)),
+                lambda _: numpyro.sample("level", dist.Normal(-1.0, 2.0)),
+                None,
+            )
+            numpyro.sample("obs", dist.Normal(level, 1.0), obs=x)
+            return carry, None
+
+        scan(step, None, jnp.array([1.5, -0.5]))
+
+    levels = jnp.array([0.7, -1.3])
+    expected, _ = log_density(
+        substitute(seed(model, 0), data={"level": levels}), (), {}, {}
+    )
+    scoped = seed(scope(model, prefix="a"), 0)
+    actual, sites = log_density(
+        substitute(scoped, data={"a/level": levels}), (), {}, {}
+    )
+    assert_allclose(sites["a/level"]["value"], levels)
+    assert_allclose(actual, expected)
+
+
+def test_scoped_scan_replays_guide_sites():
+    def model():
+        def step(carry, _):
+            level = numpyro.sample("level", dist.Normal(0.0, 1.0))
+            numpyro.deterministic("twice", 2 * level)
+            return carry, None
+
+        scan(step, None, None, length=2)
+
+    model = scope(model, prefix="state")
+    guide_trace = trace(seed(model, 0)).get_trace()
+    model_trace = trace(seed(replay(model, trace=guide_trace), 1)).get_trace()
+    assert_allclose(
+        model_trace["state/twice"]["value"], guide_trace["state/twice"]["value"]
+    )
 
 
 def test_scan():
