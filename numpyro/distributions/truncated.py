@@ -341,8 +341,10 @@ class TwoSidedTruncatedDistribution(Distribution):
     :param high: the upper truncation point.
 
     .. note::
-        ``mean`` and ``variance`` are only computed for a ``Normal`` base; a ``Cauchy``
-        base returns ``nan`` and any other base raises ``NotImplementedError``.
+        ``mean`` and ``variance`` are computed in closed form for a ``Normal`` or
+        ``Cauchy`` base, and any other base raises ``NotImplementedError``. With a
+        ``Cauchy`` base they are ``nan`` where ``low`` or ``high`` is infinite, since
+        the moments do not exist there.
     """
 
     arg_constraints = {
@@ -510,22 +512,49 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
         return self.base_dist.log_prob(value) - self._log_diff_tail_probs
 
+    @lazy_property
     def _cauchy_moments(self) -> tuple[Array, Array]:
         # With both bounds finite, the standardized variable z has density
         # 1 / (d * (1 + z**2)) on [z_low, z_high], where d = atan(z_high) - atan(z_low),
         # so E[z] = log((1 + z_high**2) / (1 + z_low**2)) / (2 * d) and
         # E[z**2] = (z_high - z_low) / d - 1. With an infinite bound the moments
         # do not exist, matching the one-sided truncated Cauchy.
-        # d and the log ratio are computed in forms that avoid cancellation when
-        # both bounds lie in the same tail.
         loc, scale = self.base_dist.loc, self.base_dist.scale
         finite = jnp.isfinite(self.low) & jnp.isfinite(self.high)
         z_low = jnp.where(finite, (self.low - loc) / scale, -1.0)
         z_high = jnp.where(finite, (self.high - loc) / scale, 1.0)
         width = z_high - z_low
+        # atan2 avoids the cancellation in atan(z_high) - atan(z_low) when both
+        # bounds are in the same tail.
         d = jnp.arctan2(width, 1 + z_low * z_high)
-        mean_z = jnp.log1p(width * (z_high + z_low) / (1 + z_low**2)) / (2 * d)
-        var_z = width / d - 1 - mean_z**2
+        # log((1 + z_high**2) / (1 + z_low**2)) with the smaller square in the
+        # denominator, so the log1p argument is never close to -1. The sign comes
+        # from a where rather than jnp.sign, whose derivative is zero.
+        z_sum = z_high + z_low
+        log_ratio = jnp.where(z_sum >= 0, 1.0, -1.0) * jnp.log1p(
+            width * jnp.abs(z_sum) / (1 + jnp.minimum(z_low**2, z_high**2))
+        )
+        mean_z = log_ratio / (2 * d)
+        # E[z**2] - E[z]**2 cancels badly when the interval is narrow compared with
+        # its distance from loc. With z = tan(theta), theta is uniform on
+        # [atan(z_low), atan(z_high)], so in that regime use the series of
+        # Var(tan(theta)) in the half-width h = d / 2, where t is the tangent of the
+        # midpoint angle: tan((A + B) / 2) = (sin A + sin B) / (cos A + cos B).
+        r_low, r_high = jnp.sqrt(1 + z_low**2), jnp.sqrt(1 + z_high**2)
+        t = (z_low * r_high + z_high * r_low) / (r_low + r_high)
+        t2 = t**2
+        h2 = (d / 2) ** 2
+        series = 1 + h2 * (
+            2 * (3 + 11 * t2) / 15
+            + h2
+            * (
+                (17 + 152 * t2 + 183 * t2**2) / 105
+                + h2 * 2 * (155 + 2454 * t2 + 6597 * t2**2 + 4554 * t2**3) / 4725
+            )
+        )
+        var_series = (1 + t2) ** 2 * h2 / 3 * series
+        var_direct = width / d - 1 - mean_z**2
+        var_z = jnp.where((d / 2) * (1 + jnp.abs(t)) < 0.2, var_series, var_direct)
         mean = jnp.where(finite, loc + scale * mean_z, jnp.nan)
         variance = jnp.where(finite, scale**2 * var_z, jnp.nan)
         return (
@@ -539,7 +568,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             low_prob, high_prob = self._prob_at_low, self._prob_at_high
             return self.base_dist.loc + (low_prob - high_prob) * self.base_dist.scale**2
         elif isinstance(self.base_dist, Cauchy):
-            mean, _ = self._cauchy_moments()
+            mean, _ = self._cauchy_moments
             return mean
         else:
             raise NotImplementedError("mean only available for Normal and Cauchy")
@@ -556,7 +585,7 @@ class TwoSidedTruncatedDistribution(Distribution):
                 - ((low_prob - high_prob) * self.base_dist.scale) ** 2
             )
         elif isinstance(self.base_dist, Cauchy):
-            _, variance = self._cauchy_moments()
+            _, variance = self._cauchy_moments
             return variance
         else:
             raise NotImplementedError("variance only available for Normal and Cauchy")
@@ -605,8 +634,9 @@ def TruncatedDistribution(
         are accepted with the same caveat as ``low``.
 
     .. note::
-        ``mean`` and ``variance`` are available in closed form only for a ``Normal``
-        base; a ``Cauchy`` base returns ``nan`` and any other base raises
+        ``mean`` and ``variance`` are available in closed form for a ``Normal`` base,
+        and for a ``Cauchy`` base when both bounds are finite. A one-sided truncated
+        ``Cauchy`` has no finite moments and returns ``nan``; any other base raises
         ``NotImplementedError``.
 
     **Example:**
@@ -680,9 +710,12 @@ def TruncatedCauchy(
     :param high: upper truncation point, or None to not truncate from above.
 
     .. note::
-        ``mean`` and ``variance`` return ``nan``: a one-sided truncated Cauchy has no
-        finite moments, and the closed-form moments of the two-sided case are not
-        implemented.
+        With both bounds finite, ``mean`` and ``variance`` are computed in closed
+        form. A one-sided truncated Cauchy has no finite moments, so they return
+        ``nan``. The moments use products of the standardized bounds
+        :math:`(a - \mu) / \gamma` and :math:`(b - \mu) / \gamma`, which overflow in
+        float32 once either exceeds about ``1.8e19`` in magnitude; pass ``None`` for an
+        open side rather than a very large bound.
     """
     return TruncatedDistribution(
         Cauchy(loc, scale), low=low, high=high, validate_args=validate_args

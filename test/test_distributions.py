@@ -4567,41 +4567,6 @@ def test_kl_dirichlet_dirichlet(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
-@pytest.mark.parametrize(
-    "loc, scale, low, high",
-    [
-        (0.5, 1.5, -1.0, 2.0),
-        (0.0, 1.0, -10.0, 3.0),
-        (0.0, 1.0, 5.0, 6.0),
-        (np.array([0.0, 1.0]), 2.0, -3.0, np.array([1.0, 4.0])),
-    ],
-)
-def test_two_sided_truncated_cauchy_moments(loc, scale, low, high):
-    d = dist.TruncatedCauchy(loc, scale, low=low, high=high)
-    expected_mean, expected_variance = [], []
-    for loc_i, scale_i, low_i, high_i in np.broadcast(loc, scale, low, high):
-        base = osp.cauchy(loc_i, scale_i)
-        mass = base.cdf(high_i) - base.cdf(low_i)
-        mean_i = osp_integrate.quad(lambda x: x * base.pdf(x), low_i, high_i)[0] / mass
-        second_i = (
-            osp_integrate.quad(lambda x: x**2 * base.pdf(x), low_i, high_i)[0] / mass
-        )
-        expected_mean.append(mean_i)
-        expected_variance.append(second_i - mean_i**2)
-    assert_allclose(d.mean, np.reshape(expected_mean, d.batch_shape), rtol=1e-5)
-    assert_allclose(d.variance, np.reshape(expected_variance, d.batch_shape), rtol=1e-4)
-
-
-def test_one_sided_truncated_cauchy_moments_are_nan():
-    for d in [
-        dist.TruncatedCauchy(0.0, 1.0, low=-1.0),
-        dist.TruncatedCauchy(0.0, 1.0, high=1.0),
-        dist.TruncatedCauchy(0.0, 1.0, low=-np.inf, high=1.0),
-    ]:
-        assert jnp.isnan(d.mean)
-        assert jnp.isnan(d.variance)
-
-
 def test_vmapped_binomial_p0():
     # test that vmapped binomial with p = 0 does not have an infinite loop
     def sample_binomial_withp0(key):
@@ -5223,6 +5188,75 @@ def test_two_sided_truncated_cdf(base_dist_class, base_params, low, high):
     icdf_values = truncated_dist.icdf(quantiles)
     recovered_quantiles = truncated_dist.cdf(icdf_values)
     assert_allclose(recovered_quantiles, quantiles, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "loc, scale, low, high",
+    [
+        (0.5, 1.5, -1.0, 2.0),
+        (0.0, 1.0, -10.0, 3.0),
+        (0.0, 1.0, 5.0, 6.0),
+        # |low| much larger than |high|, and the mirrored interval
+        (0.0, 1.0, -1e4, 1.0),
+        (0.0, 1.0, -1.0, 1e4),
+        (0.0, 1.0, -1e4, -1.0),
+        # narrow intervals far from loc
+        (0.0, 1.0, 100.0, 100.125),
+        (0.0, 1.0, -1000.0625, -1000.0),
+        (2.0, 0.5, 30.0, 30.25),
+        (np.array([0.0, 1.0]), 2.0, -3.0, np.array([1.0, 4.0])),
+    ],
+)
+def test_two_sided_truncated_cauchy_moments(loc, scale, low, high):
+    d = dist.TruncatedCauchy(loc, scale, low=low, high=high)
+    expected_mean, expected_variance = [], []
+    for loc_i, scale_i, low_i, high_i in np.broadcast(loc, scale, low, high):
+        pdf = osp.cauchy(loc_i, scale_i).pdf
+        mass = osp_integrate.quad(pdf, low_i, high_i)[0]
+        mean_i = osp_integrate.quad(lambda x: x * pdf(x), low_i, high_i)[0] / mass
+        var_i = (
+            osp_integrate.quad(lambda x: (x - mean_i) ** 2 * pdf(x), low_i, high_i)[0]
+            / mass
+        )
+        expected_mean.append(mean_i)
+        expected_variance.append(var_i)
+    assert_allclose(d.mean, np.reshape(expected_mean, d.batch_shape), rtol=1e-5)
+    assert_allclose(d.variance, np.reshape(expected_variance, d.batch_shape), rtol=1e-4)
+
+    # Reflecting the interval about loc negates the mean offset and keeps the variance.
+    mirrored = dist.TruncatedCauchy(
+        loc, scale, low=2 * np.asarray(loc) - high, high=2 * np.asarray(loc) - low
+    )
+    assert_allclose(d.mean, 2 * np.asarray(loc) - mirrored.mean, rtol=1e-6, atol=1e-6)
+    assert_allclose(d.variance, mirrored.variance, rtol=1e-6)
+
+
+def test_two_sided_truncated_cauchy_moments_grad():
+    def mean_var(low, high):
+        d = dist.TruncatedCauchy(0.0, 1.0, low=low, high=high)
+        return d.mean + d.variance
+
+    for low, high in [(-1.0, 1.0), (-1e4, 1.0), (100.0, 100.125)]:
+        grads = jax.grad(mean_var, argnums=(0, 1))(low, high)
+        assert all(jnp.isfinite(g) for g in grads)
+    # Mirrored intervals give mirrored gradients of the mean.
+    grad_mean = jax.grad(
+        lambda low, high: dist.TruncatedCauchy(0.0, 1.0, low=low, high=high).mean,
+        argnums=(0, 1),
+    )
+    g_low, g_high = grad_mean(-1e4, 1.0)
+    m_low, m_high = grad_mean(-1.0, 1e4)
+    assert_allclose(g_low, m_high, rtol=1e-5)
+    assert_allclose(g_high, m_low, rtol=1e-5)
+
+
+def test_two_sided_truncated_cauchy_moments_infinite_bound():
+    d = dist.TruncatedCauchy(0.0, 1.0, low=np.array([-1.0, -np.inf]), high=1.0)
+    assert_allclose(d.mean[0], 0.0, atol=1e-6)
+    assert jnp.isfinite(d.variance[0])
+    assert jnp.isnan(d.mean[1]) and jnp.isnan(d.variance[1])
+    d = dist.TruncatedCauchy(0.0, 1.0, low=-1.0, high=np.inf)
+    assert jnp.isnan(d.mean) and jnp.isnan(d.variance)
 
 
 @pytest.mark.parametrize("loc, scale", [(0.0, 1.0), (2.0, 0.5), (-1.0, 2.0)])
