@@ -122,6 +122,14 @@ def test_beta_bernoulli(auto_class):
     predictive_samples = predictive(random.key(1), None)
     assert predictive_samples["obs"].shape == (1000, N, 2)
 
+    # Check support of guide and model match.
+    model_trace = handlers.trace(handlers.seed(model, 0)).get_trace(data)
+    guide_trace = handlers.trace(handlers.seed(guide, 0)).get_trace(data)
+    for name, guide_site in guide_trace.items():
+        if guide_site["type"] == "sample" and name in model_trace:
+            model_site = model_trace[name]
+            assert guide_site["fn"].support == model_site["fn"].support
+
 
 @pytest.mark.parametrize(
     "auto_class",
@@ -476,7 +484,7 @@ def test_module():
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(1000))
 
 
-@pytest.mark.parametrize("auto_class", [AutoNormal])
+@pytest.mark.parametrize("auto_class", [AutoNormal, AutoDelta])
 def test_subsample_guide(auto_class):
     # The model adapted from tutorial/source/easyguide.ipynb
     def model(batch, subsample, full_size):
