@@ -7,12 +7,20 @@ import numpy as np
 import pytest
 
 import jax
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro import handlers
+from numpyro import handlers, optim
 import numpyro.distributions as dist
-from numpyro.infer.autoguide import AutoNormal
+from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer.autoguide import (
+    AutoDelta,
+    AutoDiagonalNormal,
+    AutoGuideList,
+    AutoMultivariateNormal,
+    AutoNormal,
+)
 from numpyro.infer.inspect import (
     generate_graph_specification,
     get_model_relations,
@@ -188,36 +196,57 @@ def test_param_with_lambda_and_sample():
     assert "p" in relations["sample_param"]["x"]
 
 
-def test_get_model_relations_auto_guide():
+def _auto_guide_list(model):
+    guide = AutoGuideList(model)
+    guide.append(AutoNormal(handlers.block(model, hide=["b"])))
+    guide.append(AutoDelta(handlers.block(model, expose=["b"])))
+    return guide
+
+
+@pytest.mark.parametrize(
+    "make_guide",
+    [
+        AutoNormal,
+        AutoDelta,
+        AutoDiagonalNormal,
+        AutoMultivariateNormal,
+        _auto_guide_list,
+    ],
+)
+def test_get_model_relations_auto_guide(make_guide):
     """
     Regression test for https://github.com/pyro-ppl/numpyro/issues/2062.
 
-    Passing an auto guide to get_model_relations must not corrupt the
-    guide. The guide's prototype used to be set up under jax.eval_shape,
-    which cached tracers of the discarded trace on the guide, leaking
-    tracers and making later tracing of the guide raise
-    UnexpectedTracerError.
+    get_model_relations must neither leak tracers nor mutate the guide it
+    inspects: afterwards the guide must still be usable and must still
+    initialize from the caller's seed, not from a seed fixed by the
+    inspection.
     """
 
     def model():
-        numpyro.sample("a", dist.Normal())
+        a = numpyro.sample("a", dist.Normal())
+        numpyro.sample("b", dist.LogNormal(a, 1.0))
 
-    guide = AutoNormal(model)
+    def init_params(guide):
+        svi = SVI(model, guide, optim.Adam(1e-3), Trace_ELBO())
+        return svi.get_params(svi.init(random.PRNGKey(1)))
 
+    guide = make_guide(model)
     with jax.check_tracer_leaks():
         relations = get_model_relations(guide)
-    assert relations["sample_dist"] == {"a": "Normal"}
+    assert {"a", "b"} <= set(relations["sample_dist"])
 
-    # The guide must still be traceable after the inspection.
-    trace = handlers.trace(handlers.seed(guide, 0)).get_trace()
-    assert "a" in trace
+    expected = init_params(make_guide(model))
+    actual = init_params(guide)
+    assert actual.keys() == expected.keys()
+    for name, value in expected.items():
+        np.testing.assert_allclose(actual[name], value)
 
 
 def test_get_model_relations_auto_guide_with_model_args():
     """
-    The eager prototype setup in get_model_relations must forward the
-    model arguments, and inspecting the same guide twice must reuse the
-    prototype and return the same relations.
+    get_model_relations must forward the model arguments to the guide, and
+    inspecting the same guide twice must return the same relations.
     """
 
     def model(n):
