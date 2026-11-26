@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import Callable
+import copy
 from functools import partial
 import itertools
 from pathlib import Path
@@ -11,6 +12,7 @@ import jax
 
 from numpyro import handlers
 import numpyro.distributions as dist
+from numpyro.infer.autoguide import AutoGuide
 from numpyro.infer.initialization import init_to_sample
 from numpyro.ops.provenance import eval_provenance
 from numpyro.ops.pytree import PytreeTrace
@@ -33,6 +35,20 @@ def _get_dist_name(fn):
     ):
         return _get_dist_name(fn.base_dist)
     return type(fn).__name__
+
+
+def _inspectable_guide(model, model_args, model_kwargs):
+    # Auto guides set up their state lazily on first call. Doing that under
+    # `jax.eval_shape` would cache tracers on the caller's guide, so inspect
+    # a private, eagerly set-up copy and leave the caller's guide untouched;
+    # its initial values must keep following the caller's seed. Calling the
+    # copy, rather than `_setup_prototype`, also sets up nested sub-guides
+    # and runs `AutoGuideList`'s validation.
+    if isinstance(model, AutoGuide) and model.prototype_trace is None:
+        model = copy.deepcopy(model)
+        with handlers.block(), handlers.seed(rng_seed=0):
+            model(*model_args, **model_kwargs)
+    return model
 
 
 def _get_abstract_trace(model, model_args, model_kwargs):
@@ -191,6 +207,8 @@ def get_dependencies(
     if model_kwargs is None:
         model_kwargs = {}
 
+    model = _inspectable_guide(model, model_args, model_kwargs)
+
     # Collect sites with tracked provenance.
     trace = _get_abstract_trace(model, model_args, model_kwargs)
     sample_sites = [msg for msg in trace.values() if is_sample_site(msg)]
@@ -296,6 +314,8 @@ def get_model_relations(model, model_args=None, model_kwargs=None):
     """
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
+
+    model = _inspectable_guide(model, model_args, model_kwargs)
 
     def _get_dist_name(fn):
         if isinstance(

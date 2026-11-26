@@ -7,7 +7,9 @@ import jax
 import jax.numpy as jnp
 
 import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
+from numpyro.infer.autoguide import AutoNormal
 from numpyro.infer.inspect import get_dependencies
 
 
@@ -61,6 +63,26 @@ def test_get_dependencies():
         },
     }
     assert actual == expected
+
+
+def test_get_dependencies_auto_guide():
+    # get_dependencies goes through the same abstract-trace path as
+    # get_model_relations, so it must not leak tracers into an auto guide
+    # or corrupt it either (cf. gh-2062).
+    def model():
+        a = numpyro.sample("a", dist.Normal(0, 1))
+        numpyro.sample("b", dist.LogNormal(a, 1))
+
+    guide = AutoNormal(model)
+    with jax.check_tracer_leaks():
+        get_dependencies(guide)
+
+    # The inspection must not have set up the caller's guide.
+    assert guide.prototype_trace is None
+
+    # The guide must still be traceable after the inspection.
+    trace = handlers.trace(handlers.seed(guide, 0)).get_trace()
+    assert "a" in trace
 
 
 def test_docstring_example_1():

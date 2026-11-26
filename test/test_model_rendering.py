@@ -6,10 +6,21 @@ import os
 import numpy as np
 import pytest
 
+import jax
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
+from numpyro import handlers, optim
 import numpyro.distributions as dist
+from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer.autoguide import (
+    AutoDelta,
+    AutoDiagonalNormal,
+    AutoGuideList,
+    AutoMultivariateNormal,
+    AutoNormal,
+)
 from numpyro.infer.inspect import (
     generate_graph_specification,
     get_model_relations,
@@ -183,6 +194,76 @@ def test_param_with_lambda_and_sample():
     assert "x" in relations["sample_dist"]
     assert relations["sample_dist"]["x"] == "CategoricalProbs"
     assert "p" in relations["sample_param"]["x"]
+
+
+def _auto_guide_list(model):
+    guide = AutoGuideList(model)
+    guide.append(AutoNormal(handlers.block(model, hide=["b"])))
+    guide.append(AutoDelta(handlers.block(model, expose=["b"])))
+    return guide
+
+
+@pytest.mark.parametrize(
+    "make_guide",
+    [
+        AutoNormal,
+        AutoDelta,
+        AutoDiagonalNormal,
+        AutoMultivariateNormal,
+        _auto_guide_list,
+    ],
+)
+def test_get_model_relations_auto_guide(make_guide):
+    """
+    Regression test for https://github.com/pyro-ppl/numpyro/issues/2062.
+
+    get_model_relations must neither leak tracers nor mutate the guide it
+    inspects: afterwards the guide must still be usable and must still
+    initialize from the caller's seed, not from a seed fixed by the
+    inspection.
+    """
+
+    def model():
+        a = numpyro.sample("a", dist.Normal())
+        numpyro.sample("b", dist.LogNormal(a, 1.0))
+
+    def init_params(guide):
+        svi = SVI(model, guide, optim.Adam(1e-3), Trace_ELBO())
+        return svi.get_params(svi.init(random.PRNGKey(1)))
+
+    guide = make_guide(model)
+    with jax.check_tracer_leaks():
+        relations = get_model_relations(guide)
+    assert {"a", "b"} <= set(relations["sample_dist"])
+
+    expected = init_params(make_guide(model))
+    actual = init_params(guide)
+    assert actual.keys() == expected.keys()
+    for name, value in expected.items():
+        np.testing.assert_allclose(actual[name], value)
+
+
+def test_get_model_relations_auto_guide_with_model_args():
+    """
+    get_model_relations must forward the model arguments to the guide, and
+    inspecting the same guide twice must return the same relations.
+    """
+
+    def model(n):
+        numpyro.sample("a", dist.Normal(jnp.zeros(n), 1.0))
+
+    guide = AutoNormal(model)
+
+    with jax.check_tracer_leaks():
+        relations = get_model_relations(guide, model_args=(3,))
+        relations_again = get_model_relations(guide, model_args=(3,))
+    assert relations["sample_dist"] == {"a": "Normal"}
+    assert relations_again == relations
+
+    # The guide must still be traceable with the same arguments.
+    trace = handlers.trace(handlers.seed(guide, 0)).get_trace(3)
+    assert "a" in trace
+    assert trace["a"]["value"].shape == (3,)
 
 
 def test_get_model_relations_masked_observations():
