@@ -6908,3 +6908,11 @@ def test_poisson_cdf_support_limits(rate, compiled):
     expected[finite] = -osp.poisson.pmf(np.floor(np.asarray(values)[finite]), rate)
     assert_allclose(derivative, expected, atol=1e-6)
     assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))
+
+
+@pytest.mark.parametrize("concentration1, concentration0", [(0.5, 0.5), (0.5, 0.3)])
+def test_beta_icdf_median(concentration1, concentration0):
+    d = dist.Beta(concentration1, concentration0)
+    expected = osp.beta(concentration1, concentration0).ppf(0.5)
+    assert_allclose(d.icdf(0.5), expected, rtol=1e-4)
+    assert_allclose(grad(d.icdf)(0.5), jnp.exp(-d.log_prob(expected)), rtol=1e-4)
