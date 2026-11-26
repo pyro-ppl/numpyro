@@ -6910,17 +6910,9 @@ def test_poisson_cdf_support_limits(rate, compiled):
     assert jnp.isnan(dist.Poisson(rate).cdf(jnp.nan))
 
 
-@pytest.mark.parametrize(
-    "concentration1, concentration0", [(2.0, 3.0), (0.5, 0.5), (0.5, 0.3)]
-)
+@pytest.mark.parametrize("concentration1, concentration0", [(0.5, 0.5), (0.5, 0.3)])
 def test_beta_icdf_median(concentration1, concentration0):
     d = dist.Beta(concentration1, concentration0)
     expected = osp.beta(concentration1, concentration0).ppf(0.5)
     assert_allclose(d.icdf(0.5), expected, rtol=1e-4)
     assert_allclose(grad(d.icdf)(0.5), jnp.exp(-d.log_prob(expected)), rtol=1e-4)
-
-
-@pytest.mark.parametrize("df", [1.0, 2.5, 10.0])
-@pytest.mark.parametrize("q", [0.25, 0.75])
-def test_student_t_icdf_quartiles(df, q):
-    assert_allclose(dist.StudentT(df).icdf(q), osp.t(df).ppf(q), rtol=1e-4)

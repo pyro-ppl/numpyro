@@ -587,7 +587,12 @@ def betaincinv(a, b, y):
     dtype = jnp.result_type(float)
     y = jnp.array(y, dtype=dtype)
     # TFP skips its root search when y == 0.5 (tensorflow/probability#2034), so
-    # move y up a little; remove this once that is fixed.
+    # move y up a little; remove this once that is fixed. One ulp is enough in
+    # float32, but not in float64: for a == b < 1 the root then lies very close
+    # to the 0.5 edge of TFP's search bracket, where its steps are replaced by
+    # bisections towards the edge and its 8 iterations leave Beta(0.5, 0.5) off
+    # by 9e-4 (relative). A shift of 1e-9 keeps the root clear of the edge at a
+    # relative cost of about 1e-9 to 1e-8.
     y = jnp.where(y == 0.5, y + max(1e-9, float(jnp.finfo(dtype).eps) / 2), y)
     return tfp_special.betaincinv(
         jnp.array(a, dtype=dtype),
