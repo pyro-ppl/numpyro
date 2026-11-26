@@ -410,8 +410,8 @@ class AIES(EnsembleSampler):
 
         :param sigma: (optional)
             The standard deviation of the Gaussian used to stretch the proposal vector.
-            Defaults to `1.0.e-5`.
-        :param g0 (optional):
+            Defaults to ``1.0e-5``.
+        :param g0: (optional)
             The mean stretch factor for the proposal vector. By default,
             it is `2.38 / sqrt(2*ndim)` as recommended by the two references.
         """
