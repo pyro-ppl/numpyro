@@ -1459,13 +1459,14 @@ class TruncatedPolyaGamma(Distribution):
         assert key is not None
         denom = jnp.square(jnp.arange(0.5, self.num_gamma_variates))
         x = random.gamma(
-            key, jnp.ones(self.batch_shape + sample_shape + (self.num_gamma_variates,))
+            key, jnp.ones(sample_shape + self.batch_shape + (self.num_gamma_variates,))
         )
         x = jnp.sum(x / denom, axis=-1)
         return jnp.clip(x * (0.5 / jnp.pi**2), None, self.truncation_point)
 
     @validate_sample
     def log_prob(self, value: ArrayLike) -> Array:
+        batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         value = jnp.expand_dims(value, -1)
         all_indices = jnp.arange(0, self.num_log_prob_terms)
         two_n_plus_one = 2.0 * all_indices + 1.0
@@ -1478,7 +1479,8 @@ class TruncatedPolyaGamma(Distribution):
         odd_terms = jnp.take(log_terms, all_indices[1::2], axis=-1)
         sum_even = jnp.exp(logsumexp(even_terms, axis=-1))
         sum_odd = jnp.exp(logsumexp(odd_terms, axis=-1))
-        return jnp.log(sum_even - sum_odd) - 0.5 * jnp.log(2.0 * jnp.pi)
+        result = jnp.log(sum_even - sum_odd) - 0.5 * jnp.log(2.0 * jnp.pi)
+        return jnp.broadcast_to(result, batch_shape)
 
 
 class DoublyTruncatedPowerLaw(Distribution):
