@@ -47,6 +47,7 @@ EXAMPLES = [
     "hmm_enum.py -m 6 -t 4 -d 3 --num-warmup 1 -n 4",
     "horseshoe_regression.py --num-samples 10 --num-warmup 10 --num-data 5",
     "hsgp.py --num-samples 10 --num-warmup 10 --num-chains 2",
+    "jepa.py --num-steps 10 --num-data 32 --num-posterior-samples 5",
     "minipyro.py",
     "mortality.py --num-samples 10 --num-warmup 10 --num-chains 2",
     pytest.param(
