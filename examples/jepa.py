@@ -3,38 +3,46 @@
 
 """
 Example: Bayesian Causal JEPA
-============================
+=============================
 
 Joint Embedding Predictive Architectures (JEPA) predict the *representation*
-of a masked target view from a context view, instead of reconstructing raw
-observations.  This example asks a causal version of that question: what would
-the target representation look like under an intervention ``do(T = t)``?
+of a target view from a context view instead of reconstructing raw
+observations.  This example combines such a prediction objective with a
+Bayesian structural causal model: one shared ``stax`` encoder feeds both a
+JEPA predictor and an outcome regression, and ``handlers.do`` is used to query
+interventional outcomes.
 
-We simulate a confounded system with an unobserved confounder::
+We simulate a confounded system::
 
-    z       ~ Normal(0, I)                     # latent confounder
-    T       ~ Bernoulli(sigmoid(a + b^T z))   # confounded treatment assignment
+    z       ~ Normal(0, I)                     # latent context state
+    T       ~ Bernoulli(sigmoid(a + b^T z))   # treatment depends on z
     Y(t)    = beta^T z + tau * t + eps        # structural outcome, tau = ATE
 
-The learner never sees ``(z, T, Y)`` as a low-dimensional table.  It only sees
-two high-dimensional "views" that stand in for image patches::
+The learner sees two high-dimensional "views" standing in for image patches::
 
-    x_ctx     = tanh(W_ctx @ z) + noise                  # hides T
-    x_tgt(t)  = tanh(W_tgt @ [z, t, Y(t)]) + noise      # target under do(T=t)
+    x_ctx     = tanh(W_ctx @ z) + 0.02 * noise
+    x_tgt(t)  = tanh(W_tgt @ [z, t, Y(t)]) + 0.02 * noise
 
-For every observation we draw a random intervention ``a ~ Bernoulli(1/2)``
-and pair the context with the *counterfactual* target view ``x_tgt(a)``.  This
-breaks the ``z -> T`` backdoor path in the prediction task: the predictor must
-condition on the intervention token ``a`` rather than on the spurious
-correlation between the context and the observed treatment.
+``z`` is not hidden from the learner: ``x_ctx`` is a 32-dimensional, almost
+noiseless rendering of a 4-dimensional ``z``, so ``z`` can be recovered from
+the context.  The ATE is therefore identified by ordinary covariate
+adjustment: ``y`` is regressed on ``t`` and on a learned proxy
+``z_hat = enc_z(x_ctx)``.  The JEPA head shares the encoder's first layer but
+is an auxiliary objective; it does not affect the ATE estimate (setting
+``--jepa-coeff 0 --var-coeff 0`` leaves ``tau`` essentially unchanged).
+
+For every observation we draw ``do_t ~ Bernoulli(1/2)`` and pair the context
+with ``x_tgt(do_t)``.  This randomisation gives every context examples of both
+treatment arms (positivity) for the embedding predictor.  It does not remove a
+backdoor path: the predictor already sees ``z`` through ``x_ctx``, and pairing
+with the observed ``t`` instead still trains the model.
 
 The NumPyro model combines three ingredients:
 
 1. **Bayesian structural causal model.**  Priors on ``a, b, beta, tau, sigma``,
    a Bernoulli likelihood for the observed treatment and a Gaussian likelihood
-   for the observed outcome, with the latent confounder replaced by a learned
-   proxy ``z_hat = enc_z(x_ctx)``.
-2. **JEPA energy.**  A predictor maps ``[s_ctx, a]`` to the embedding of the
+   for the observed outcome, with ``z_hat`` as the adjustment covariate.
+2. **JEPA energy.**  A predictor maps ``[s_ctx, do_t]`` to the embedding of the
    target view.  The target branch is wrapped in ``stop_gradient`` (cheap
    stand-in for the EMA target encoder used by I-JEPA / V-JEPA).  The squared
    prediction error is added to the log density with ``numpyro.factor`` inside
@@ -47,15 +55,19 @@ The NumPyro model combines three ingredients:
    context and predicted embeddings (the target branch is stop-gradient)
    keeps the representation from collapsing to a constant.
 
-The confounder proxy is amortized by the encoder; global causal parameters are
-given an ``AutoNormal`` variational guide.  After SVI we apply the do-operator
-(``numpyro.handlers.do``) to sample from ``p(Y, s_tgt | do(T=0))`` and
-``p(Y, s_tgt | do(T=1))``, then report the posterior ATE and the
-counterfactual embedding gap.
+Global causal parameters are given an ``AutoNormal`` variational guide.  After
+SVI, ``handlers.do`` replaces only the ``t`` sample site, so interventions
+change ``y`` but not the embeddings, which are computed before that site from
+the ``do_t`` and ``x_tgt`` inputs.  We report the posterior ATE and,
+separately, an embedding gap computed once from the fitted parameters by
+swapping the target views fed to the predictor.  The gap comes from those
+inputs, not from ``do``.  The JEPA score is the prediction MSE divided by the
+spread of the target embeddings, so 1.0 is no better than predicting the mean
+and a collapsed representation does not look artificially good.
 
 Usage::
 
-    python causal_jepa.py --num-steps 3000 --device cpu
+    python examples/jepa.py --num-steps 3000 --device cpu
 
 **References:**
 
@@ -76,24 +88,23 @@ import time
 import numpy as np
 
 from jax import lax, random
-import jax.numpy as jnp
 from jax.example_libraries import stax
+import jax.numpy as jnp
 from jax.scipy.special import expit
 
 import numpyro
 from numpyro import handlers, optim
 import numpyro.distributions as dist
-from numpyro.infer import Predictive, SVI, Trace_ELBO
+from numpyro.infer import SVI, Predictive, Trace_ELBO
 from numpyro.infer.autoguide import AutoNormal
 
-
 # ---------------------------------------------------------------------------
-# Networks: a shared encoder (embedding + confounder proxy) and a predictor.
+# Networks: a shared encoder (embedding + adjustment proxy) and a predictor.
 # ---------------------------------------------------------------------------
 
 
 def encoder(dim_view, dim_emb, dim_z, hidden_dim):
-    """Return a stax network mapping a view to ``(embedding, confounder proxy)``."""
+    """Return a stax network mapping a view to ``(embedding, adjustment proxy)``."""
     return stax.serial(
         stax.Dense(hidden_dim, W_init=stax.randn()),
         stax.Tanh,
@@ -133,19 +144,17 @@ def model(
     jepa_coeff,
     var_coeff,
 ):
-    """Bayesian SCM + interventional JEPA energy.
+    """Bayesian SCM with an auxiliary JEPA energy in one ELBO.
 
-    All terms live in one NumPyro trace, so the ELBO jointly trains the
-    representation, the predictor and the posterior over causal parameters.
     ``t_obs`` / ``y_obs`` may be ``None`` for posterior predictive sampling.
+    The JEPA term shares the encoder with ``z_hat`` but is not used to identify
+    ``tau``; it is a self-supervised auxiliary objective.
     """
     N, D = x_ctx.shape
     assert x_tgt.shape == (N, D)
     assert do_t.shape == (N,)
 
-    encode = numpyro.module(
-        "encoder", encoder(D, dim_emb, dim_z, hidden_dim), (N, D)
-    )
+    encode = numpyro.module("encoder", encoder(D, dim_emb, dim_z, hidden_dim), (N, D))
     predict = numpyro.module(
         "predictor", predictor(dim_emb, hidden_dim), (N, dim_emb + 1)
     )
@@ -205,7 +214,7 @@ def model(
 
 
 def get_data(rng_key, args):
-    """Simulate a confounded system and expose both counterfactual views."""
+    """Simulate a confounded system and render both potential-outcome views."""
     N, dz, dv = args.num_data, args.dim_z, args.dim_view
     keys = random.split(rng_key, 10)
 
@@ -236,8 +245,10 @@ def get_data(rng_key, args):
     x_tgt0 = jnp.tanh(jnp.dot(feat0, W_tgt)) + noise_tgt
     x_tgt1 = jnp.tanh(jnp.dot(feat1, W_tgt)) + noise_tgt
 
-    # Randomized intervention: the training pair is (x_ctx, do_t, x_tgt(do_t)),
-    # NOT (x_ctx, t, x_tgt(t)).  This is the causal part of the JEPA objective.
+    # Randomised pairing: each context sees both treatment arms, which gives
+    # the embedding predictor positivity.  It is not a backdoor adjustment;
+    # z is already visible through x_ctx, and pairing with the observed t
+    # instead of do_t still trains the model.
     do_t = random.bernoulli(keys[9], 0.5, (N,)).astype(jnp.float32)
     x_tgt = jnp.where(do_t[:, None] > 0, x_tgt1, x_tgt0)
 
@@ -257,45 +268,45 @@ def get_data(rng_key, args):
 
 
 # ---------------------------------------------------------------------------
-# Inference and counterfactual evaluation
+# Inference and interventional evaluation
 # ---------------------------------------------------------------------------
 
 
-def run_inference(model_kwargs, data, args, rng_key):
+def run_inference(model_kwargs, train_inputs, args, rng_key):
     """Fit the model with SVI and an AutoNormal guide over causal parameters."""
     guide = AutoNormal(model)
     adam = optim.Adam(args.learning_rate)
     svi = SVI(model, guide, adam, Trace_ELBO(), **model_kwargs)
 
-    train = {k: data[k] for k in ("x_ctx", "x_tgt", "do_t", "t_obs", "y_obs")}
     start = time.time()
     svi_result = svi.run(
         rng_key,
         args.num_steps,
         progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
-        **train,
+        **train_inputs,
     )
     print("\nSVI elapsed time: {:.2f} s.".format(time.time() - start))
     assert jnp.isfinite(svi_result.losses).all()
     return svi_result, guide
 
 
-def posterior_samples(guide, params, data, model_kwargs, args, rng_key):
+def posterior_samples(guide, params, train_inputs, model_kwargs, args, rng_key):
     """Draw posterior samples of ``(a, b, beta, tau, sigma)`` from the guide."""
     # AutoNormal ignores the extra kwargs, but forwarding them keeps a
     # cold-start prototype trace (which replays the model) valid.
-    predictive = Predictive(guide, params=params, num_samples=args.num_posterior_samples)
-    return predictive(rng_key, **data, **model_kwargs)
+    predictive = Predictive(
+        guide, params=params, num_samples=args.num_posterior_samples
+    )
+    return predictive(rng_key, **train_inputs, **model_kwargs)
 
 
-def interventional_predictive(
-    posterior, params, data, do_value, model_kwargs, rng_key
-):
-    """Sample ``p(Y, s_pred, s_tgt | do(T = do_value))``.
+def interventional_predictive(posterior, params, data, do_value, model_kwargs, rng_key):
+    """Sample ``p(Y | do(T = do_value))``.
 
-    ``handlers.do`` fixes the treatment site to ``do_value`` and re-evaluates
-    its descendants under the structural equations, which is exactly the
-    counterfactual quantity of interest.
+    ``handlers.do`` only replaces the ``t`` sample site, so it changes ``y``
+    but not the embeddings: those are computed before that site from the
+    ``do_t`` and ``x_tgt`` arguments.  The embedding gap is computed
+    separately in ``embedding_diagnostics`` by swapping those inputs.
     """
     N = data["x_ctx"].shape[0]
     do_t = jnp.full((N,), float(do_value))
@@ -312,13 +323,49 @@ def interventional_predictive(
         intervened,
         posterior,
         params=params,
-        return_sites=["y", "s_pred", "s_tgt"],
-        condition_deterministic=True,
+        return_sites=["y"],
     )
     return predictive(rng_key, **inputs, **model_kwargs)
 
 
-def print_results(tau, pred0, pred1, losses, true_tau):
+def embedding_diagnostics(params, data, model_kwargs):
+    """Compute the embedding gap and a normalized JEPA score once from params.
+
+    Both embeddings are deterministic functions of the fitted network weights
+    and the inputs, so no posterior copies are needed.  The two passes differ
+    only in ``do_t`` and ``x_tgt``; the gap comes from swapping those inputs,
+    not from ``handlers.do``.  Dividing the prediction MSE by the spread of
+    the target embeddings makes 1.0 equivalent to predicting the mean and
+    prevents a collapsed representation from scoring artificially well.
+    """
+    N, D = data["x_ctx"].shape
+    _, enc_apply = encoder(
+        D, model_kwargs["dim_emb"], model_kwargs["dim_z"], model_kwargs["hidden_dim"]
+    )
+    _, pred_apply = predictor(model_kwargs["dim_emb"], model_kwargs["hidden_dim"])
+    enc_params = params["encoder$params"]
+    pred_params = params["predictor$params"]
+
+    s_ctx, _ = enc_apply(enc_params, data["x_ctx"])
+    s_tgt0, _ = enc_apply(enc_params, data["x_tgt0"])
+    s_tgt1, _ = enc_apply(enc_params, data["x_tgt1"])
+    s_pred0 = pred_apply(
+        pred_params, jnp.concatenate([s_ctx, jnp.zeros((N, 1))], axis=-1)
+    )
+    s_pred1 = pred_apply(
+        pred_params, jnp.concatenate([s_ctx, jnp.ones((N, 1))], axis=-1)
+    )
+
+    gap = float(jnp.mean(jnp.linalg.norm(s_pred1 - s_pred0, axis=-1)))
+    mse = 0.5 * (
+        float(jnp.mean(jnp.sum((s_pred0 - s_tgt0) ** 2, axis=-1)))
+        + float(jnp.mean(jnp.sum((s_pred1 - s_tgt1) ** 2, axis=-1)))
+    )
+    spread = float(jnp.sum(jnp.var(s_tgt1, axis=0))) + 1.0e-8
+    return gap, mse / spread
+
+
+def print_results(tau, pred0, pred1, losses, true_tau, emb_gap, jepa_score):
     header = "=" * 24 + " Bayesian Causal JEPA " + "=" * 24
     print("\n" + header + "\n")
     tau_mean, tau_std = float(jnp.mean(tau)), float(jnp.std(tau))
@@ -326,30 +373,15 @@ def print_results(tau, pred0, pred1, losses, true_tau):
     y_do0 = jnp.mean(pred0["y"])
     y_do1 = jnp.mean(pred1["y"])
     ate_ppc = float(y_do1 - y_do0)
-    emb_gap = float(
-        jnp.mean(jnp.linalg.norm(pred1["s_pred"] - pred0["s_pred"], axis=-1))
-    )
-    jepa_loss = 0.5 * (
-        float(jnp.mean(jnp.sum((pred0["s_pred"] - pred0["s_tgt"]) ** 2, axis=-1)))
-        + float(jnp.mean(jnp.sum((pred1["s_pred"] - pred1["s_tgt"]) ** 2, axis=-1)))
-    )
-    print(
-        "true ATE (tau)                       : {:.3f}".format(true_tau)
-    )
+    print("true ATE (tau)                       : {:.3f}".format(true_tau))
     print(
         "posterior tau    mean / std / 90% CI : {:.3f} / {:.3f} / [{:.3f}, {:.3f}]".format(
             tau_mean, tau_std, lo, hi
         )
     )
-    print(
-        "E[Y | do(T=1)] - E[Y | do(T=0)]     : {:.3f}".format(ate_ppc)
-    )
-    print(
-        "counterfactual embedding gap         : {:.3f}".format(emb_gap)
-    )
-    print(
-        "JEPA prediction loss (do 0 / do 1)   : {:.4f} (avg)".format(jepa_loss)
-    )
+    print("E[Y | do(T=1)] - E[Y | do(T=0)]     : {:.3f}".format(ate_ppc))
+    print("embedding gap (swapped inputs)      : {:.3f}".format(emb_gap))
+    print("JEPA score (norm.; 1.0 = mean pred)  : {:.4f}".format(jepa_score))
     print(
         "final / initial ELBO loss            : {:.2f} / {:.2f}".format(
             float(losses[-1]), float(losses[0])
@@ -367,28 +399,24 @@ def main(args):
         var_coeff=args.var_coeff,
     )
 
-    rng_key = random.key(args.seed)
-    rng_key, rng_key_data, rng_key_svi, rng_key_post, rng_key_do = random.split(
-        rng_key, 5
+    rng_key_data, rng_key_svi, rng_key_post, rng_key_do = random.split(
+        random.key(args.seed), 4
     )
     data, true_tau = get_data(rng_key_data, args)
-
-    svi_result, guide = run_inference(model_kwargs, data, args, rng_key_svi)
-    params = svi_result.params
     train_inputs = {k: data[k] for k in ("x_ctx", "x_tgt", "do_t", "t_obs", "y_obs")}
+
+    svi_result, guide = run_inference(model_kwargs, train_inputs, args, rng_key_svi)
+    params = svi_result.params
     posterior = posterior_samples(
         guide, params, train_inputs, model_kwargs, args, rng_key_post
     )
     tau = posterior["tau"]
 
     key_do0, key_do1 = random.split(rng_key_do)
-    pred0 = interventional_predictive(
-        posterior, params, data, 0, model_kwargs, key_do0
-    )
-    pred1 = interventional_predictive(
-        posterior, params, data, 1, model_kwargs, key_do1
-    )
-    print_results(tau, pred0, pred1, svi_result.losses, true_tau)
+    pred0 = interventional_predictive(posterior, params, data, 0, model_kwargs, key_do0)
+    pred1 = interventional_predictive(posterior, params, data, 1, model_kwargs, key_do1)
+    emb_gap, jepa_score = embedding_diagnostics(params, data, model_kwargs)
+    print_results(tau, pred0, pred1, svi_result.losses, true_tau, emb_gap, jepa_score)
 
 
 if __name__ == "__main__":
@@ -396,9 +424,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bayesian Causal JEPA example")
     parser.add_argument("-n", "--num-steps", nargs="?", default=3000, type=int)
     parser.add_argument("--num-data", nargs="?", default=512, type=int)
-    parser.add_argument(
-        "--num-posterior-samples", nargs="?", default=400, type=int
-    )
+    parser.add_argument("--num-posterior-samples", nargs="?", default=400, type=int)
     parser.add_argument("--dim-z", nargs="?", default=4, type=int)
     parser.add_argument("--dim-view", nargs="?", default=32, type=int)
     parser.add_argument("--dim-emb", nargs="?", default=16, type=int)
@@ -411,6 +437,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
-    numpyro.set_host_device_count(1)
 
     main(args)
