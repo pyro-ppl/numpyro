@@ -4176,16 +4176,37 @@ def test_polya_gamma(batch_shape, num_points=20000):
     rng_key = random.key(0)
 
     # test density approximately normalized
-    x = jnp.linspace(1.0e-6, d.truncation_point, num_points)
-    prob = (d.truncation_point / num_points) * jnp.exp(
-        logsumexp(d.log_prob(x), axis=-1)
+    x = jnp.linspace(1.0e-6, d.truncation_point, num_points).reshape(
+        (num_points,) + (1,) * len(batch_shape)
     )
+    lp = d.log_prob(x)
+    assert lp.shape == (num_points,) + batch_shape
+    prob = (d.truncation_point / num_points) * jnp.exp(logsumexp(lp, axis=0))
     assert_allclose(prob, jnp.ones(batch_shape), rtol=1.0e-4)
 
     # test mean of approximate sampler
     z = d.sample(rng_key, sample_shape=(3000,))
-    mean = jnp.mean(z, axis=-1)
+    assert z.shape == (3000,) + batch_shape
+    mean = jnp.mean(z, axis=0)
     assert_allclose(mean, 0.25 * jnp.ones(batch_shape), rtol=0.07)
+
+
+@pytest.mark.parametrize("batch_shape", [(), (3,), (2, 3)])
+@pytest.mark.parametrize("sample_shape", [(), (5,), (4, 5)])
+def test_polya_gamma_shapes(batch_shape, sample_shape):
+    d = dist.TruncatedPolyaGamma(batch_shape=batch_shape, validate_args=True)
+    samples = d.sample(random.key(0), sample_shape=sample_shape)
+    assert samples.shape == sample_shape + batch_shape
+    assert d.log_prob(samples).shape == sample_shape + batch_shape
+    assert d.log_prob(jnp.array(0.5)).shape == batch_shape
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        out_lp = d.log_prob(jnp.array(d.truncation_point + 1.0))
+    assert out_lp.shape == batch_shape
+    assert jnp.all(jnp.isneginf(out_lp))
+
+    if batch_shape:
+        with pytest.raises(ValueError, match="Incompatible shapes"):
+            d.log_prob(jnp.full((batch_shape[-1] + 1,), 0.5))
 
 
 @pytest.mark.parametrize(
