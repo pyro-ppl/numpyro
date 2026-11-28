@@ -202,10 +202,12 @@ class RandomFeatureKernel(SteinKernel):
 
     where :math:`\\phi(\\cdot, w)` are the Gaussian random feature maps in eq. 6. The maps are given by
 
-        :math:`\\phi(z, w) = \\sqrt{2}\\left(h^{-1}w_1^Tz + w_0\\right)`,
+        :math:`\\phi(z, w) = \\sqrt{2}\\cos\\left(\\sqrt{2/h}\\,w_1^Tz + w_0\\right)`,
 
     where :math:`h` is the bandwidth computed using the median trick from :class:`~numpyro.constrib.einstein.RBFKernel`,
-    :math:`w_0\\sim\\text{Uni}([0,2\\pi])` and :math:`w_1\\sim\\mathcal{N}(0,I)`.
+    :math:`w_0\\sim\\text{Uni}([0,2\\pi])` and :math:`w_1\\sim\\mathcal{N}(0,I)`. The kernel approximates the
+    :class:`~numpyro.contrib.einstein.RBFKernel` :math:`\\exp(-\\|x-y\\|^2/h)` with the same :math:`h`, which equals
+    :math:`2h^2` in the notation of the reference.
 
     :param bandwidth_subset: How many particles should be used to calculate the bandwidth?
                              (default None, meaning all particles)
@@ -245,7 +247,7 @@ class RandomFeatureKernel(SteinKernel):
         rng_key, rng_weight, rng_bias = random.split(rng_key, 3)
         self._random_weights = random.normal(rng_weight, shape=particles_shape)
         self._random_biases = random.uniform(
-            rng_bias, shape=particles_shape, maxval=(2 * np.pi)
+            rng_bias, shape=particles_shape[:1], maxval=(2 * np.pi)
         )
         if self.bandwidth_subset is not None:
             self._bandwidth_subset_indices = random.choice(
@@ -269,7 +271,7 @@ class RandomFeatureKernel(SteinKernel):
         bandwidth = median_bandwidth(particles, self.bandwidth_factor)
 
         def feature(x, w, b):
-            return jnp.sqrt(2) * jnp.cos((x @ w + b) / bandwidth)
+            return jnp.sqrt(2) * jnp.cos(jnp.sqrt(2 / bandwidth) * (x @ w) + b)
 
         def kernel(x, y):
             ws = (
@@ -282,7 +284,7 @@ class RandomFeatureKernel(SteinKernel):
                 if self.random_indices is None
                 else self._random_biases[self.random_indices]
             )
-            return jnp.sum(
+            return jnp.mean(
                 jax.vmap(lambda w, b: feature(x, w, b) * feature(y, w, b))(ws, bs)
             )
 
