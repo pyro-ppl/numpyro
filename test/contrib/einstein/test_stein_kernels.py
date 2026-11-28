@@ -72,7 +72,7 @@ TEST_CASES = [
         RandomFeatureKernel,
         lambda d: {},
         lambda x: x,
-        {"norm": 13.805723},
+        {"norm": -1.1135658},
     ),
     T(
         "IMQKernel",
@@ -212,3 +212,32 @@ def test_apply_kernel(name, kernel, particle_info, loss_fn, mode, kval):
     if mode == "matrix":
         kval_[mode] = np.dot(kval_[mode], v)
     assert_allclose(value, kval_[mode], atol=0.5)
+
+
+@pytest.mark.parametrize("scale", [1.0, 0.03])
+def test_random_feature_kernel_approximates_rbf(scale):
+    # With w ~ N(0, I) and b ~ Uniform(0, 2 pi), the mean of
+    # 2 cos(a w @ x + b) cos(a w @ y + b) over the random features is a Monte
+    # Carlo estimate of exp(-a^2 ||x - y||^2 / 2). With a = sqrt(2 / h) this is
+    # the RBFKernel exp(-||x - y||^2 / h) with the same median bandwidth h, so
+    # the values must not change when the particles and points are rescaled.
+    num_particles = 1000
+    particles = scale * 10.0 * np.random.RandomState(0).normal(size=(num_particles, 2))
+    dists = np.linalg.norm(particles[:, None] - particles[None], axis=-1)
+    bandwidth = np.median(dists) ** 2 / np.log(num_particles)
+
+    kernel = RandomFeatureKernel()
+    key1, key2 = random.split(random.key(0))
+    kernel.init(key1, particles.shape)
+    kernel_fn = kernel.compute(key2, particles, {}, lambda x: x)
+
+    pairs = [
+        ([0.0, 0.0], [0.0, 0.0]),
+        ([60.0, -40.0], [60.0, -40.0]),
+        ([0.0, 0.0], [4.0, -3.0]),
+        ([50.0, 50.0], [54.0, 47.0]),
+    ]
+    for x, y in pairs:
+        x, y = scale * np.array(x), scale * np.array(y)
+        expected = np.exp(-np.sum((x - y) ** 2) / bandwidth)
+        assert_allclose(kernel_fn(x, y), expected, atol=0.1)
